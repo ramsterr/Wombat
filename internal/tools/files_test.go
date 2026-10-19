@@ -10,7 +10,7 @@ import (
 )
 
 func testEnv(dir string) *Env {
-	return &Env{Dir: dir, Permit: func(string, string) bool { return true }}
+	return &Env{Dir: dir, Permit: func(string, string) Decision { return Decision{Allow: true} }}
 }
 
 func run(t *testing.T, tool Tool, env *Env, args string) string {
@@ -92,7 +92,7 @@ func TestEditUniqueAndAmbiguous(t *testing.T) {
 
 func TestWritePermissionDenied(t *testing.T) {
 	dir := t.TempDir()
-	env := &Env{Dir: dir, Permit: func(string, string) bool { return false }}
+	env := &Env{Dir: dir, Permit: func(string, string) Decision { return Decision{} }}
 	err := runErr(t, &Write{}, env, `{"path":"x.txt","content":"y"}`)
 	if !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("error = %v", err)

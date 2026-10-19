@@ -45,6 +45,7 @@ func (a *Agent) toolDefs() []llm.Tool {
 }
 
 func (a *Agent) Run(ctx context.Context, input string) error {
+	defer func() { _ = a.Sess.Flush() }()
 	if len(a.Sess.Messages) == 0 {
 		if err := a.Sess.Append(llm.Message{Role: "user", Content: startupContext(a.Env.Dir)}); err != nil {
 			return err
@@ -93,9 +94,19 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 				a.Hooks.OnTool(tc.Name, toolDetail(tc))
 			}
 			start := time.Now()
-			content, err := a.execTool(ctx, tc)
-			if err != nil {
-				content = "error: " + err.Error()
+			var content string
+			if ctx.Err() != nil {
+				content = "error: interrupted by user"
+			} else {
+				out, err := a.execTool(ctx, tc)
+				switch {
+				case ctx.Err() != nil:
+					content = "error: interrupted by user"
+				case err != nil:
+					content = "error: " + err.Error()
+				default:
+					content = out
+				}
 			}
 			content = tools.Truncate(content, 0, 0, 64*1024)
 			if err := a.Sess.Append(llm.Message{
@@ -109,6 +120,9 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 			if a.Hooks.OnToolResult != nil {
 				a.Hooks.OnToolResult(tc.Name, content, time.Since(start))
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 	}
 	return fmt.Errorf("stopped after %d steps without completing", maxSteps)

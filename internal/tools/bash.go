@@ -38,8 +38,8 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if strings.TrimSpace(a.Command) == "" {
 		return "", errors.New("empty command")
 	}
-	if !env.Allowed("bash", a.Command) {
-		return "", errors.New("permission denied by user")
+	if err := env.Check("bash", a.Command); err != nil {
+		return "", err
 	}
 	timeout := time.Duration(a.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
@@ -50,10 +50,15 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 
 	cmd := exec.CommandContext(runCtx, "sh", "-c", a.Command)
 	cmd.Dir = env.Dir
+	cmd.WaitDelay = 2 * time.Second
+	prepareCommand(cmd)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	err = cmd.Run()
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		return "", runCtx.Err()
+	}
 
 	out := buf.String()
 	if runCtx.Err() == context.DeadlineExceeded {

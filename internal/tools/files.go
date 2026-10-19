@@ -102,8 +102,8 @@ func (t *Write) Run(_ context.Context, raw json.RawMessage, env *Env) (string, e
 	if err != nil {
 		return "", fmt.Errorf("bad arguments: %w", err)
 	}
-	if !env.Allowed("write", a.Path) {
-		return "", fmt.Errorf("permission denied by user")
+	if err := env.Check("write", a.Path); err != nil {
+		return "", err
 	}
 	path := resolve(env, a.Path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -150,8 +150,8 @@ func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if a.OldString == a.NewString {
 		return "", fmt.Errorf("old_string and new_string are identical")
 	}
-	if !env.Allowed("edit", a.Path) {
-		return "", fmt.Errorf("permission denied by user")
+	if err := env.Check("edit", a.Path); err != nil {
+		return "", err
 	}
 	path := resolve(env, a.Path)
 	data, err := os.ReadFile(path)

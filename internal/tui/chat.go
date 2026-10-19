@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -98,7 +99,7 @@ type noteMsg struct {
 type permAskMsg struct {
 	kind   string
 	detail string
-	reply  chan bool
+	reply  chan tools.Decision
 }
 
 type chat struct {
@@ -119,10 +120,13 @@ type chat struct {
 	inputLines int
 	entries    []*chatEntry
 
-	streaming bool
-	cancel    context.CancelFunc
-	follow    bool
-	perm      *permAskMsg
+	streaming    bool
+	interrupting bool
+	cancel       context.CancelFunc
+	follow       bool
+	perm         *permAskMsg
+	permFeedback bool
+	permInput    textinput.Model
 
 	auto   bool
 	always map[string]bool
@@ -184,6 +188,12 @@ func newChat(opt Options) (*chat, error) {
 
 	c.vp = viewport.New(80, 20)
 	c.sp = spinner.New(spinner.WithSpinner(spinner.Line), spinner.WithStyle(styleAccent))
+	c.permInput = textinput.New()
+	c.permInput.Placeholder = "tell wombat what to do instead…"
+	c.permInput.Prompt = "› "
+	c.permInput.CharLimit = 500
+	c.permInput.PromptStyle = styleKey
+	c.permInput.PlaceholderStyle = styleFaint
 
 	if c.sess != nil {
 		if err := c.rebuild(false); err != nil {
@@ -311,29 +321,29 @@ func (c *chat) openSession(id string) error {
 	return nil
 }
 
-func (c *chat) permit(kind, detail string) bool {
+func (c *chat) permit(kind, detail string) tools.Decision {
 	if v, ok := c.cfg.Permissions[kind]; ok {
 		switch v {
 		case "allow":
-			return true
+			return tools.Decision{Allow: true}
 		case "deny":
 			c.emit(noteMsg{text: "[permission] " + kind + " is denied by config: " + clip(oneline(detail), 100), isErr: true})
-			return false
+			return tools.Decision{}
 		}
 	}
 	if c.auto || c.always[kind] {
-		return true
+		return tools.Decision{Allow: true}
 	}
-	reply := make(chan bool, 1)
+	reply := make(chan tools.Decision, 1)
 	if c.send == nil {
-		return false
+		return tools.Decision{}
 	}
 	c.emit(permAskMsg{kind: kind, detail: detail, reply: reply})
 	select {
-	case ok := <-reply:
-		return ok
+	case d := <-reply:
+		return d
 	case <-time.After(10 * time.Minute):
-		return false
+		return tools.Decision{}
 	}
 }
 
@@ -415,6 +425,7 @@ func (c *chat) layout() {
 		inner = 20
 	}
 	c.ta.SetWidth(inner - 2)
+	c.permInput.Width = inner - 2
 	lines := 1
 	if c.perm != nil {
 		lines = 3
@@ -571,12 +582,13 @@ func (c *chat) submit(text string) tea.Cmd {
 
 func (c *chat) interrupt() {
 	if c.perm != nil {
-		c.answerPerm(false, false)
+		c.answerPerm(tools.Decision{})
 	}
-	if c.cancel != nil {
-		c.cancel()
+	if c.cancel == nil || c.interrupting {
+		return
 	}
-	c.note("interrupting…", false)
+	c.interrupting = true
+	c.cancel()
 }
 
 func (c *chat) command(line string) tea.Cmd {
@@ -695,19 +707,27 @@ func (c *chat) command(line string) tea.Cmd {
 	return nil
 }
 
-func (c *chat) answerPerm(ok, always bool) {
+func (c *chat) answerPerm(d tools.Decision) {
 	p := c.perm
 	c.perm = nil
+	c.permFeedback = false
+	c.permInput.Reset()
+	c.permInput.Blur()
 	if p == nil {
 		return
 	}
-	if always && ok {
+	if d.Always {
 		c.always[p.kind] = true
 	}
-	p.reply <- ok
-	if ok {
+	p.reply <- d
+	switch {
+	case d.Allow && d.Always:
+		c.note("always allowing "+p.kind, false)
+	case d.Allow:
 		c.note("allowed "+p.kind, false)
-	} else {
+	case d.Feedback != "":
+		c.note("denied "+p.kind+" — feedback sent", false)
+	default:
 		c.note("denied "+p.kind, false)
 	}
 	c.layout()
@@ -781,6 +801,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case runDoneMsg:
 		c.streaming = false
+		c.interrupting = false
 		c.cancel = nil
 		c.finishAssistant()
 		switch {
@@ -817,13 +838,50 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 
 func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 	if c.perm != nil {
+		if c.permFeedback {
+			switch msg.String() {
+			case "ctrl+c":
+				c.answerPerm(tools.Decision{})
+				c.interrupt()
+			case "esc":
+				c.permFeedback = false
+				c.permInput.Reset()
+				c.permInput.Blur()
+				c.layout()
+				c.refresh()
+			case "enter":
+				text := strings.TrimSpace(c.permInput.Value())
+				if text == "" {
+					c.permFeedback = false
+					c.permInput.Reset()
+					c.permInput.Blur()
+					c.layout()
+					c.refresh()
+					return nil
+				}
+				c.answerPerm(tools.Decision{Feedback: text})
+			default:
+				var cmd tea.Cmd
+				c.permInput, cmd = c.permInput.Update(msg)
+				return cmd
+			}
+			return nil
+		}
 		switch msg.String() {
 		case "y", "Y":
-			c.answerPerm(true, false)
+			c.answerPerm(tools.Decision{Allow: true})
 		case "a", "A":
-			c.answerPerm(true, true)
+			c.answerPerm(tools.Decision{Allow: true, Always: true})
 		case "n", "N", "esc":
-			c.answerPerm(false, false)
+			c.answerPerm(tools.Decision{})
+		case "f", "F":
+			c.permFeedback = true
+			c.permInput.Focus()
+			c.layout()
+			c.refresh()
+		case "ctrl+c":
+			c.answerPerm(tools.Decision{})
+			c.interrupt()
 		}
 		return nil
 	}
@@ -909,8 +967,12 @@ func (c *chat) header() string {
 func (c *chat) hint() string {
 	var left string
 	switch {
+	case c.perm != nil && c.permFeedback:
+		left = styleDim.Render("enter send feedback · esc back")
 	case c.perm != nil:
-		left = styleWarn.Render("waiting for permission") + styleDim.Render("  y allow · a always · n deny")
+		left = styleWarn.Render("waiting for permission")
+	case c.interrupting:
+		left = styleWarn.Render("interrupting…")
 	case c.streaming:
 		left = styleDim.Render("esc interrupt · wheel/pgup scroll · working…")
 	default:
@@ -931,9 +993,13 @@ func (c *chat) permView() string {
 	p := c.perm
 	title := styleWarn.Bold(true).Render("permission") + "  " + styleTitle.Render(p.kind)
 	detail := styleDim.Render(clip(oneline(p.detail), max(10, c.w-16)))
+	if c.permFeedback {
+		return title + "\n" + detail + "\n" + c.permInput.View()
+	}
 	keys := styleKey.Render(" y ") + " allow   " +
 		styleKey.Render(" a ") + " always " + p.kind + "   " +
-		styleKey.Render(" n ") + " deny"
+		styleKey.Render(" n ") + " deny   " +
+		styleKey.Render(" f ") + " feedback"
 	return title + "\n" + detail + "\n" + keys
 }
 

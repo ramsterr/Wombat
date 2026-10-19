@@ -7,9 +7,15 @@ import (
 	"strings"
 )
 
+type Decision struct {
+	Allow    bool
+	Always   bool
+	Feedback string
+}
+
 type Env struct {
 	Dir    string
-	Permit func(kind, detail string) bool
+	Permit func(kind, detail string) Decision
 }
 
 type Tool interface {
@@ -33,14 +39,18 @@ func ByName(name string) (Tool, bool) {
 	return nil, false
 }
 
-func (e *Env) Allowed(kind, detail string) bool {
-	if kind == "read" {
-		return true
+func (e *Env) Check(kind, detail string) error {
+	if kind == "read" || e.Permit == nil {
+		return nil
 	}
-	if e.Permit == nil {
-		return true
+	d := e.Permit(kind, detail)
+	if d.Allow {
+		return nil
 	}
-	return e.Permit(kind, detail)
+	if d.Feedback != "" {
+		return fmt.Errorf("permission denied by user — instructions: %s", d.Feedback)
+	}
+	return fmt.Errorf("permission denied by user")
 }
 
 func decode[T any](args json.RawMessage) (T, error) {

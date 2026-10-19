@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -19,16 +20,48 @@ type sessionItem struct {
 
 func (s sessionItem) Title() string {
 	if s.meta.Title != "" {
-		return s.meta.Title
+		return clip(s.meta.Title, 60)
 	}
-	return "untitled session"
+	return styleDim.Render("untitled session")
 }
 
 func (s sessionItem) Description() string {
-	return s.meta.ID + " · " + s.meta.Provider + "/" + s.meta.Model + " · " + nowAgo(s.meta.Updated)
+	parts := []string{whenLabel(s.meta.Updated)}
+	if s.meta.Turns == 1 {
+		parts = append(parts, "1 turn")
+	} else if s.meta.Turns > 1 {
+		parts = append(parts, itoa(s.meta.Turns)+" turns")
+	}
+	if s.meta.Model != "" {
+		parts = append(parts, s.meta.Model)
+	}
+	return strings.Join(parts, " · ")
 }
 
-func (s sessionItem) FilterValue() string { return s.meta.Title + " " + s.meta.ID }
+func (s sessionItem) FilterValue() string {
+	return s.meta.Title + " " + s.meta.ID + " " + s.meta.Model
+}
+
+func whenLabel(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	then := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
+	days := int(midnight.Sub(then).Hours() / 24)
+	clock := t.Format("15:04")
+	switch {
+	case days == 0:
+		return "today " + clock
+	case days == 1:
+		return "yesterday " + clock
+	case days > 1 && days < 7:
+		return t.Format("Mon") + " " + clock
+	default:
+		return t.Format("Jan 2") + " " + clock
+	}
+}
 
 type sessionsModel struct {
 	opt     Options
@@ -190,7 +223,7 @@ func (m sessionsModel) update(msg tea.Msg) (sessionsModel, tea.Cmd) {
 		filtering := m.list.FilterState() == list.Filtering
 		if !filtering {
 			switch msg.String() {
-			case "esc", "q":
+			case "esc", "q", "ctrl+c":
 				return m, pop
 			case "enter":
 				if m.empty {
@@ -232,7 +265,8 @@ func (m sessionsModel) currentID() string {
 }
 
 func (m sessionsModel) view() string {
-	header := " " + styleTitle.Render("sessions") + "  " + styleDim.Render("enter resume · esc back · / filter")
+	header := " " + styleKey.Render(" esc ") + styleDim.Render("back") + "  " +
+		styleTitle.Render("sessions") + "  " + styleDim.Render("enter resume · / filter")
 	if m.empty {
 		body := lipgloss.Place(m.w, m.h-2, lipgloss.Center, lipgloss.Center,
 			styleDim.Render("no sessions in this directory yet — start a chat first"))
@@ -243,6 +277,12 @@ func (m sessionsModel) view() string {
 	title := "preview"
 	if m.loading {
 		title = m.spin.View() + " loading"
+	} else if it, ok := m.list.SelectedItem().(sessionItem); ok {
+		if it.meta.Title != "" {
+			title = clip(it.meta.Title, max(10, m.w-lw-8))
+		} else {
+			title = "untitled session"
+		}
 	}
 	previewPanel := lipgloss.JoinVertical(lipgloss.Left,
 		" "+stylePanelTitle.Render(title),

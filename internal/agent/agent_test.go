@@ -61,7 +61,7 @@ func newTestAgent(t *testing.T, permit bool) (*Agent, *fakeProvider, string, *[]
 		Tools:    tools.Registry(),
 		Env: &tools.Env{
 			Dir:    workdir,
-			Permit: func(kind, detail string) bool { return permit },
+			Permit: func(kind, detail string) tools.Decision { return tools.Decision{Allow: permit} },
 		},
 		Sess:     sess,
 		MaxSteps: 8,
@@ -167,7 +167,7 @@ func TestAgentStopsAfterMaxSteps(t *testing.T) {
 		Tools:    tools.Registry(),
 		Env: &tools.Env{
 			Dir:    t.TempDir(),
-			Permit: func(string, string) bool { return true },
+			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
 		},
 		Sess:     sess,
 		MaxSteps: 3,

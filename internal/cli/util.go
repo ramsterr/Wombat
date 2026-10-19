@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/tools"
 )
 
 const Version = "0.1.0"
@@ -54,38 +55,41 @@ func newPrompter(tty, auto bool, cfg *config.Config) *Prompter {
 	}
 }
 
-func (p *Prompter) Permit(kind, detail string) bool {
+func (p *Prompter) Permit(kind, detail string) tools.Decision {
 	if v, ok := p.perms[kind]; ok {
 		switch v {
 		case "allow":
-			return true
+			return tools.Decision{Allow: true}
 		case "deny":
 			fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" is denied by config: "+clipLine(detail, 120)))
-			return false
+			return tools.Decision{}
 		}
 	}
 	if p.auto || p.always[kind] {
-		return true
+		return tools.Decision{Allow: true}
 	}
 	if !p.tty {
 		fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" requires approval: "+clipLine(detail, 120)+" — denied (non-interactive; rerun with --yolo)"))
-		return false
+		return tools.Decision{}
 	}
-	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s: ",
+	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s, or type instructions to deny with feedback: ",
 		yellow("?"), "allow "+kind, clipLine(detail, 200),
 		bold("y")+"es", bold("a")+"lways "+kind, bold("n")+"o")
 	line, err := p.in.ReadString('\n')
 	if err != nil {
-		return false
+		return tools.Decision{}
 	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
+	answer := strings.TrimSpace(line)
+	switch strings.ToLower(answer) {
 	case "y", "yes":
-		return true
+		return tools.Decision{Allow: true}
 	case "a", "always":
 		p.always[kind] = true
-		return true
+		return tools.Decision{Allow: true}
+	case "n", "no", "":
+		return tools.Decision{}
 	default:
-		return false
+		return tools.Decision{Feedback: answer}
 	}
 }
 

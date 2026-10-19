@@ -55,7 +55,7 @@ wombat run "add tests for the parser and run them"
 wombat doctor          # verify config and connectivity
 ```
 
-The TUI is chat-first: type a message and press `enter` (`alt+enter` adds a newline), `esc` interrupts a running turn, the mouse wheel or `pgup`/`pgdn`/`↑`/`↓` (empty input) scrolls, `ctrl+c` quits. Tool calls stream inline; `bash`, `write`, and `edit` ask for permission with `y` (allow), `a` (always), or `n` (deny). Slash commands open everything in place: `/help`, `/models`, `/sessions`, `/usage`, `/doctor`, `/model <name>`, `/provider <name>`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/setup`, `/exit`. On a fresh install the setup wizard runs once, then the chat opens. Everything works without a TTY too: `wombat chat`, `wombat run`, and piped input fall back to the line REPL.
+The TUI is chat-first: type a message and press `enter` (`alt+enter` adds a newline), `esc` interrupts a running turn, the mouse wheel or `pgup`/`pgdn`/`↑`/`↓` (empty input) scrolls, `ctrl+c` quits. Tool calls stream inline; `bash`, `write`, and `edit` ask for permission: `y` allow, `a` always, `n` deny, or `f` to deny with instructions the model will see. Slash commands open everything in place: `/help`, `/models`, `/sessions`, `/usage`, `/doctor`, `/model <name>`, `/provider <name>`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/setup`, `/exit`. On a fresh install the setup wizard runs once, then the chat opens. Everything works without a TTY too: `wombat chat`, `wombat run`, and piped input fall back to the line REPL.
 
 ## Commands
 

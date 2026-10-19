@@ -26,6 +26,7 @@ type Meta struct {
 	Provider string    `json:"provider"`
 	Model    string    `json:"model"`
 	Title    string    `json:"title,omitempty"`
+	Turns    int       `json:"turns,omitempty"`
 }
 
 type record struct {
@@ -155,6 +156,9 @@ func (s *Session) ID() string { return s.Meta.ID }
 func (s *Session) Append(m llm.Message) error {
 	s.Messages = append(s.Messages, m)
 	s.Meta.Updated = time.Now()
+	if m.Role == "user" && !strings.HasPrefix(m.Content, "Today: ") && !strings.HasPrefix(m.Content, "[Conversation summary]") {
+		s.Meta.Turns++
+	}
 	f, err := os.OpenFile(s.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
