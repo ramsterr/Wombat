@@ -27,6 +27,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - [Attachments](#attachments)
 - [Providers](#providers)
 - [Tools and permissions](#tools-and-permissions)
+- [Guardrails](#guardrails)
 - [Context management](#context-management)
 - [Sessions](#sessions)
 - [Configuration](#configuration)
@@ -41,6 +42,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Resumable sessions** stored as JSONL, keyed to the working directory, with a browsable history and transcript previews.
 - **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.
 - **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
+- **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
 - **No runtime dependencies** — one self-contained binary; no Python, Node, or external service required.
 
@@ -220,6 +222,22 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `grep` | read | pure-Go regular-expression search |
 
 Permissions are set per class to `ask` (default), `allow`, or `deny`. Read is always allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed.
+
+## Guardrails
+
+The system prompt carries safety rules that apply even when the user does not mention them:
+
+- **Secrets** — never print, log, commit, or transmit API keys, tokens, passwords, private keys, cookies, or connection strings; use placeholders and environment variables.
+- **Environment files** — never commit `.env`; before creating or editing `.env`, `.env.*`, credentials, or key files, ensure `.gitignore` covers them and keep a `.env.example` with dummy values.
+- **Git** — do not commit or push unless explicitly asked. When asked, inspect `git status` and `git diff`, stage only intended files, scan them for secrets, never bypass hooks, and never force-push, amend, or rewrite history without permission.
+- **Destructive actions** — do not run `rm -rf`, `git reset --hard`, `git clean -fd`, database drops or migrations, deploys, mass deletions, recursive `chmod`/`chown`, or `kill` unless explicitly requested; state the risk and prefer a reversible path.
+- **System safety** — no `sudo`, no disabling TLS or authentication, no piping remote scripts into a shell, and no edits outside the working directory without permission.
+- **Secure code** — validate input, parameterize SQL, avoid shell injection, escape output, keep least privilege, and do not weaken auth, crypto, or security checks.
+- **Tests** — never disable, skip, or delete tests, linters, or hooks just to make a check pass.
+
+As a second layer, the `write` and `edit` tools append a warning when a secrets-like file (`.env`, `.env.*`, `*.pem`, `*.key`, `credentials.*`, …) is written in a git repository but is not ignored. The warning appears in the tool result so the agent can fix `.gitignore` before committing.
+
+These are guardrails, not a sandbox. Permission prompts remain the hard gate; `--yolo` and `permissions: allow` bypass them, so review diffs before committing.
 
 ## Context management
 

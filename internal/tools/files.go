@@ -116,7 +116,11 @@ func (t *Write) Run(_ context.Context, raw json.RawMessage, env *Env) (string, e
 	if a.Content != "" {
 		n = strings.Count(a.Content, "\n") + 1
 	}
-	return fmt.Sprintf("wrote %s (%d lines, %d bytes)", a.Path, n, len(a.Content)), nil
+	out := fmt.Sprintf("wrote %s (%d lines, %d bytes)", a.Path, n, len(a.Content))
+	if w := secretWarning(env, path); w != "" {
+		out = w + "\n" + out
+	}
+	return out, nil
 }
 
 type Edit struct{}
@@ -179,7 +183,11 @@ func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if err := os.WriteFile(path, []byte(updated), st.Mode().Perm()); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("edited %s (%d replacement(s))", a.Path, count), nil
+	out := fmt.Sprintf("edited %s (%d replacement(s))", a.Path, count)
+	if w := secretWarning(env, path); w != "" {
+		out = w + "\n" + out
+	}
+	return out, nil
 }
 
 func resolve(env *Env, path string) string {
