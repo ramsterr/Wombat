@@ -1,4 +1,6 @@
-# wombat
+#Wombat
+<img width="2816" height="1584" alt="image" src="https://github.com/user-attachments/assets/5691135d-d203-491d-9fe2-e6d3ac5c704e" />
+
 
 A lightweight coding agent for the terminal. One static binary, zero dependencies, fast startup, small memory footprint.
 
