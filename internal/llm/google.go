@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,16 +31,20 @@ func newGoogle(name, base, key string) *google {
 
 func (g *google) Name() string { return g.name }
 
-func (g *google) mapContents(msgs []Message) []map[string]any {
+func (g *google) mapContents(msgs []Message) ([]map[string]any, error) {
 	out := []map[string]any{}
 	i := 0
 	for i < len(msgs) {
 		m := msgs[i]
 		switch m.Role {
 		case "user":
+			parts, err := googleUserParts(m)
+			if err != nil {
+				return nil, err
+			}
 			out = append(out, map[string]any{
 				"role":  "user",
-				"parts": []map[string]any{{"text": m.Content}},
+				"parts": parts,
 			})
 			i++
 		case "assistant":
@@ -75,7 +80,43 @@ func (g *google) mapContents(msgs []Message) []map[string]any {
 			i++
 		}
 	}
-	return out
+	return out, nil
+}
+
+func googleUserParts(m Message) ([]map[string]any, error) {
+	text := m.Content
+	var parts []map[string]any
+	var inlineBytes int64
+	for _, a := range m.Attachments {
+		if a.Kind == "file" && IsTextMIME(a.MIME) {
+			content, ok, err := TextAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				text = AppendFileText(text, a, content)
+				continue
+			}
+		}
+		inlineBytes += a.Size
+		if inlineBytes > 14<<20 {
+			return nil, fmt.Errorf("gemini inline attachment limit is about 14 MB; split or shrink the files")
+		}
+		data, err := LoadAttachment(a)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, map[string]any{
+			"inline_data": map[string]any{
+				"mime_type": a.MIME,
+				"data":      base64.StdEncoding.EncodeToString(data),
+			},
+		})
+	}
+	if text != "" || len(parts) == 0 {
+		parts = append([]map[string]any{{"text": text}}, parts...)
+	}
+	return parts, nil
 }
 
 type googleChunk struct {
@@ -102,8 +143,12 @@ type googleChunk struct {
 }
 
 func (g *google) Chat(ctx context.Context, req Request, onDelta func(string)) (*Result, error) {
+	contents, err := g.mapContents(req.Messages)
+	if err != nil {
+		return nil, err
+	}
 	body := map[string]any{
-		"contents": g.mapContents(req.Messages),
+		"contents": contents,
 	}
 	if req.System != "" {
 		body["systemInstruction"] = map[string]any{

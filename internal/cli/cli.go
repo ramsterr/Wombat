@@ -79,7 +79,7 @@ usage:
   wombat                     start the chat TUI
   wombat chat                same as wombat (line mode when piped)
   wombat resume [id|last]    resume a session in the TUI
-  wombat run "<task>"        one-shot headless run
+  wombat run "<task>"        one-shot headless run (attach with @path)
   wombat setup               configure providers and models
   wombat models [provider]   list available models
   wombat sessions            list sessions for this directory
@@ -93,6 +93,15 @@ flags for run/resume:
   --yolo           auto-approve all tool permissions
   -c               continue: resume the latest session (run/resume)
   --quiet          only print assistant text (run)
+  --image <path>   attach an image (repeatable, run only)
+  --video <path>   attach a video (repeatable, run only)
+  --audio <path>   attach audio (repeatable, run only)
+  --file <path>    attach a document/file (repeatable, run only)
+
+attachments:
+  write @path in a message (@"path with spaces" for spaces), or use
+  /attach <path> in the chat TUI. Images/video/audio require a model
+  that supports them; audio/video are model- and provider-specific.
 `)
 }
 

@@ -21,11 +21,27 @@ func (a *Agent) historyTokens() int {
 	total := 0
 	for _, m := range a.Sess.Messages {
 		total += tokens.Estimate(m.Content) + 6
+		for _, at := range m.Attachments {
+			total += attachmentTokens(at)
+		}
 		for _, tc := range m.ToolCalls {
 			total += tokens.Estimate(tc.Name) + tokens.Estimate(tc.Arguments) + 4
 		}
 	}
 	return total
+}
+
+func attachmentTokens(a llm.Attachment) int {
+	switch a.Kind {
+	case "image":
+		return 1200
+	case "video":
+		return 4000
+	case "audio":
+		return 1000
+	default:
+		return 1500
+	}
 }
 
 func (a *Agent) maybeCompact(ctx context.Context) {
@@ -165,7 +181,11 @@ func renderTranscript(msgs []llm.Message) string {
 	for _, m := range msgs {
 		switch m.Role {
 		case "user":
-			b.WriteString("user: " + clip(m.Content, 1200) + "\n")
+			b.WriteString("user: " + clip(m.Content, 1200))
+			for _, at := range m.Attachments {
+				b.WriteString(" [attached " + at.Kind + ": " + at.Name + "]")
+			}
+			b.WriteString("\n")
 		case "assistant":
 			if m.Content != "" {
 				b.WriteString("assistant: " + clip(m.Content, 1200) + "\n")

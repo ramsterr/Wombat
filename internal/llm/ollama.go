@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -32,7 +33,7 @@ func newOllama(name, base string, numCtx int) *ollama {
 
 func (o *ollama) Name() string { return o.name }
 
-func (o *ollama) mapMessages(req Request) []map[string]any {
+func (o *ollama) mapMessages(req Request) ([]map[string]any, error) {
 	out := []map[string]any{}
 	if req.System != "" {
 		out = append(out, map[string]any{"role": "system", "content": req.System})
@@ -62,10 +63,41 @@ func (o *ollama) mapMessages(req Request) []map[string]any {
 				"tool_name": m.Name,
 			})
 		default:
-			out = append(out, map[string]any{"role": m.Role, "content": m.Content})
+			msg := map[string]any{"role": m.Role, "content": m.Content}
+			var images []string
+			text := m.Content
+			for _, a := range m.Attachments {
+				switch a.Kind {
+				case "image":
+					if !IsImageMIME(a.MIME) {
+						return nil, fmt.Errorf("ollama: unsupported image type %s (%s)", a.MIME, a.Name)
+					}
+					data, err := LoadAttachment(a)
+					if err != nil {
+						return nil, err
+					}
+					images = append(images, base64.StdEncoding.EncodeToString(data))
+				case "file":
+					content, ok, err := TextAttachment(a)
+					if err != nil {
+						return nil, err
+					}
+					if !ok {
+						return nil, fmt.Errorf("ollama does not support %s (%s)", a.MIME, a.Name)
+					}
+					text = AppendFileText(text, a, content)
+				default:
+					return nil, fmt.Errorf("ollama does not support %s attachments (%s)", a.Kind, a.Name)
+				}
+			}
+			msg["content"] = text
+			if len(images) > 0 {
+				msg["images"] = images
+			}
+			out = append(out, msg)
 		}
 	}
-	return out
+	return out, nil
 }
 
 type ollamaChunk struct {
@@ -87,9 +119,13 @@ type ollamaChunk struct {
 }
 
 func (o *ollama) Chat(ctx context.Context, req Request, onDelta func(string)) (*Result, error) {
+	msgs, err := o.mapMessages(req)
+	if err != nil {
+		return nil, err
+	}
 	body := map[string]any{
 		"model":    req.Model,
-		"messages": o.mapMessages(req),
+		"messages": msgs,
 		"stream":   true,
 		"options": map[string]any{
 			"num_ctx": o.numCtx,

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
 )
 
@@ -19,12 +20,21 @@ func cmdRun(args []string) error {
 	yolo := fs.Bool("yolo", false, "auto-approve tool permissions")
 	cont := fs.Bool("c", false, "continue latest session")
 	quiet := fs.Bool("quiet", false, "only print assistant text")
+	var images, files, videos, audios stringList
+	fs.Var(&images, "image", "attach an image (repeatable)")
+	fs.Var(&images, "i", "attach an image (repeatable)")
+	fs.Var(&files, "file", "attach a file (repeatable)")
+	fs.Var(&videos, "video", "attach a video (repeatable)")
+	fs.Var(&audios, "audio", "attach audio (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	task := strings.Join(fs.Args(), " ")
-	if task == "" && !*cont {
-		return fmt.Errorf(`usage: wombat run "<task>"`)
+	task, mentions := llm.ParseMentions(task)
+	paths := append(append(append(append([]string{}, images...), videos...), audios...), files...)
+	paths = append(paths, mentions...)
+	if task == "" && len(paths) == 0 && !*cont {
+		return fmt.Errorf(`usage: wombat run [--image path] [--file path] "<task>"`)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -43,10 +53,18 @@ func cmdRun(args []string) error {
 			return err
 		}
 	} else {
-		sess, err = session.Create(cwd, "", "", clipLine(task, 80))
+		title := task
+		if title == "" && len(paths) > 0 {
+			title = paths[0]
+		}
+		sess, err = session.Create(cwd, "", "", clipLine(title, 80))
 		if err != nil {
 			return err
 		}
+	}
+	atts, err := attachFiles(sess, paths, *quiet)
+	if err != nil {
+		return err
 	}
 
 	p := newPrompter(isTTY(os.Stdin), *yolo, cfg)
@@ -61,7 +79,7 @@ func cmdRun(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	start := time.Now()
-	runErr := ag.Run(ctx, task)
+	runErr := ag.RunWithAttachments(ctx, task, atts)
 	r.breakLine()
 	if !*quiet {
 		fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("done in %s · in %s (cache %s) out %s · session %s",

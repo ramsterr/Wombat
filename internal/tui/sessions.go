@@ -143,6 +143,9 @@ func renderPreview(cwd, id string) string {
 			}
 			lines = append(lines, "", styleAccent.Render("you"))
 			lines = append(lines, wrap(msg.Content, 68)...)
+			for _, a := range msg.Attachments {
+				lines = append(lines, styleDim.Render("  ↳ "+a.Kind+" · "+a.Name))
+			}
 		case "assistant":
 			lines = append(lines, "", styleTitle.Render("wombat"))
 			if msg.Content != "" {

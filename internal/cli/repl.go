@@ -180,15 +180,28 @@ func cmdRepl(args []string, resume bool) error {
 			}
 			continue
 		}
+		line, mentions := llm.ParseMentions(line)
+		atts, err := attachFiles(sess, mentions, *quiet)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
+			continue
+		}
+		if line == "" && len(atts) == 0 {
+			continue
+		}
 		if firstInput {
-			sess.Meta.Title = clipLine(line, 80)
+			title := line
+			if title == "" && len(atts) > 0 {
+				title = atts[0].Name
+			}
+			sess.Meta.Title = clipLine(title, 80)
 			_ = sess.Flush()
 			firstInput = false
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		r.sp = startSpinner("thinking…")
 		r.textOpen = false
-		err = ag.Run(ctx, line)
+		err = ag.RunWithAttachments(ctx, line, atts)
 		r.sp.Stop()
 		stop()
 		r.breakLine()
@@ -223,6 +236,9 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
   /yolo             toggle auto-approve
   /status           show current settings
   /exit             quit
+
+tip: write @path/to/file (or @"path with spaces") to attach an image,
+     video, audio, or document to that message.
 `)
 	case "/model":
 		if arg == "" {

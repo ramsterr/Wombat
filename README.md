@@ -75,9 +75,30 @@ The TUI is chat-first: type a message and press `enter` (`alt+enter` adds a newl
 | `wombat config set <key> <value>` | `provider`, `model`, `max_steps`, `permissions.bash\|write\|edit` |
 | `wombat version` | version |
 
-Flags for `run`/`resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`.
+Flags for `run`/`resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`, plus `--image`, `--video`, `--audio`, and `--file` for `run`.
 
 REPL slash commands: `/model`, `/models`, `/provider`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/help`, `/exit`.
+
+## Attachments
+
+Send images, video, audio, and documents to any model that supports them. Attach in one of three ways:
+
+- type `@path/to/file` inside a message (`@"path with spaces"` when needed)
+- `/attach <path>` in the chat TUI (pending chips show above the input; `/detach [n|all]`)
+- `wombat run --image shot.png --file report.pdf "what changed?"`
+
+Files are copied into the session store at `~/.wombat/sessions/<project-hash>/.attachments/` and referenced from the transcript, so history and `wombat resume` keep working. Each file is capped at 20 MB; text-like files are folded into the prompt, everything else is sent as native media. Gemini inlines at most about 14 MB per request, so shrink or split large files.
+
+| provider | images | video | audio | documents |
+|---|---|---|---|---|
+| Anthropic / Claude | yes (png, jpeg, gif, webp) | no | no | PDF, text |
+| OpenAI Chat Completions (`gpt-4o`, compatible servers) | yes | no | wav, mp3 (audio models) | text only |
+| OpenAI Responses (`gpt-4.1`, `gpt-5`, o-series) | yes | no | audio models | PDF, text |
+| Google Gemini | yes | yes | yes | PDF and most documents |
+| Ollama | vision models only | no | no | text only |
+| OpenCode Zen / Go | follows the routed protocol above | | | |
+
+If the selected model does not accept an attachment the provider returns an explicit error; switch to a multimodal model and resend.
 
 ## Providers
 

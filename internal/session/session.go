@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -152,6 +153,57 @@ func List(cwd string) ([]Meta, error) {
 }
 
 func (s *Session) ID() string { return s.Meta.ID }
+
+// StoreAttachment copies src into the project's attachment store and returns
+// metadata referencing the stored copy. Files are deduplicated by content.
+func (s *Session) StoreAttachment(src string) (llm.Attachment, error) {
+	a, err := llm.NewAttachment(src)
+	if err != nil {
+		return llm.Attachment{}, err
+	}
+	dir := filepath.Join(filepath.Dir(s.path), ".attachments")
+	if filepath.Dir(a.Path) == dir {
+		return a, nil
+	}
+	data, err := llm.LoadAttachment(a)
+	if err != nil {
+		return llm.Attachment{}, err
+	}
+	h := sha256.Sum256(data)
+	dst := filepath.Join(dir, hex.EncodeToString(h[:8])+"-"+safeAttachmentName(a.Name))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return llm.Attachment{}, err
+	}
+	if _, err := os.Stat(dst); os.IsNotExist(err) {
+		if err := os.WriteFile(dst, data, 0o600); err != nil {
+			return llm.Attachment{}, err
+		}
+	} else if err != nil {
+		return llm.Attachment{}, err
+	}
+	a.Path = dst
+	return a, nil
+}
+
+func safeAttachmentName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "._-")
+	if out == "" {
+		out = "file"
+	}
+	if len(out) > 80 {
+		out = out[len(out)-80:]
+	}
+	return out
+}
 
 func (s *Session) Append(m llm.Message) error {
 	s.Messages = append(s.Messages, m)

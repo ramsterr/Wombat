@@ -1,6 +1,8 @@
 package session
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -99,5 +101,35 @@ func TestReplaceMessages(t *testing.T) {
 	}
 	if len(reopened.Messages) != 1 || reopened.Messages[0].Content != "summary" {
 		t.Fatalf("messages = %+v", reopened.Messages)
+	}
+}
+
+func TestStoreAttachment(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	dir := t.TempDir()
+	s, err := Create(dir, "p", "m", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "cat.png")
+	if err := os.WriteFile(src, []byte("png-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.StoreAttachment(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != "image" || a.Name != "cat.png" || a.Path == src {
+		t.Fatalf("attachment = %+v", a)
+	}
+	if _, err := os.Stat(a.Path); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.StoreAttachment(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Path != a.Path {
+		t.Fatalf("not deduplicated: %s vs %s", a.Path, b.Path)
 	}
 }

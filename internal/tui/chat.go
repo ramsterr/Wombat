@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,8 @@ const helpLines = `/help             this list
 /provider [name]  switch provider (no name: picker)
 /models           browse models
 /sessions         browse sessions
+/attach <path>    attach an image, video, audio, or file
+/detach [n|all]   remove pending attachments
 /new              start a fresh session
 /compact          compact context now
 /cost             token usage
@@ -52,6 +55,7 @@ const (
 type chatEntry struct {
 	kind      entryKind
 	text      string
+	atts      []llm.Attachment
 	name      string
 	detail    string
 	result    string
@@ -127,6 +131,8 @@ type chat struct {
 	perm         *permAskMsg
 	permFeedback bool
 	permInput    textinput.Model
+
+	pending []llm.Attachment
 
 	auto   bool
 	always map[string]bool
@@ -360,7 +366,7 @@ func (c *chat) loadHistory() {
 				c.entries = append(c.entries, &chatEntry{kind: entryNote, text: "context was compacted (summary above kept verbatim)"})
 				continue
 			}
-			c.entries = append(c.entries, &chatEntry{kind: entryUser, text: m.Content})
+			c.entries = append(c.entries, &chatEntry{kind: entryUser, text: m.Content, atts: m.Attachments})
 		case "assistant":
 			if strings.TrimSpace(m.Content) != "" {
 				c.entries = append(c.entries, &chatEntry{kind: entryAssistant, text: m.Content})
@@ -440,7 +446,11 @@ func (c *chat) layout() {
 	}
 	c.inputLines = lines
 	c.ta.SetHeight(lines)
-	vh := c.h - 1 - (lines + 2) - 1
+	extra := 0
+	if len(c.pending) > 0 {
+		extra = 1
+	}
+	vh := c.h - 1 - (lines + 2) - 1 - extra
 	if vh < 3 {
 		vh = 3
 	}
@@ -553,6 +563,17 @@ func (c *chat) submit(text string) tea.Cmd {
 		c.refresh()
 		return cmd
 	}
+	text, mentions := llm.ParseMentions(text)
+	for _, path := range mentions {
+		if err := c.addAttachment(path); err != nil {
+			c.note("error: "+err.Error(), true)
+			return nil
+		}
+	}
+	text = strings.TrimSpace(text)
+	if text == "" && len(c.pending) == 0 {
+		return nil
+	}
 	if err := c.ensureSession(); err != nil {
 		c.note("error: "+err.Error(), true)
 		return nil
@@ -562,10 +583,25 @@ func (c *chat) submit(text string) tea.Cmd {
 		return nil
 	}
 	if c.sess.Meta.Title == "" {
-		c.sess.Meta.Title = clip(oneline(text), 80)
+		title := oneline(text)
+		if title == "" && len(c.pending) > 0 {
+			title = c.pending[0].Name
+		}
+		c.sess.Meta.Title = clip(title, 80)
 		_ = c.sess.Flush()
 	}
-	c.entries = append(c.entries, &chatEntry{kind: entryUser, text: text})
+	atts := make([]llm.Attachment, 0, len(c.pending))
+	for _, a := range c.pending {
+		stored, err := c.sess.StoreAttachment(a.Path)
+		if err != nil {
+			c.note("error: "+err.Error(), true)
+			return nil
+		}
+		atts = append(atts, stored)
+	}
+	c.pending = nil
+	c.layout()
+	c.entries = append(c.entries, &chatEntry{kind: entryUser, text: text, atts: atts})
 	c.entries = append(c.entries, &chatEntry{kind: entryAssistant, streaming: true})
 	c.streaming = true
 	c.follow = true
@@ -575,9 +611,63 @@ func (c *chat) submit(text string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 	return tea.Batch(func() tea.Msg {
-		go func() { c.emit(runDoneMsg{err: ag.Run(ctx, text)}) }()
+		go func() { c.emit(runDoneMsg{err: ag.RunWithAttachments(ctx, text, atts)}) }()
 		return nil
 	}, c.sp.Tick)
+}
+
+func (c *chat) addAttachment(path string) error {
+	a, err := llm.NewAttachment(path)
+	if err != nil {
+		return err
+	}
+	for _, p := range c.pending {
+		if p.Path == a.Path {
+			c.note("already attached: "+a.Name, false)
+			return nil
+		}
+	}
+	c.pending = append(c.pending, a)
+	c.layout()
+	c.refresh()
+	c.note(fmt.Sprintf("attached %s (%s, %s)", a.Name, a.Kind, llm.HumanSize(a.Size)), false)
+	return nil
+}
+
+func (c *chat) detach(arg string) {
+	if len(c.pending) == 0 {
+		c.note("no pending attachments", true)
+		return
+	}
+	if arg == "" || arg == "all" {
+		c.pending = nil
+		c.note("detached all", false)
+		c.layout()
+		c.refresh()
+		return
+	}
+	idx := -1
+	if n, err := strconv.Atoi(arg); err == nil {
+		if n >= 1 && n <= len(c.pending) {
+			idx = n - 1
+		}
+	} else {
+		for i, a := range c.pending {
+			if a.Name == arg || a.Path == arg || filepath.Base(a.Path) == filepath.Base(arg) {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx < 0 {
+		c.note("no attachment matches "+arg, true)
+		return
+	}
+	name := c.pending[idx].Name
+	c.pending = append(c.pending[:idx], c.pending[idx+1:]...)
+	c.note("detached "+name, false)
+	c.layout()
+	c.refresh()
 }
 
 func (c *chat) interrupt() {
@@ -647,6 +737,17 @@ func (c *chat) command(line string) tea.Cmd {
 		return openScreen(scrModels)
 	case "/sessions":
 		return openScreen(scrSessions)
+	case "/attach":
+		path := strings.TrimSpace(strings.Trim(arg, `"'`))
+		if path == "" {
+			c.note("usage: /attach <path> — or type @path in a message", true)
+			break
+		}
+		if err := c.addAttachment(path); err != nil {
+			c.note("error: "+err.Error(), true)
+		}
+	case "/detach":
+		c.detach(arg)
 	case "/doctor":
 		return openScreen(scrDoctor)
 	case "/usage":
@@ -662,6 +763,7 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.sess = ns
 		c.entries = nil
+		c.pending = nil
 		c.cumIn, c.cumOut, c.cumCached, c.history = 0, 0, 0, 0
 		if err := c.rebuild(false); err != nil {
 			c.note("error: "+err.Error(), true)
@@ -1017,7 +1119,29 @@ func (c *chat) view() string {
 		}
 		box = style.Width(c.w - 4).Render(c.ta.View())
 	}
-	return c.header() + "\n" + c.vp.View() + "\n" + box + "\n" + c.hint()
+	parts := []string{c.header(), c.vp.View()}
+	if line := c.pendingView(); line != "" {
+		parts = append(parts, line)
+	}
+	parts = append(parts, box, c.hint())
+	return strings.Join(parts, "\n")
+}
+
+func (c *chat) pendingView() string {
+	if len(c.pending) == 0 {
+		return ""
+	}
+	var parts []string
+	for i, a := range c.pending {
+		if i >= 3 {
+			parts = append(parts, styleFaint.Render(fmt.Sprintf("+%d", len(c.pending)-i)))
+			break
+		}
+		parts = append(parts, styleKey.Render(fmt.Sprintf(" %d ", i+1))+
+			" "+styleDim.Render(a.Kind)+" "+clip(a.Name, 28))
+	}
+	return " " + styleDim.Render("attached:") + " " + strings.Join(parts, "  ") +
+		styleFaint.Render("  · /detach")
 }
 
 func (c *chat) entryLines(e *chatEntry) []string {
@@ -1030,6 +1154,9 @@ func (c *chat) entryLines(e *chatEntry) []string {
 		lines := []string{" " + styleAccent.Bold(true).Render("you")}
 		for _, ln := range wrap(e.text, w) {
 			lines = append(lines, "   "+ln)
+		}
+		for _, a := range e.atts {
+			lines = append(lines, "   "+styleFaint.Render("↳ "+a.Kind+" · "+a.Name+" · "+llm.HumanSize(a.Size)))
 		}
 		return lines
 	case entryAssistant:

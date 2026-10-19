@@ -45,14 +45,18 @@ func (a *Agent) toolDefs() []llm.Tool {
 }
 
 func (a *Agent) Run(ctx context.Context, input string) error {
+	return a.RunWithAttachments(ctx, input, nil)
+}
+
+func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachments []llm.Attachment) error {
 	defer func() { _ = a.Sess.Flush() }()
 	if len(a.Sess.Messages) == 0 {
 		if err := a.Sess.Append(llm.Message{Role: "user", Content: startupContext(a.Env.Dir)}); err != nil {
 			return err
 		}
 	}
-	if input != "" {
-		if err := a.Sess.Append(llm.Message{Role: "user", Content: input}); err != nil {
+	if input != "" || len(attachments) > 0 {
+		if err := a.Sess.Append(llm.Message{Role: "user", Content: input, Attachments: attachments}); err != nil {
 			return err
 		}
 	}

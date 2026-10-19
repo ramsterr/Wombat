@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,7 +36,7 @@ func (o *openAI) Name() string { return o.name }
 
 type oaiMessage struct {
 	Role       string       `json:"role"`
-	Content    string       `json:"content"`
+	Content    any          `json:"content"`
 	ToolCalls  []oaiToolCal `json:"tool_calls,omitempty"`
 	ToolCallID string       `json:"tool_call_id,omitempty"`
 }
@@ -49,13 +50,17 @@ type oaiToolCal struct {
 	} `json:"function"`
 }
 
-func (o *openAI) mapMessages(req Request) []oaiMessage {
+func (o *openAI) mapMessages(req Request) ([]oaiMessage, error) {
 	out := make([]oaiMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		out = append(out, oaiMessage{Role: "system", Content: req.System})
 	}
 	for _, m := range req.Messages {
-		mm := oaiMessage{Role: m.Role, Content: m.Content}
+		content, err := oaiContent(m)
+		if err != nil {
+			return nil, err
+		}
+		mm := oaiMessage{Role: m.Role, Content: content}
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
 			for _, tc := range m.ToolCalls {
 				var t oaiToolCal
@@ -71,7 +76,59 @@ func (o *openAI) mapMessages(req Request) []oaiMessage {
 		}
 		out = append(out, mm)
 	}
-	return out
+	return out, nil
+}
+
+func oaiContent(m Message) (any, error) {
+	if len(m.Attachments) == 0 {
+		return m.Content, nil
+	}
+	text := m.Content
+	var parts []map[string]any
+	for _, a := range m.Attachments {
+		switch a.Kind {
+		case "image":
+			if !IsImageMIME(a.MIME) {
+				return nil, fmt.Errorf("openai: unsupported image type %s (%s)", a.MIME, a.Name)
+			}
+			data, err := LoadAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, map[string]any{
+				"type":      "image_url",
+				"image_url": map[string]any{"url": DataURI(a.MIME, data)},
+			})
+		case "audio":
+			format, ok := AudioFormat(a.MIME)
+			if !ok || (format != "wav" && format != "mp3") {
+				return nil, fmt.Errorf("openai: unsupported audio format %s (%s)", a.MIME, a.Name)
+			}
+			data, err := LoadAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, map[string]any{
+				"type":        "input_audio",
+				"input_audio": map[string]any{"data": base64.StdEncoding.EncodeToString(data), "format": format},
+			})
+		case "video":
+			return nil, fmt.Errorf("openai chat completions does not support video (%s); use a Gemini model", a.Name)
+		default:
+			content, ok, err := TextAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, fmt.Errorf("openai chat completions does not support %s (%s); use a Responses, Claude, or Gemini model", a.MIME, a.Name)
+			}
+			text = AppendFileText(text, a, content)
+		}
+	}
+	if text != "" {
+		parts = append([]map[string]any{{"type": "text", "text": text}}, parts...)
+	}
+	return parts, nil
 }
 
 func toolSchemas(tools []Tool) []map[string]any {
@@ -117,9 +174,13 @@ type oaiChunk struct {
 }
 
 func (o *openAI) Chat(ctx context.Context, req Request, onDelta func(string)) (*Result, error) {
+	msgs, err := o.mapMessages(req)
+	if err != nil {
+		return nil, err
+	}
 	body := map[string]any{
 		"model":    req.Model,
-		"messages": o.mapMessages(req),
+		"messages": msgs,
 		"stream":   true,
 		"stream_options": map[string]any{
 			"include_usage": true,

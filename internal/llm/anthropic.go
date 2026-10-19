@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -37,9 +38,13 @@ func (a *anthropic) mapMessages(req Request) ([]map[string]any, error) {
 		m := req.Messages[i]
 		switch m.Role {
 		case "user":
+			blocks, err := anthropicUserBlocks(m)
+			if err != nil {
+				return nil, err
+			}
 			out = append(out, map[string]any{
 				"role":    "user",
-				"content": []map[string]any{{"type": "text", "text": m.Content}},
+				"content": blocks,
 			})
 			i++
 		case "assistant":
@@ -74,6 +79,62 @@ func (a *anthropic) mapMessages(req Request) ([]map[string]any, error) {
 		}
 	}
 	return out, nil
+}
+
+func anthropicUserBlocks(m Message) ([]map[string]any, error) {
+	text := m.Content
+	var blocks []map[string]any
+	for _, a := range m.Attachments {
+		switch a.Kind {
+		case "image":
+			if !IsImageMIME(a.MIME) {
+				return nil, fmt.Errorf("claude: unsupported image type %s (%s)", a.MIME, a.Name)
+			}
+			data, err := LoadAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			blocks = append(blocks, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": a.MIME,
+					"data":       base64.StdEncoding.EncodeToString(data),
+				},
+			})
+		case "audio", "video":
+			return nil, fmt.Errorf("claude does not support %s attachments (%s); use a Gemini model", a.Kind, a.Name)
+		default:
+			content, ok, err := TextAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				text = AppendFileText(text, a, content)
+				continue
+			}
+			if strings.EqualFold(a.MIME, "application/pdf") {
+				data, err := LoadAttachment(a)
+				if err != nil {
+					return nil, err
+				}
+				blocks = append(blocks, map[string]any{
+					"type": "document",
+					"source": map[string]any{
+						"type":       "base64",
+						"media_type": "application/pdf",
+						"data":       base64.StdEncoding.EncodeToString(data),
+					},
+				})
+				continue
+			}
+			return nil, fmt.Errorf("claude does not support %s (%s)", a.MIME, a.Name)
+		}
+	}
+	if text != "" || len(blocks) == 0 {
+		blocks = append([]map[string]any{{"type": "text", "text": text}}, blocks...)
+	}
+	return blocks, nil
 }
 
 func normalizeArgs(s string) string {

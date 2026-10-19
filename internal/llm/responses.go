@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,12 +31,16 @@ func newResponses(name, base, key string) *responses {
 
 func (r *responses) Name() string { return r.name }
 
-func (r *responses) mapInput(msgs []Message) []map[string]any {
+func (r *responses) mapInput(msgs []Message) ([]map[string]any, error) {
 	out := []map[string]any{}
 	for _, m := range msgs {
 		switch m.Role {
 		case "user":
-			out = append(out, map[string]any{"role": "user", "content": m.Content})
+			content, err := responsesUserContent(m)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, map[string]any{"role": "user", "content": content})
 		case "assistant":
 			if m.Content != "" {
 				out = append(out, map[string]any{"role": "assistant", "content": m.Content})
@@ -56,7 +61,72 @@ func (r *responses) mapInput(msgs []Message) []map[string]any {
 			})
 		}
 	}
-	return out
+	return out, nil
+}
+
+func responsesUserContent(m Message) (any, error) {
+	if len(m.Attachments) == 0 {
+		return m.Content, nil
+	}
+	text := m.Content
+	var parts []map[string]any
+	for _, a := range m.Attachments {
+		switch a.Kind {
+		case "image":
+			if !IsImageMIME(a.MIME) {
+				return nil, fmt.Errorf("openai responses: unsupported image type %s (%s)", a.MIME, a.Name)
+			}
+			data, err := LoadAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, map[string]any{
+				"type":      "input_image",
+				"image_url": DataURI(a.MIME, data),
+			})
+		case "audio":
+			format, ok := AudioFormat(a.MIME)
+			if !ok {
+				return nil, fmt.Errorf("openai responses: unsupported audio format %s (%s)", a.MIME, a.Name)
+			}
+			data, err := LoadAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, map[string]any{
+				"type":        "input_audio",
+				"input_audio": map[string]any{"data": base64.StdEncoding.EncodeToString(data), "format": format},
+			})
+		case "video":
+			return nil, fmt.Errorf("openai responses does not support video (%s); use a Gemini model", a.Name)
+		default:
+			content, ok, err := TextAttachment(a)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				text = AppendFileText(text, a, content)
+				continue
+			}
+			if strings.EqualFold(a.MIME, "application/pdf") {
+				data, err := LoadAttachment(a)
+				if err != nil {
+					return nil, err
+				}
+				parts = append(parts, map[string]any{
+					"type":      "input_file",
+					"filename":  a.Name,
+					"file_data": DataURI(a.MIME, data),
+				})
+				continue
+			}
+			return nil, fmt.Errorf("openai responses does not support %s (%s)", a.MIME, a.Name)
+		}
+	}
+	if text != "" {
+		parts = append([]map[string]any{{"type": "input_text", "text": text}}, parts...)
+	}
+	return parts, nil
 }
 
 type respItem struct {
@@ -98,9 +168,13 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 	if maxOut <= 0 {
 		maxOut = 8192
 	}
+	input, err := r.mapInput(req.Messages)
+	if err != nil {
+		return nil, err
+	}
 	body := map[string]any{
 		"model":             req.Model,
-		"input":             r.mapInput(req.Messages),
+		"input":             input,
 		"stream":            true,
 		"store":             false,
 		"max_output_tokens": maxOut,
