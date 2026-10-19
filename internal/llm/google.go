@@ -63,9 +63,13 @@ func (g *google) mapContents(msgs []Message) ([]map[string]any, error) {
 				if err := json.Unmarshal([]byte(normalizeArgs(tc.Arguments)), &args); err != nil {
 					args = map[string]any{}
 				}
-				parts = append(parts, map[string]any{
+				part := map[string]any{
 					"functionCall": map[string]any{"name": tc.Name, "args": args},
-				})
+				}
+				if tc.Signature != "" {
+					part["thoughtSignature"] = tc.Signature
+				}
+				parts = append(parts, part)
 			}
 			out = append(out, map[string]any{"role": "model", "parts": parts})
 			i++
@@ -129,9 +133,10 @@ type googleChunk struct {
 	Candidates []struct {
 		Content struct {
 			Parts []struct {
-				Text         string `json:"text"`
-				Thought      bool   `json:"thought"`
-				FunctionCall *struct {
+				Text             string `json:"text"`
+				Thought          bool   `json:"thought"`
+				ThoughtSignature string `json:"thoughtSignature"`
+				FunctionCall     *struct {
 					Name string          `json:"name"`
 					Args json.RawMessage `json:"args"`
 				} `json:"functionCall"`
@@ -250,6 +255,7 @@ func (g *google) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 						ID:        fmt.Sprintf("call_%d_%d", time.Now().UnixNano(), n),
 						Name:      p.FunctionCall.Name,
 						Arguments: args,
+						Signature: p.ThoughtSignature,
 					})
 					n++
 				}

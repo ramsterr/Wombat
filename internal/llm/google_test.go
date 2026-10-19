@@ -29,7 +29,7 @@ func TestGoogleChatStream(t *testing.T) {
 			`data: {"candidates":[{"content":{"parts":[{"text":"Plan","thought":true}]}}]}`,
 			`data: {"candidates":[{"content":{"parts":[{"text":"Hel"}]}}]}`,
 			`data: {"candidates":[{"content":{"parts":[{"text":"lo"}]}}]}`,
-			`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"bash","args":{"command":"ls"}}}]}}]}`,
+			`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"bash","args":{"command":"ls"}},"thoughtSignature":"sig123"}]}}]}`,
 			`data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":20,"candidatesTokenCount":8,"cachedContentTokenCount":5}}`,
 			``,
 		}
@@ -63,6 +63,9 @@ func TestGoogleChatStream(t *testing.T) {
 	}
 	if res.ToolCalls[0].ID == "" {
 		t.Errorf("tool call id should be synthesized")
+	}
+	if res.ToolCalls[0].Signature != "sig123" {
+		t.Errorf("thought signature = %q", res.ToolCalls[0].Signature)
 	}
 	if res.Usage.In != 20 || res.Usage.Out != 8 || res.Usage.Cached != 5 {
 		t.Fatalf("usage = %+v", res.Usage)
@@ -103,5 +106,19 @@ func TestGoogleChatStream(t *testing.T) {
 	t0, _ := tools[0].(map[string]any)
 	if _, ok := t0["functionDeclarations"].([]any); !ok {
 		t.Errorf("tools mapping = %+v", t0)
+	}
+}
+
+func TestGoogleThoughtSignatureReplay(t *testing.T) {
+	contents, err := (&google{}).mapContents([]Message{{
+		Role:      "assistant",
+		ToolCalls: []ToolCall{{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`, Signature: "sig123"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := contents[0]["parts"].([]map[string]any)
+	if parts[0]["thoughtSignature"] != "sig123" {
+		t.Fatalf("parts = %#v", parts)
 	}
 }

@@ -83,10 +83,11 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 		if err := a.Sess.Append(llm.Message{
-			Role:      "assistant",
-			Content:   res.Content,
-			Reasoning: res.Reasoning,
-			ToolCalls: res.ToolCalls,
+			Role:           "assistant",
+			Content:        res.Content,
+			Reasoning:      res.Reasoning,
+			ReasoningItems: res.ReasoningItems,
+			ToolCalls:      res.ToolCalls,
 		}); err != nil {
 			return err
 		}

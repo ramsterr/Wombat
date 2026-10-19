@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,9 +32,10 @@ func (f *fakeProvider) Chat(_ context.Context, req llm.Request, onDelta func(str
 	switch f.step {
 	case 1:
 		return &llm.Result{
-			Reasoning: "plan",
-			ToolCalls: []llm.ToolCall{{ID: "c1", Name: "write", Arguments: `{"path":"hello.txt","content":"hi"}`}},
-			Usage:     llm.Usage{In: 10, Out: 5},
+			Reasoning:      "plan",
+			ReasoningItems: []json.RawMessage{json.RawMessage(`{"type":"reasoning","encrypted_content":"enc"}`)},
+			ToolCalls:      []llm.ToolCall{{ID: "c1", Name: "write", Arguments: `{"path":"hello.txt","content":"hi"}`}},
+			Usage:          llm.Usage{In: 10, Out: 5},
 		}, nil
 	case 2:
 		if onDelta != nil {
@@ -107,7 +109,7 @@ func TestAgentToolLoop(t *testing.T) {
 	if msgs[2].Role != "assistant" || len(msgs[2].ToolCalls) != 1 {
 		t.Errorf("third message should carry the tool call: %+v", msgs[2])
 	}
-	if msgs[2].Reasoning != "plan" {
+	if msgs[2].Reasoning != "plan" || len(msgs[2].ReasoningItems) != 1 {
 		t.Errorf("reasoning should be persisted with the tool call: %+v", msgs[2])
 	}
 	if msgs[3].Role != "tool" || msgs[3].ToolCallID != "c1" || !strings.Contains(msgs[3].Content, "hello.txt") {
@@ -119,6 +121,9 @@ func TestAgentToolLoop(t *testing.T) {
 
 	if len(fake.reqs) != 2 {
 		t.Fatalf("provider calls = %d", len(fake.reqs))
+	}
+	if len(fake.reqs[1].Messages) < 3 || fake.reqs[1].Messages[2].Reasoning != "plan" {
+		t.Errorf("second request must replay the tool-call reasoning: %+v", fake.reqs[1].Messages)
 	}
 	if len(fake.reqs[0].Messages) != 2 {
 		t.Errorf("first request messages = %d, want 2", len(fake.reqs[0].Messages))

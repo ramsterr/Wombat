@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -131,5 +132,35 @@ func TestStoreAttachment(t *testing.T) {
 	}
 	if b.Path != a.Path {
 		t.Fatalf("not deduplicated: %s vs %s", a.Path, b.Path)
+	}
+}
+
+func TestSessionReasoningRoundtrip(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	s, err := Create(t.TempDir(), "p", "m", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{"type":"reasoning","encrypted_content":"enc"}`)
+	if err := s.Append(llm.Message{
+		Role:           "assistant",
+		Content:        "answer",
+		Reasoning:      "thought",
+		ReasoningItems: []json.RawMessage{raw},
+		ToolCalls:      []llm.ToolCall{{ID: "c1", Name: "bash", Arguments: "{}", Signature: "sig"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Flush()
+	got, err := Open(s.ID(), s.Meta.Cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.Messages[0]
+	if m.Reasoning != "thought" || len(m.ReasoningItems) != 1 {
+		t.Fatalf("reasoning not persisted: %+v", m)
+	}
+	if m.ToolCalls[0].Signature != "sig" {
+		t.Fatalf("tool signature not persisted: %+v", m.ToolCalls[0])
 	}
 }

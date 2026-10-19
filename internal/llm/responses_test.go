@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -24,12 +25,14 @@ func TestResponsesTextStream(t *testing.T) {
 		events := []string{
 			`event: response.reasoning_summary_text.delta
 data: {"type":"response.reasoning_summary_text.delta","output_index":0,"delta":"Think"}`,
+			`event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","encrypted_content":"enc123","summary":[]}}`,
 			`event: response.output_text.delta
 data: {"type":"response.output_text.delta","output_index":0,"delta":"Hel"}`,
 			`event: response.output_text.delta
 data: {"type":"response.output_text.delta","output_index":0,"delta":"lo"}`,
 			`event: response.completed
-data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message","id":"msg_1","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":11,"output_tokens":5,"input_tokens_details":{"cached_tokens":7}}}}`,
+data: {"type":"response.completed","response":{"status":"completed","output":[{"id":"rs_1","type":"reasoning","encrypted_content":"enc123","summary":[]},{"type":"message","id":"msg_1","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":11,"output_tokens":5,"input_tokens_details":{"cached_tokens":7}}}}`,
 			``,
 		}
 		for _, e := range events {
@@ -57,6 +60,9 @@ data: {"type":"response.completed","response":{"status":"completed","output":[{"
 	}
 	if gotBody["instructions"] != "sys" {
 		t.Errorf("instructions = %v", gotBody["instructions"])
+	}
+	if len(res.ReasoningItems) != 1 || !strings.Contains(string(res.ReasoningItems[0]), "enc123") {
+		t.Fatalf("reasoning items = %s", res.ReasoningItems)
 	}
 	input, _ := gotBody["input"].([]any)
 	if len(input) != 1 {
@@ -146,5 +152,24 @@ func TestResponsesErrorEvent(t *testing.T) {
 	_, err := p.Chat(context.Background(), Request{Model: "m"}, nil)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestResponsesReasoningReplayAndInclude(t *testing.T) {
+	p := newResponses("test", "http://127.0.0.1:1", "k")
+	raw := json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"enc123"}`)
+	input, err := p.mapInput([]Message{{
+		Role:           "assistant",
+		ReasoningItems: []json.RawMessage{raw},
+		ToolCalls:      []ToolCall{{ID: "c1", Name: "bash", Arguments: "{}"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input[0]["type"] != "reasoning" || input[0]["encrypted_content"] != "enc123" {
+		t.Fatalf("input[0] = %#v", input[0])
+	}
+	if input[1]["type"] != "function_call" {
+		t.Fatalf("input[1] = %#v", input[1])
 	}
 }

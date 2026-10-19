@@ -228,6 +228,7 @@ func (o *openAI) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 	result := &Result{}
 	calls := map[int]*ToolCall{}
 	var order []int
+	sawReasoningContent := false
 	err = readSSE(resp.Body, func(_, data string) error {
 		if data == "[DONE]" {
 			return nil
@@ -249,11 +250,12 @@ func (o *openAI) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 		}
 		ch := c.Choices[0]
 		if reasoning := ch.Delta.ReasoningContent; reasoning != "" {
+			sawReasoningContent = true
 			result.Reasoning += reasoning
 			if req.OnReasoning != nil {
 				req.OnReasoning(reasoning)
 			}
-		} else if reasoning := ch.Delta.Reasoning; reasoning != "" {
+		} else if reasoning := ch.Delta.Reasoning; reasoning != "" && !sawReasoningContent {
 			result.Reasoning += reasoning
 			if req.OnReasoning != nil {
 				req.OnReasoning(reasoning)

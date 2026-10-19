@@ -24,6 +24,7 @@ func TestOpenAIChatStream(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		lines := []string{
 			`data: {"choices":[{"delta":{"reasoning_content":"Think"}}]}`,
+			`data: {"choices":[{"delta":{"reasoning":"Think"}}]}`,
 			`data: {"choices":[{"delta":{"content":"Hel"}}]}`,
 			`data: {"choices":[{"delta":{"content":"lo"}}]}`,
 			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"bash","arguments":"{\"command\":"}}]}}]}`,

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/ramsterr/Wombat/internal/config"
@@ -11,16 +12,18 @@ type ToolCall struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+	Signature string `json:"signature,omitempty"`
 }
 
 type Message struct {
-	Role        string       `json:"role"`
-	Content     string       `json:"content,omitempty"`
-	Reasoning   string       `json:"reasoning,omitempty"`
-	Attachments []Attachment `json:"attachments,omitempty"`
-	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
-	ToolCallID  string       `json:"tool_call_id,omitempty"`
-	Name        string       `json:"name,omitempty"`
+	Role           string            `json:"role"`
+	Content        string            `json:"content,omitempty"`
+	Reasoning      string            `json:"reasoning,omitempty"`
+	ReasoningItems []json.RawMessage `json:"reasoning_items,omitempty"`
+	Attachments    []Attachment      `json:"attachments,omitempty"`
+	ToolCalls      []ToolCall        `json:"tool_calls,omitempty"`
+	ToolCallID     string            `json:"tool_call_id,omitempty"`
+	Name           string            `json:"name,omitempty"`
 }
 
 type Tool struct {
@@ -50,11 +53,12 @@ type Request struct {
 }
 
 type Result struct {
-	Content    string
-	Reasoning  string
-	ToolCalls  []ToolCall
-	Usage      Usage
-	StopReason string
+	Content        string
+	Reasoning      string
+	ReasoningItems []json.RawMessage
+	ToolCalls      []ToolCall
+	Usage          Usage
+	StopReason     string
 }
 
 type Provider interface {

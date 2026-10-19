@@ -42,6 +42,12 @@ func (r *responses) mapInput(msgs []Message) ([]map[string]any, error) {
 			}
 			out = append(out, map[string]any{"role": "user", "content": content})
 		case "assistant":
+			for _, raw := range m.ReasoningItems {
+				var item map[string]any
+				if err := json.Unmarshal(raw, &item); err == nil && len(item) > 0 {
+					out = append(out, item)
+				}
+			}
 			if m.Content != "" {
 				out = append(out, map[string]any{"role": "assistant", "content": m.Content})
 			}
@@ -131,15 +137,19 @@ func responsesUserContent(m Message) (any, error) {
 
 func isReasoningModel(model string) bool {
 	m := strings.ToLower(model)
-	return strings.HasPrefix(m, "gpt-5") || strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4")
+	return strings.HasPrefix(m, "gpt-5") || strings.HasPrefix(m, "gpt-6") ||
+		strings.HasPrefix(m, "o1") || strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4") ||
+		strings.Contains(m, "codex")
 }
 
 type respItem struct {
-	Type      string `json:"type"`
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	CallID    string `json:"call_id"`
-	Arguments string `json:"arguments"`
+	Type             string          `json:"type"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	CallID           string          `json:"call_id"`
+	Arguments        string          `json:"arguments"`
+	EncryptedContent string          `json:"encrypted_content"`
+	Summary          json.RawMessage `json:"summary"`
 }
 
 type respEvent struct {
@@ -189,6 +199,7 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 	}
 	if isReasoningModel(req.Model) {
 		body["reasoning"] = map[string]any{"summary": "auto"}
+		body["include"] = []string{"reasoning.encrypted_content"}
 	}
 	if len(req.Tools) > 0 {
 		tools := []map[string]any{}
@@ -230,6 +241,26 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 	result := &Result{}
 	calls := map[string]*ToolCall{}
 	var order []string
+	reasoningSeen := map[string]bool{}
+	addReasoning := func(it respItem) {
+		if it.Type != "reasoning" || it.EncryptedContent == "" || reasoningSeen[it.EncryptedContent] {
+			return
+		}
+		reasoningSeen[it.EncryptedContent] = true
+		item := map[string]any{
+			"type":              "reasoning",
+			"encrypted_content": it.EncryptedContent,
+		}
+		if it.ID != "" {
+			item["id"] = it.ID
+		}
+		if len(it.Summary) > 0 && string(it.Summary) != "null" {
+			item["summary"] = it.Summary
+		}
+		if raw, err := json.Marshal(item); err == nil {
+			result.ReasoningItems = append(result.ReasoningItems, raw)
+		}
+	}
 	err = readSSE(resp.Body, func(_, data string) error {
 		var e respEvent
 		if err := json.Unmarshal([]byte(data), &e); err != nil {
@@ -271,6 +302,7 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 				}
 			}
 		case "response.output_item.done":
+			addReasoning(e.Item)
 			if e.Item.Type == "function_call" {
 				tc, ok := calls[e.Item.ID]
 				if !ok {
@@ -297,6 +329,7 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 				}
 				var final []*ToolCall
 				for _, it := range e.Resp.Output {
+					addReasoning(it)
 					if it.Type != "function_call" {
 						continue
 					}
