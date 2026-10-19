@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 896 616" width="896" height="616">
+<title>Wombat — phosphor ASCII</title>
+<defs>
+<radialGradient id="bgGrad" cx="50%" cy="46%" r="80%">
+<stop offset="0%" stop-color="#133826"/>
+<stop offset="65%" stop-color="#0C2618"/>
+<stop offset="100%" stop-color="#06120C"/>
+</radialGradient>
+<linearGradient id="glyphGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="616">
+<stop offset="0%" stop-color="#D8FFDE"/>
+<stop offset="55%" stop-color="#8DE6A2"/>
+<stop offset="100%" stop-color="#46A862"/>
+</linearGradient>
+<radialGradient id="vignette" cx="50%" cy="46%" r="75%">
+<stop offset="55%" stop-color="#04100A" stop-opacity="0"/>
+<stop offset="100%" stop-color="#04100A" stop-opacity="0.55"/>
+</radialGradient>
+<filter id="silBig" x="-40%" y="-40%" width="180%" height="180%">
+<feGaussianBlur stdDeviation="28"/>
+</filter>
+<filter id="silSmall" x="-30%" y="-30%" width="160%" height="160%">
+<feGaussianBlur stdDeviation="8"/>
+</filter>
+<filter id="glowBig" x="-30%" y="-30%" width="160%" height="160%">
+<feGaussianBlur stdDeviation="14"/>
+</filter>
+<filter id="glowSmall" x="-30%" y="-30%" width="160%" height="160%">
+<feGaussianBlur stdDeviation="3.5"/>
+</filter>
+<filter id="grain" x="0%" y="0%" width="100%" height="100%">
+<feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" stitchTiles="stitch"/>
+<feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  1 0 0 0 0"/>
+</filter>
+<filter id="grainSoft" x="0%" y="0%" width="100%" height="100%">
+<feTurbulence type="fractalNoise" baseFrequency="0.28" numOctaves="2" stitchTiles="stitch"/>
+<feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  1 0 0 0 0"/>
+</filter>
+</defs>
+<rect width="896" height="616" fill="url(#bgGrad)"/>
+<g><text x="0" y="12.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#33774A">oaooa</tspan><tspan fill="#235C38">t</tspan><tspan fill="#235C38">t:</tspan><tspan fill="#173E26">.........</tspan><tspan fill="#235C38">:</tspan><tspan fill="#33774A">ataaoa</tspan><tspan fill="#235C38">.</tspan><tspan fill="#173E26">...</tspan><tspan fill="#173E26">......</tspan></text>
+<text x="0" y="34.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#33774A">oooa</tspan><tspan fill="#173E26">....</tspan><tspan fill="#33774A">aa</tspan><tspan fill="#173E26">.</tspan><tspan fill="#173E26">....</tspan></text>
+<text x="0" y="56.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#33774A">aoa</tspan><tspan fill="#173E26">...</tspan></text>
+<text x="0" y="78.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#33774A">aa</tspan><tspan fill="#173E26">..</tspan></text>
+<text x="0" y="100.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">t:</tspan><tspan fill="#173E26">..</tspan></text>
+<text x="0" y="122.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">:.</tspan><tspan fill="#173E26">..</tspan></text>
+<text x="0" y="144.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">...</tspan><tspan fill="#173E26">...</tspan></text>
+<text x="0" y="166.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">....</tspan><tspan fill="#173E26">....</tspan></text>
+<text x="0" y="188.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">.....</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="210.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">.....</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="232.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">.....</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="254.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">.....</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="276.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">.</tspan><tspan fill="#235C38">.</tspan><tspan fill="#173E26">.</tspan><tspan fill="#235C38">:</tspan><tspan fill="#33774A">t</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="298.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">.::t</tspan><tspan fill="#33774A">t</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="320.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">.:t</tspan><tspan fill="#33774A">aa</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="342.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">:t</tspan><tspan fill="#33774A">aaa</tspan><tspan fill="#173E26">.....</tspan></text>
+<text x="0" y="364.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#33774A">atataa</tspan><tspan fill="#173E26">......</tspan></text>
+<text x="0" y="386.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#33774A">aaa</tspan><tspan fill="#235C38">tt</tspan><tspan fill="#33774A">t</tspan><tspan fill="#173E26">......</tspan></text>
+<text x="0" y="408.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">tt</tspan><tspan fill="#33774A">att</tspan><tspan fill="#235C38">:.</tspan><tspan fill="#173E26">.......</tspan></text>
+<text x="0" y="430.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#33774A">t</tspan><tspan fill="#235C38">t</tspan><tspan fill="#33774A">tt</tspan><tspan fill="#235C38">t::</tspan><tspan fill="#173E26">.......</tspan></text>
+<text x="0" y="452.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">:</tspan><tspan fill="#33774A">t</tspan><tspan fill="#235C38">::::.:</tspan><tspan fill="#173E26">........</tspan></text>
+<text x="0" y="474.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">:tt::.::</tspan><tspan fill="#173E26">.</tspan><tspan fill="#173E26">.........</tspan></text>
+<text x="0" y="496.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">:::.</tspan><tspan fill="#173E26">.</tspan><tspan fill="#235C38">.....</tspan><tspan fill="#173E26">..........</tspan></text>
+<text x="0" y="518.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#235C38">.</tspan><tspan fill="#173E26">......</tspan><tspan fill="#235C38">.</tspan><tspan fill="#173E26">....</tspan><tspan fill="#173E26">............</tspan></text>
+<text x="0" y="540.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">.............</tspan><tspan fill="#173E26">.............</tspan></text>
+<text x="0" y="562.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">...............</tspan><tspan fill="#173E26">...............</tspan></text>
+<text x="0" y="584.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">..................</tspan><tspan fill="#173E26">..................</tspan></text>
+<text x="0" y="606.5" textLength="896" lengthAdjust="spacingAndGlyphs" xml:space="preserve" opacity="0.4" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre"><tspan fill="#173E26">......................</tspan><tspan fill="#173E26">..................</tspan><tspan fill="#235C38">.:..</tspan></text></g>
+<g transform="translate(-114.32,-328.45) scale(2.1966)" filter="url(#silBig)" fill="#6FD68C" opacity="0.28"><circle cx="112" cy="196" r="44"/>
+<circle cx="112" cy="190" r="20"/>
+<circle cx="400" cy="196" r="44"/>
+<circle cx="400" cy="190" r="20"/>
+<path d="M256 150 C 176 150 100 182 88 258 C 78 340 146 430 256 430 C 366 430 434 340 424 258 C 412 182 336 150 256 150 Z"/>
+<ellipse cx="256" cy="332" rx="128" ry="88"/>
+<ellipse cx="158" cy="324" rx="24" ry="15"/>
+<ellipse cx="354" cy="324" rx="24" ry="15"/>
+<ellipse cx="256" cy="322" rx="84" ry="40"/>
+<ellipse cx="236" cy="336" rx="7" ry="9"/>
+<ellipse cx="276" cy="336" rx="7" ry="9"/>
+<path d="M228 392 Q 242 406 256 394 Q 270 406 284 392"/>
+<ellipse cx="192" cy="250" rx="19" ry="21"/>
+<ellipse cx="320" cy="250" rx="19" ry="21"/>
+<circle cx="186" cy="243" r="6.5"/>
+<circle cx="314" cy="243" r="6.5"/></g>
+<g transform="translate(-114.32,-328.45) scale(2.1966)" filter="url(#silSmall)" fill="#A8EEB4" opacity="0.2"><circle cx="112" cy="196" r="44"/>
+<circle cx="112" cy="190" r="20"/>
+<circle cx="400" cy="196" r="44"/>
+<circle cx="400" cy="190" r="20"/>
+<path d="M256 150 C 176 150 100 182 88 258 C 78 340 146 430 256 430 C 366 430 434 340 424 258 C 412 182 336 150 256 150 Z"/>
+<ellipse cx="256" cy="332" rx="128" ry="88"/>
+<ellipse cx="158" cy="324" rx="24" ry="15"/>
+<ellipse cx="354" cy="324" rx="24" ry="15"/>
+<ellipse cx="256" cy="322" rx="84" ry="40"/>
+<ellipse cx="236" cy="336" rx="7" ry="9"/>
+<ellipse cx="276" cy="336" rx="7" ry="9"/>
+<path d="M228 392 Q 242 406 256 394 Q 270 406 284 392"/>
+<ellipse cx="192" cy="250" rx="19" ry="21"/>
+<ellipse cx="320" cy="250" rx="19" ry="21"/>
+<circle cx="186" cy="243" r="6.5"/>
+<circle cx="314" cy="243" r="6.5"/></g>
+<g filter="url(#glowBig)" opacity="0.85"><text x="0" y="12.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      mmmm           bbbbbbbbbbbbbb           mmmm      </text>
+<text x="0" y="34.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">    mmmmmmmm    bbbbbbbbbbbbbbbbbbbbbbbb   mmmmmmmmm    </text>
+<text x="0" y="56.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">   mmmboobmmmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmmbboobmmm   </text>
+<text x="0" y="78.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmboooobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbboooobmmm  </text>
+<text x="0" y="100.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmbooobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbooobmmm  </text>
+<text x="0" y="122.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmmbobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbobmmmm  </text>
+<text x="0" y="144.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">   mmmmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmmmm   </text>
+<text x="0" y="166.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">    mmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmm    </text>
+<text x="0" y="188.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     mbbbbbbbbbbbmmwwbbbbbbbbbbbbbbmwwmbbbbbbbbbbbm     </text>
+<text x="0" y="210.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbmmawwmbboooooooobbwobwwmbbbbbbbbbbb     </text>
+<text x="0" y="232.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbmwwwwmaaaaaaaaaaaamwwwwmbbbbbbbbbbb     </text>
+<text x="0" y="254.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbomwwmoaaaaaaaaaaaaomwwbobbbbbbbbbbb     </text>
+<text x="0" y="276.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbboaaaooaaaaaaaaaaaaaaaaoaaaoobbbbbbbbb     </text>
+<text x="0" y="298.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbboaaaaaaaoobmmmmmmmmbooaaaaaaaobbbbbbbb     </text>
+<text x="0" y="320.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbboaaaaaobmwwwwwwwwwwwwwwmboaaaaaobbbbbbb     </text>
+<text x="0" y="342.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbboaaaaabwwwwwwwwwwwwwwwwwwwwbaaaaaobbbbbb     </text>
+<text x="0" y="364.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      bbbbbaoooobwwwwwwwwwwwwwwwwwwwwwwbooooabbbbb      </text>
+<text x="0" y="386.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      bbbboooooobwwwwwwwwwwwwwwwwwwwwwwboooooobbbb      </text>
+<text x="0" y="408.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">       bbboaooooomwwwwwwwwwwwwwwwwwwwwmoooooaobbb       </text>
+<text x="0" y="430.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">       bbboaaaaaaabwwwwwwwwwwwwwwwwwwbaaaaaaabbbb       </text>
+<text x="0" y="452.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">        bbbaaaaaaaaaobmwwwwwwwwwwmboaaaaaaaaobbb        </text>
+<text x="0" y="474.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">         bbbaaaaaaaaaaaaaooooooaaaaaaaaaaaaabbb         </text>
+<text x="0" y="496.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">          bboaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbb          </text>
+<text x="0" y="518.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">            bboaaaaaaaaaoaaaaaaoaaaaaaaaaobb            </text>
+<text x="0" y="540.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">             bbboaaaaaaombbmmbmmoaaaaaaobbb             </text>
+<text x="0" y="562.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">               bbbooaaaaaooooooaaaaaoobbb               </text>
+<text x="0" y="584.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">                  bbbboooooooooooobbbb                  </text>
+<text x="0" y="606.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#B8EEBF"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">                      bbbbbbbbbbbb                      </text></g>
+<g filter="url(#glowSmall)" opacity="0.6"><text x="0" y="12.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      mmmm           bbbbbbbbbbbbbb           mmmm      </text>
+<text x="0" y="34.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">    mmmmmmmm    bbbbbbbbbbbbbbbbbbbbbbbb   mmmmmmmmm    </text>
+<text x="0" y="56.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">   mmmboobmmmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmmbboobmmm   </text>
+<text x="0" y="78.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmboooobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbboooobmmm  </text>
+<text x="0" y="100.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmbooobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbooobmmm  </text>
+<text x="0" y="122.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmmbobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbobmmmm  </text>
+<text x="0" y="144.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">   mmmmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmmmm   </text>
+<text x="0" y="166.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">    mmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmm    </text>
+<text x="0" y="188.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     mbbbbbbbbbbbmmwwbbbbbbbbbbbbbbmwwmbbbbbbbbbbbm     </text>
+<text x="0" y="210.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbmmawwmbboooooooobbwobwwmbbbbbbbbbbb     </text>
+<text x="0" y="232.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbmwwwwmaaaaaaaaaaaamwwwwmbbbbbbbbbbb     </text>
+<text x="0" y="254.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbomwwmoaaaaaaaaaaaaomwwbobbbbbbbbbbb     </text>
+<text x="0" y="276.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbboaaaooaaaaaaaaaaaaaaaaoaaaoobbbbbbbbb     </text>
+<text x="0" y="298.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbboaaaaaaaoobmmmmmmmmbooaaaaaaaobbbbbbbb     </text>
+<text x="0" y="320.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbboaaaaaobmwwwwwwwwwwwwwwmboaaaaaobbbbbbb     </text>
+<text x="0" y="342.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbboaaaaabwwwwwwwwwwwwwwwwwwwwbaaaaaobbbbbb     </text>
+<text x="0" y="364.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      bbbbbaoooobwwwwwwwwwwwwwwwwwwwwwwbooooabbbbb      </text>
+<text x="0" y="386.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      bbbboooooobwwwwwwwwwwwwwwwwwwwwwwboooooobbbb      </text>
+<text x="0" y="408.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">       bbboaooooomwwwwwwwwwwwwwwwwwwwwmoooooaobbb       </text>
+<text x="0" y="430.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">       bbboaaaaaaabwwwwwwwwwwwwwwwwwwbaaaaaaabbbb       </text>
+<text x="0" y="452.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">        bbbaaaaaaaaaobmwwwwwwwwwwmboaaaaaaaaobbb        </text>
+<text x="0" y="474.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">         bbbaaaaaaaaaaaaaooooooaaaaaaaaaaaaabbb         </text>
+<text x="0" y="496.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">          bboaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbb          </text>
+<text x="0" y="518.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">            bboaaaaaaaaaoaaaaaaoaaaaaaaaaobb            </text>
+<text x="0" y="540.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">             bbboaaaaaaombbmmbmmoaaaaaaobbb             </text>
+<text x="0" y="562.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">               bbbooaaaaaooooooaaaaaoobbb               </text>
+<text x="0" y="584.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">                  bbbboooooooooooobbbb                  </text>
+<text x="0" y="606.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="#D8FADE"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">                      bbbbbbbbbbbb                      </text></g>
+<g opacity="0.85"><text x="0" y="12.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      mmmm           bbbbbbbbbbbbbb           mmmm      </text>
+<text x="0" y="34.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">    mmmmmmmm    bbbbbbbbbbbbbbbbbbbbbbbb   mmmmmmmmm    </text>
+<text x="0" y="56.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">   mmmboobmmmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmmbboobmmm   </text>
+<text x="0" y="78.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmboooobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbboooobmmm  </text>
+<text x="0" y="100.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmbooobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbooobmmm  </text>
+<text x="0" y="122.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">  mmmmbobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbobmmmm  </text>
+<text x="0" y="144.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">   mmmmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmmmm   </text>
+<text x="0" y="166.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">    mmbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbmm    </text>
+<text x="0" y="188.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     mbbbbbbbbbbbmmwwbbbbbbbbbbbbbbmwwmbbbbbbbbbbbm     </text>
+<text x="0" y="210.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbmmawwmbboooooooobbwobwwmbbbbbbbbbbb     </text>
+<text x="0" y="232.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbmwwwwmaaaaaaaaaaaamwwwwmbbbbbbbbbbb     </text>
+<text x="0" y="254.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbbbbomwwmoaaaaaaaaaaaaomwwbobbbbbbbbbbb     </text>
+<text x="0" y="276.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbbboaaaooaaaaaaaaaaaaaaaaoaaaoobbbbbbbbb     </text>
+<text x="0" y="298.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbbboaaaaaaaoobmmmmmmmmbooaaaaaaaobbbbbbbb     </text>
+<text x="0" y="320.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbbboaaaaaobmwwwwwwwwwwwwwwmboaaaaaobbbbbbb     </text>
+<text x="0" y="342.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">     bbbbbboaaaaabwwwwwwwwwwwwwwwwwwwwbaaaaaobbbbbb     </text>
+<text x="0" y="364.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      bbbbbaoooobwwwwwwwwwwwwwwwwwwwwwwbooooabbbbb      </text>
+<text x="0" y="386.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">      bbbboooooobwwwwwwwwwwwwwwwwwwwwwwboooooobbbb      </text>
+<text x="0" y="408.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">       bbboaooooomwwwwwwwwwwwwwwwwwwwwmoooooaobbb       </text>
+<text x="0" y="430.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">       bbboaaaaaaabwwwwwwwwwwwwwwwwwwbaaaaaaabbbb       </text>
+<text x="0" y="452.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">        bbbaaaaaaaaaobmwwwwwwwwwwmboaaaaaaaaobbb        </text>
+<text x="0" y="474.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">         bbbaaaaaaaaaaaaaooooooaaaaaaaaaaaaabbb         </text>
+<text x="0" y="496.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">          bboaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbb          </text>
+<text x="0" y="518.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">            bboaaaaaaaaaoaaaaaaoaaaaaaaaaobb            </text>
+<text x="0" y="540.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">             bbboaaaaaaombbmmbmmoaaaaaaobbb             </text>
+<text x="0" y="562.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">               bbbooaaaaaooooooaaaaaoobbb               </text>
+<text x="0" y="584.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">                  bbbboooooooooooobbbb                  </text>
+<text x="0" y="606.5" textLength="896" lengthAdjust="spacingAndGlyphs" fill="url(#glyphGrad)"  xml:space="preserve" style="font-family:Menlo,SF Mono,ui-monospace,monospace;font-size:20px;white-space:pre">                      bbbbbbbbbbbb                      </text></g>
+<rect width="896" height="616" filter="url(#grainSoft)" opacity="0.05"/>
+<rect width="896" height="616" filter="url(#grain)" opacity="0.07"/>
+<rect width="896" height="616" fill="url(#vignette)"/>
+</svg>

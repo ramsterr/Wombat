@@ -1,0 +1,4 @@
+/wombat
+/wombat-*
+*.test
+.DS_Store

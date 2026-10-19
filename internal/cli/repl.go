@@ -1,0 +1,304 @@
+package cli
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"time"
+
+	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/session"
+)
+
+type renderer struct {
+	cfg       *config.Config
+	sess      *session.Session
+	quiet     bool
+	sp        *spinner
+	textOpen  bool
+	windowFn  func() int
+	cumIn     int
+	cumOut    int
+	cumCached int
+}
+
+func (r *renderer) hooks() agent.Hooks {
+	return agent.Hooks{
+		OnText: func(s string) {
+			if r.sp != nil && !r.textOpen {
+				r.sp.Stop()
+			}
+			r.textOpen = true
+			fmt.Print(s)
+		},
+		OnTool: func(name, detail string) {
+			if r.quiet {
+				return
+			}
+			r.breakLine()
+			fmt.Fprintf(os.Stderr, "%s %s %s\n", dim("⚒"), bold(name), dim(clipLine(detail, 100)))
+		},
+		OnToolResult: func(name, result string, dur time.Duration) {
+			if r.quiet {
+				return
+			}
+			preview := ""
+			if result != "" {
+				preview = dim(" · " + clipLine(result, 80))
+			}
+			mark := green("✓")
+			if strings.HasPrefix(result, "error:") {
+				mark = red("✗")
+			}
+			fmt.Fprintf(os.Stderr, "%s %s %s%s\n", mark, dim(name), dim(dur.Round(time.Millisecond).String()), preview)
+		},
+		OnUsage: func(u llm.Usage, history int) {
+			r.cumIn += u.In
+			r.cumOut += u.Out
+			r.cumCached += u.Cached
+			if r.quiet || !colorEnabled {
+				return
+			}
+			cache := ""
+			if u.Cached > 0 {
+				cache = fmt.Sprintf(" (cache %s)", humanTokens(u.Cached))
+			}
+			fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("· in %s%s out %s · context %s/%s",
+				humanTokens(u.In), cache, humanTokens(u.Out),
+				humanTokens(history), humanTokens(r.window()))))
+		},
+		OnCompact: func(kind string, before, after int) {
+			if r.quiet {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("⟳ %s compaction: %s → %s tokens",
+				kind, humanTokens(before), humanTokens(after))))
+		},
+	}
+}
+
+func (r *renderer) window() int {
+	if r.windowFn != nil {
+		return r.windowFn()
+	}
+	return 128000
+}
+
+func (r *renderer) breakLine() {
+	if r.textOpen {
+		fmt.Println()
+		r.textOpen = false
+	}
+}
+
+func cmdRepl(args []string, resume bool) error {
+	fs := flag.NewFlagSet("wombat", flag.ContinueOnError)
+	model := fs.String("m", "", "model override")
+	prov := fs.String("p", "", "provider override")
+	yolo := fs.Bool("yolo", false, "auto-approve tool permissions")
+	cont := fs.Bool("c", false, "continue latest session")
+	quiet := fs.Bool("quiet", false, "suppress tool output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	cfg := mustConfig()
+
+	var sess *session.Session
+	continueLatest := resume || *cont
+	if continueLatest {
+		id := fs.Arg(0)
+		if id == "" || id == "last" {
+			meta, err := session.Latest(cwd)
+			if err != nil {
+				return fmt.Errorf("no sessions to resume in %s", cwd)
+			}
+			id = meta.ID
+		}
+		sess, err = session.Open(id, cwd)
+		if err != nil {
+			return err
+		}
+		fmt.Println(dim("resumed session " + sess.ID() + " (" + fmt.Sprint(len(sess.Messages)) + " messages)"))
+	} else {
+		sess, err = session.Create(cwd, "", "", "")
+		if err != nil {
+			return err
+		}
+	}
+
+	p := newPrompter(isTTY(os.Stdin), *yolo, cfg)
+	r := &renderer{cfg: cfg, sess: sess, quiet: *quiet}
+	opts := runOpts{model: *model, provider: *prov, yolo: *yolo}
+
+	ag, err := buildAgent(cfg, opts, sess, p)
+	if err != nil {
+		return err
+	}
+	ag.Hooks = r.hooks()
+	r.windowFn = func() int { return ag.ContextWindow }
+
+	fmt.Printf("%s %s\n", bold("◆ wombat"), dim(Version+" · "+ag.Provider.Name()+"/"+ag.Model+" · session "+sess.ID()))
+	fmt.Println(dim("  /help for commands · ctrl+c interrupts a run · /exit quits"))
+
+	in := bufio.NewReader(os.Stdin)
+	firstInput := len(sess.Messages) == 0
+	for {
+		fmt.Print("\n" + green("❯") + " ")
+		line, err := in.ReadString('\n')
+		if err != nil {
+			fmt.Println()
+			return nil
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "/") {
+			done, newAg, newSess, err := handleCommand(line, cfg, ag, sess, p, r, &opts)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, red(err.Error()))
+			}
+			if done {
+				return nil
+			}
+			if newAg != nil {
+				ag = newAg
+				sess = newSess
+				r.sess = newSess
+				ag.Hooks = r.hooks()
+			}
+			continue
+		}
+		if firstInput {
+			sess.Meta.Title = clipLine(line, 80)
+			_ = sess.Flush()
+			firstInput = false
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		r.sp = startSpinner("thinking…")
+		r.textOpen = false
+		err = ag.Run(ctx, line)
+		r.sp.Stop()
+		stop()
+		r.breakLine()
+		if err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				fmt.Println(yellow("interrupted"))
+			} else {
+				fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
+			}
+		}
+	}
+}
+
+func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *session.Session, p *Prompter, r *renderer, opts *runOpts) (done bool, newAg *agent.Agent, newSess *session.Session, err error) {
+	parts := strings.Fields(line)
+	cmd := parts[0]
+	arg := ""
+	if len(parts) > 1 {
+		arg = strings.Join(parts[1:], " ")
+	}
+	switch cmd {
+	case "/exit", "/quit", "/q":
+		return true, nil, nil, nil
+	case "/help":
+		fmt.Print(`commands:
+  /model <name>     switch model
+  /models           list models from the current provider
+  /provider <name>  switch provider (must exist in config)
+  /new              start a fresh session
+  /compact          force context compaction
+  /cost             cumulative token usage
+  /yolo             toggle auto-approve
+  /status           show current settings
+  /exit             quit
+`)
+	case "/model":
+		if arg == "" {
+			return false, nil, nil, fmt.Errorf("usage: /model <name>")
+		}
+		opts.model = arg
+		cfg.Model = arg
+		_ = cfg.Save()
+		na, _, _, err := rebuild(cfg, *opts, sess, p, r)
+		return false, na, sess, err
+	case "/provider":
+		if arg == "" {
+			return false, nil, nil, fmt.Errorf("usage: /provider <name>")
+		}
+		if _, ok := cfg.Providers[arg]; !ok {
+			return false, nil, nil, fmt.Errorf("provider %q not in config (run `wombat setup`)", arg)
+		}
+		opts.provider = arg
+		opts.model = ""
+		cfg.Provider = arg
+		_ = cfg.Save()
+		na, _, _, err := rebuild(cfg, *opts, sess, p, r)
+		return false, na, sess, err
+	case "/models":
+		prov, _, _, err := buildProvider(context.Background(), cfg, opts.provider, opts.model)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		models, err := prov.ListModels(ctx)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		for _, m := range models {
+			fmt.Println("  " + m)
+		}
+	case "/new":
+		ns, err := session.Create(sess.Meta.Cwd, ag.Provider.Name(), ag.Model, "")
+		if err != nil {
+			return false, nil, nil, err
+		}
+		na, _, _, err := rebuild(cfg, *opts, ns, p, r)
+		fmt.Println(dim("new session " + ns.ID()))
+		return false, na, ns, err
+	case "/compact":
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		if err := ag.CompactNow(ctx); err != nil {
+			return false, nil, nil, err
+		}
+	case "/cost":
+		fmt.Printf("in %s (cache %s) · out %s · context ~%s/%s\n",
+			humanTokens(r.cumIn), humanTokens(r.cumCached), humanTokens(r.cumOut),
+			humanTokens(ag.HistoryTokens()), humanTokens(ag.ContextWindow))
+	case "/yolo":
+		p.auto = !p.auto
+		fmt.Println(dim(fmt.Sprintf("auto-approve: %v", p.auto)))
+	case "/status":
+		fmt.Printf("provider=%s model=%s session=%s cwd=%s\n", ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd)
+	default:
+		return false, nil, nil, fmt.Errorf("unknown command %s — /help", cmd)
+	}
+	return false, nil, nil, nil
+}
+
+func rebuild(cfg *config.Config, opts runOpts, sess *session.Session, p *Prompter, r *renderer) (*agent.Agent, string, string, error) {
+	na, err := buildAgent(cfg, opts, sess, p)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if sess.Meta.Model != "" {
+		sess.Meta.Model = na.Model
+	}
+	sess.Meta.Provider = na.Provider.Name()
+	_ = sess.Flush()
+	fmt.Println(dim("now using " + na.Provider.Name() + "/" + na.Model))
+	return na, na.Provider.Name(), na.Model, nil
+}

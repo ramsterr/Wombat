@@ -1,0 +1,104 @@
+# wombat
+
+A lightweight coding agent for the terminal. One static binary, zero dependencies, fast startup, small memory footprint.
+
+Wombat runs an agentic loop against any OpenAI-compatible API, Anthropic, or a local model server (Ollama, LM Studio, llama.cpp, vLLM, MLX), with tools for reading, writing, editing, searching files, and running shell commands.
+
+## Install
+
+```
+go build -o wombat ./cmd/wombat
+mv wombat ~/.local/bin/        # or anywhere on PATH
+```
+
+Requires Go 1.26+. No runtime dependencies.
+
+## Quickstart
+
+```
+wombat setup          # detect local servers, pick a provider and model
+wombat                # interactive session in the current directory
+wombat run "add tests for the parser and run them"
+wombat doctor         # verify config and connectivity
+```
+
+## Commands
+
+| command | what it does |
+|---|---|
+| `wombat` | interactive REPL (new session) |
+| `wombat resume [id\|last]` | resume a session |
+| `wombat run "<task>"` | one-shot headless run (exit code reflects failure) |
+| `wombat run -c "<task>"` | continue the latest session headless |
+| `wombat setup` | wizard: provider, API key, model selection |
+| `wombat models [provider]` | list models |
+| `wombat sessions` | list sessions for this directory |
+| `wombat doctor` | config, permissions, and connectivity checks |
+| `wombat config` | show config (API keys redacted) |
+| `wombat config set <key> <value>` | `provider`, `model`, `max_steps`, `permissions.bash\|write\|edit` |
+| `wombat version` | version |
+
+Flags for `run`/`resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`.
+
+REPL slash commands: `/model`, `/models`, `/provider`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/help`, `/exit`.
+
+## Providers
+
+Presets: `openai`, `anthropic`, `openrouter`, `deepseek`, `groq`, `xai`, `mistral`, plus local `ollama`, `lmstudio`, `llamacpp`, `vllm`, `mlx` — and any custom OpenAI-compatible endpoint.
+
+API keys resolve in order: config file → preset env var (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …) → `<PROVIDER>_API_KEY`. Local servers need no key.
+
+## Tools
+
+| tool | class | notes |
+|---|---|---|
+| `read` | read | line-numbered, offset/limit, 8 MB cap |
+| `write` | write | creates parent dirs |
+| `edit` | edit | exact-string replace; must match uniquely unless `replace_all` |
+| `bash` | bash | 120s timeout, output truncated head+tail |
+| `glob` | read | `**` patterns, skips `.git`/`node_modules` |
+| `grep` | read | pure-Go regex search |
+
+Permissions per class: `ask` (default), `allow`, `deny`. Read is always allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo`.
+
+## Context management
+
+Long sessions stay under the model window with two tiers:
+
+1. **Prune** — old tool outputs are replaced by short placeholders (protects the last two user turns and ~40k tokens of recent tool output).
+2. **Summarize** — when still too large, older history is condensed into a structured summary; the most recent ~15k tokens stay verbatim.
+
+Token usage, cache hits, and compaction events are reported live. Works with prompt caching on Anthropic and OpenAI.
+
+## Sessions
+
+Sessions are append-only JSONL files under `~/.wombat/sessions/<project-hash>/`, keyed to the working directory. Every run is resumable; `wombat sessions` lists them.
+
+## Configuration
+
+`~/.wombat/config.json` (0600). Overrides: `WOMBAT_HOME`, `WOMBAT_CONFIG`, `WOMBAT_PROVIDER`, `WOMBAT_MODEL`.
+
+```json
+{
+  "provider": "ollama",
+  "model": "qwen3:14b",
+  "providers": {
+    "ollama": {"kind": "ollama", "base_url": "http://127.0.0.1:11434", "num_ctx": 32768}
+  },
+  "permissions": {"bash": "ask", "write": "ask", "edit": "ask"},
+  "max_steps": 64
+}
+```
+
+## Architecture
+
+```
+cmd/wombat        entry point
+internal/cli      REPL, headless run, setup wizard, doctor
+internal/agent    agent loop, system prompt, context compaction
+internal/llm      provider adapters (OpenAI SSE, Anthropic, Ollama NDJSON)
+internal/tools    read/write/edit/bash/glob/grep
+internal/session  JSONL session persistence
+internal/config   config load/save, presets, key resolution
+internal/tokens   token estimation and model context windows
+```
