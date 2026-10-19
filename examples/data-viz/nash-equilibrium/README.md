@@ -10,3 +10,11 @@ Open `index.html` in any browser (no server needed). A lightweight, single-file 
 
 ## Theory (short)
 A Nash Equilibrium is a strategy profile where no player can improve their payoff by unilaterally changing strategy — each plays a best response to the others. In PD, (Defect, Defect) is the unique NE despite (Cooperate, Cooperate) being Pareto-superior. Nash proved every finite game has at least one NE (possibly mixed).
+
+## Result screenshots
+
+Captured from issue #13 (`simple nash equilibirium : task sucess`):
+
+- `screenshot-1.png` — payoff matrix with live NE highlighting
+- `screenshot-2.png` — sliders and best-response diagram
+- `screenshot-3.png` — theory notes and mixed-strategy view
