@@ -55,9 +55,9 @@ func newSessions(opt Options) sessionsModel {
 	d := list.NewDefaultDelegate()
 	d.ShowDescription = true
 	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Background(cYellow).Foreground(cInk).Bold(true).BorderLeftForeground(cYellow)
+		Background(cAccent).Foreground(cInk).Bold(true).BorderLeftForeground(cAccent)
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
-		Background(cYellow).Foreground(cInk).BorderLeftForeground(cYellow)
+		Background(cAccent).Foreground(cInk).BorderLeftForeground(cAccent)
 	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(styleAccent))
 	l := list.New(items, d, 40, 20)
 	l.SetShowTitle(false)
@@ -98,9 +98,16 @@ func renderPreview(cwd, id string) string {
 		return styleDim.Render("(empty session)")
 	}
 	var lines []string
-	for _, msg := range s.Messages {
+	for i, msg := range s.Messages {
 		switch msg.Role {
 		case "user":
+			if i == 0 && strings.HasPrefix(msg.Content, "Today: ") {
+				continue
+			}
+			if strings.HasPrefix(msg.Content, "[Conversation summary]") {
+				lines = append(lines, "", styleDim.Render("(context summary)"))
+				continue
+			}
 			lines = append(lines, "", styleAccent.Render("you"))
 			lines = append(lines, wrap(msg.Content, 68)...)
 		case "assistant":
@@ -190,7 +197,7 @@ func (m sessionsModel) update(msg tea.Msg) (sessionsModel, tea.Cmd) {
 					return m, nil
 				}
 				sel := m.list.SelectedItem().(sessionItem)
-				return m, exit("resume", sel.meta.ID)
+				return m, func() tea.Msg { return pickSessionMsg{id: sel.meta.ID} }
 			}
 		}
 		before := m.currentID()

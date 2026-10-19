@@ -29,7 +29,7 @@ type dayCount struct {
 	count int
 }
 
-type usageMsg struct{ stats usageStats }
+type usageStatsMsg struct{ stats usageStats }
 
 type usageModel struct {
 	opt   Options
@@ -80,7 +80,7 @@ func (m usageModel) Init() tea.Cmd {
 				st.maxDay = c
 			}
 		}
-		return usageMsg{stats: st}
+		return usageStatsMsg{stats: st}
 	}
 }
 
@@ -91,7 +91,7 @@ func (m usageModel) resize(w, h int) usageModel {
 
 func (m usageModel) update(msg tea.Msg) (usageModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case usageMsg:
+	case usageStatsMsg:
 		m.stats = msg.stats
 		m.ready = true
 		return m, nil

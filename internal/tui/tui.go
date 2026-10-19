@@ -16,15 +16,16 @@ type Action struct {
 }
 
 type Options struct {
-	Version string
-	Cwd     string
-	Cfg     *config.Config
+	Version   string
+	Cwd       string
+	Cfg       *config.Config
+	SessionID string
 }
 
 type screenID int
 
 const (
-	scrHome screenID = iota
+	scrChat screenID = iota
 	scrSessions
 	scrModels
 	scrDoctor
@@ -32,29 +33,71 @@ const (
 )
 
 var (
-	cYellow = lipgloss.Color("#FFC81E")
-	cInk    = lipgloss.Color("#0B0B0B")
-	cDim    = lipgloss.AdaptiveColor{Light: "242", Dark: "245"}
-	cGreen  = lipgloss.AdaptiveColor{Light: "28", Dark: "42"}
+	cInk    = lipgloss.Color("#0A1020")
+	cDim    = lipgloss.AdaptiveColor{Light: "240", Dark: "244"}
+	cFaint  = lipgloss.AdaptiveColor{Light: "248", Dark: "238"}
+	cGreen  = lipgloss.AdaptiveColor{Light: "28", Dark: "78"}
 	cRed    = lipgloss.AdaptiveColor{Light: "160", Dark: "203"}
-	cAccent = lipgloss.AdaptiveColor{Light: "130", Dark: "220"}
+	cWarn   = lipgloss.AdaptiveColor{Light: "166", Dark: "214"}
+	cAccent = lipgloss.AdaptiveColor{Light: "26", Dark: "75"}
+	cLink   = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
+	cBorder = lipgloss.AdaptiveColor{Light: "110", Dark: "60"}
+	cCode   = lipgloss.AdaptiveColor{Light: "25", Dark: "117"}
 )
 
 var (
 	styleTitle  = lipgloss.NewStyle().Bold(true)
 	styleDim    = lipgloss.NewStyle().Foreground(cDim)
+	styleFaint  = lipgloss.NewStyle().Foreground(cFaint)
 	styleGood   = lipgloss.NewStyle().Foreground(cGreen)
 	styleBad    = lipgloss.NewStyle().Foreground(cRed)
+	styleWarn   = lipgloss.NewStyle().Foreground(cWarn)
 	styleAccent = lipgloss.NewStyle().Foreground(cAccent)
-	styleButton = lipgloss.NewStyle().Background(cYellow).Foreground(cInk).Bold(true)
+	styleLink   = lipgloss.NewStyle().Foreground(cLink)
+	styleButton = lipgloss.NewStyle().Background(cAccent).Foreground(cInk).Bold(true)
+	styleKey    = lipgloss.NewStyle().Foreground(cInk).Background(cAccent).Bold(true)
 	stylePanel  = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(cDim).
+			BorderForeground(cBorder).
 			Padding(0, 1)
 	stylePanelTitle = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	styleCode       = lipgloss.NewStyle().Foreground(cCode)
+	styleInputBox   = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(cAccent).
+			Padding(0, 1)
+	styleInputIdle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(cBorder).
+			Padding(0, 1)
 )
 
 type loadErrMsg struct{ err error }
+
+type popMsg struct{}
+
+type openScreenMsg struct{ id screenID }
+
+type pickSessionMsg struct{ id string }
+
+type pickModelMsg struct{}
+
+type exitMsg struct {
+	kind string
+	id   string
+}
+
+type errMsg struct{ err error }
+
+func pop() tea.Msg { return popMsg{} }
+
+func openScreen(id screenID) tea.Cmd {
+	return func() tea.Msg { return openScreenMsg{id: id} }
+}
+
+func exit(k, id string) tea.Cmd {
+	return func() tea.Msg { return exitMsg{kind: k, id: id} }
+}
 
 func nowAgo(t time.Time) string {
 	d := time.Since(t)
@@ -125,7 +168,7 @@ type rootModel struct {
 	width  int
 	height int
 
-	home     homeModel
+	chat     *chat
 	sessions sessionsModel
 	models   modelsModel
 	doctor   doctorModel
@@ -139,32 +182,62 @@ func Run(opt Options) (Action, error) {
 	if opt.Cwd == "" {
 		opt.Cwd, _ = os.Getwd()
 	}
-	m := rootModel{
+	ch, err := newChat(opt)
+	if err != nil {
+		return Action{}, err
+	}
+	m := &rootModel{
 		opt:    opt,
-		home:   newHome(opt),
+		chat:   ch,
 		doctor: newDoctor(opt),
 		usage:  newUsage(opt),
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
+	m.chat.send = p.Send
 	final, err := p.Run()
 	if err != nil {
 		return Action{}, err
 	}
-	fm := final.(rootModel)
+	fm := final.(*rootModel)
 	return fm.action, fm.err
 }
 
-func (m rootModel) Init() tea.Cmd {
-	return tea.Batch(m.home.Init())
+func (m *rootModel) Init() tea.Cmd {
+	return m.chat.Init()
 }
 
-func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *rootModel) open(id screenID) tea.Cmd {
+	switch id {
+	case scrSessions:
+		m.sessions = newSessions(m.opt)
+		m.sessions = m.sessions.resize(m.width, m.height)
+		m.screen = scrSessions
+		return m.sessions.Init()
+	case scrModels:
+		m.models = newModels(m.opt)
+		m.models = m.models.resize(m.width, m.height)
+		m.screen = scrModels
+		return m.models.Init()
+	case scrDoctor:
+		m.doctor = newDoctor(m.opt)
+		m.doctor = m.doctor.resize(m.width, m.height)
+		m.screen = scrDoctor
+		return m.doctor.Init()
+	case scrUsage:
+		m.usage = newUsage(m.opt)
+		m.usage = m.usage.resize(m.width, m.height)
+		m.screen = scrUsage
+		return m.usage.Init()
+	}
+	return nil
+}
+
+func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.chat.resize(msg.Width, msg.Height)
 		switch m.screen {
-		case scrHome:
-			m.home = m.home.resize(msg.Width, msg.Height)
 		case scrSessions:
 			m.sessions = m.sessions.resize(msg.Width, msg.Height)
 		case scrModels:
@@ -176,8 +249,25 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case popMsg:
-		m.screen = scrHome
-		return m, nil
+		m.screen = scrChat
+		return m, m.chat.focusInput()
+	case openScreenMsg:
+		return m, m.open(msg.id)
+	case pickSessionMsg:
+		if err := m.chat.openSession(msg.id); err != nil {
+			m.chat.note("error: "+err.Error(), true)
+		}
+		m.screen = scrChat
+		return m, m.chat.focusInput()
+	case pickModelMsg:
+		if err := m.chat.rebuild(true); err != nil {
+			m.chat.note("error: "+err.Error(), true)
+		}
+		m.screen = scrChat
+		return m, m.chat.focusInput()
+	case permAskMsg:
+		m.screen = scrChat
+		return m, m.chat.update(msg)
 	case exitMsg:
 		m.action = Action{Kind: msg.kind, ID: msg.id}
 		return m, tea.Quit
@@ -186,48 +276,26 @@ func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	var cmd tea.Cmd
-	switch m.screen {
-	case scrHome:
-		var out homeOut
-		m.home, out, cmd = m.home.update(msg)
-		if out.open != "" {
-			switch out.open {
-			case "sessions":
-				m.sessions = newSessions(m.opt)
-				m.sessions = m.sessions.resize(m.width, m.height)
-				m.screen = scrSessions
-				cmd = m.sessions.Init()
-			case "models":
-				m.models = newModels(m.opt)
-				m.models = m.models.resize(m.width, m.height)
-				m.screen = scrModels
-				cmd = m.models.Init()
-			case "doctor":
-				m.doctor = newDoctor(m.opt)
-				m.doctor = m.doctor.resize(m.width, m.height)
-				m.screen = scrDoctor
-				cmd = m.doctor.Init()
-			case "usage":
-				m.usage = newUsage(m.opt)
-				m.usage = m.usage.resize(m.width, m.height)
-				m.screen = scrUsage
-				cmd = m.usage.Init()
-			}
-		}
-	case scrSessions:
-		m.sessions, cmd = m.sessions.update(msg)
-	case scrModels:
-		m.models, cmd = m.models.update(msg)
-	case scrDoctor:
-		m.doctor, cmd = m.doctor.update(msg)
-	case scrUsage:
-		m.usage, cmd = m.usage.update(msg)
+	if m.screen == scrChat {
+		return m, m.chat.update(msg)
 	}
-	return m, cmd
+
+	var overlay tea.Cmd
+	switch m.screen {
+	case scrSessions:
+		m.sessions, overlay = m.sessions.update(msg)
+	case scrModels:
+		m.models, overlay = m.models.update(msg)
+	case scrDoctor:
+		m.doctor, overlay = m.doctor.update(msg)
+	case scrUsage:
+		m.usage, overlay = m.usage.update(msg)
+	}
+	async := m.chat.updateAsync(msg)
+	return m, tea.Batch(overlay, async)
 }
 
-func (m rootModel) View() string {
+func (m *rootModel) View() string {
 	switch m.screen {
 	case scrSessions:
 		return m.sessions.view()
@@ -238,20 +306,6 @@ func (m rootModel) View() string {
 	case scrUsage:
 		return m.usage.view()
 	default:
-		return m.home.view()
+		return m.chat.view()
 	}
-}
-
-type popMsg struct{}
-
-type exitMsg struct {
-	kind string
-	id   string
-}
-
-type errMsg struct{ err error }
-
-func pop() tea.Msg { return popMsg{} }
-func exit(k, id string) tea.Cmd {
-	return func() tea.Msg { return exitMsg{kind: k, id: id} }
 }

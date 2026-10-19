@@ -76,9 +76,9 @@ func newModels(opt Options) modelsModel {
 	d := list.NewDefaultDelegate()
 	d.ShowDescription = true
 	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Background(cYellow).Foreground(cInk).Bold(true).BorderLeftForeground(cYellow)
+		Background(cAccent).Foreground(cInk).Bold(true).BorderLeftForeground(cAccent)
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
-		Background(cYellow).Foreground(cInk).BorderLeftForeground(cYellow)
+		Background(cAccent).Foreground(cInk).BorderLeftForeground(cAccent)
 	l := list.New(nil, d, 40, 20)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
@@ -212,7 +212,7 @@ func (m modelsModel) update(msg tea.Msg) (modelsModel, tea.Cmd) {
 				m.opt.Cfg.Provider = m.provider()
 				m.opt.Cfg.Model = it.name
 				_ = m.opt.Cfg.Save()
-				return m, pop
+				return m, func() tea.Msg { return pickModelMsg{} }
 			}
 		}
 	}

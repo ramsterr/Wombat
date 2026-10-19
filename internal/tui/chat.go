@@ -1,0 +1,1071 @@
+package tui
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/tokens"
+	"github.com/ramsterr/Wombat/internal/tools"
+)
+
+const helpLines = `/help             this list
+/model [name]     switch model (no name: picker)
+/provider [name]  switch provider (no name: picker)
+/models           browse models
+/sessions         browse sessions
+/new              start a fresh session
+/compact          compact context now
+/cost             token usage
+/status           show settings
+/yolo             toggle auto-approve
+/clear            clear the transcript view
+/setup            reconfigure providers
+/exit             quit`
+
+type entryKind int
+
+const (
+	entryUser entryKind = iota
+	entryAssistant
+	entryTool
+	entryNote
+)
+
+type chatEntry struct {
+	kind      entryKind
+	text      string
+	name      string
+	detail    string
+	result    string
+	dur       time.Duration
+	running   bool
+	ok        bool
+	streaming bool
+	isErr     bool
+	pre       bool
+}
+
+type textMsg string
+
+type toolStartMsg struct {
+	name   string
+	detail string
+}
+
+type toolDoneMsg struct {
+	name   string
+	result string
+	dur    time.Duration
+}
+
+type usageMsg struct {
+	u       llm.Usage
+	history int
+}
+
+type compactMsg struct {
+	kind   string
+	before int
+	after  int
+}
+
+type compactDoneMsg struct{ err error }
+
+type runDoneMsg struct{ err error }
+
+type noteMsg struct {
+	text  string
+	isErr bool
+}
+
+type permAskMsg struct {
+	kind   string
+	detail string
+	reply  chan bool
+}
+
+type chat struct {
+	opt Options
+	cfg *config.Config
+
+	sess *session.Session
+	ag   *agent.Agent
+
+	provName  string
+	modelName string
+
+	vp viewport.Model
+	ta textarea.Model
+	sp spinner.Model
+
+	w, h       int
+	inputLines int
+	entries    []*chatEntry
+
+	streaming bool
+	cancel    context.CancelFunc
+	follow    bool
+	perm      *permAskMsg
+
+	auto   bool
+	always map[string]bool
+
+	cumIn, cumOut, cumCached int
+	history, window          int
+
+	send func(tea.Msg)
+}
+
+func newChat(opt Options) (*chat, error) {
+	if opt.Cwd == "" {
+		opt.Cwd, _ = os.Getwd()
+	}
+	if opt.Cfg == nil {
+		return nil, fmt.Errorf("no config loaded")
+	}
+	c := &chat{
+		opt:    opt,
+		cfg:    opt.Cfg,
+		always: map[string]bool{},
+		follow: true,
+	}
+	c.provName = c.cfg.Provider
+	c.modelName = c.cfg.ActiveModel()
+
+	var err error
+	if opt.SessionID != "" {
+		c.sess, err = session.Open(opt.SessionID, opt.Cwd)
+		if err != nil {
+			return nil, err
+		}
+		if c.sess.Meta.Provider != "" {
+			if _, ok := c.cfg.Providers[c.sess.Meta.Provider]; ok {
+				c.provName = c.sess.Meta.Provider
+			}
+		}
+		if c.sess.Meta.Model != "" {
+			c.modelName = c.sess.Meta.Model
+		}
+	}
+
+	ta := textarea.New()
+	ta.Prompt = "❯ "
+	ta.Placeholder = "Ask anything, or /help"
+	ta.ShowLineNumbers = false
+	ta.CharLimit = 0
+	ta.MaxHeight = 6
+	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
+	ta.FocusedStyle.Prompt = styleAccent
+	ta.FocusedStyle.Placeholder = styleFaint
+	ta.FocusedStyle.Text = lipgloss.NewStyle()
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.BlurredStyle.Prompt = styleFaint
+	ta.BlurredStyle.Placeholder = styleFaint
+	ta.BlurredStyle.Text = lipgloss.NewStyle()
+	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	c.ta = ta
+
+	c.vp = viewport.New(80, 20)
+	c.sp = spinner.New(spinner.WithSpinner(spinner.Line), spinner.WithStyle(styleAccent))
+
+	if c.sess != nil {
+		if err := c.rebuild(false); err != nil {
+			return nil, err
+		}
+		c.loadHistory()
+	}
+	return c, nil
+}
+
+func (c *chat) Init() tea.Cmd {
+	return c.ta.Focus()
+}
+
+func (c *chat) focusInput() tea.Cmd {
+	c.layout()
+	return c.ta.Focus()
+}
+
+func (c *chat) emit(msg tea.Msg) {
+	defer func() { _ = recover() }()
+	if c.send != nil {
+		c.send(msg)
+	}
+}
+
+func (c *chat) hooks() agent.Hooks {
+	return agent.Hooks{
+		OnText: func(s string) { c.emit(textMsg(s)) },
+		OnTool: func(name, detail string) {
+			c.emit(toolStartMsg{name: name, detail: detail})
+		},
+		OnToolResult: func(name, result string, dur time.Duration) {
+			c.emit(toolDoneMsg{name: name, result: result, dur: dur})
+		},
+		OnUsage: func(u llm.Usage, history int) {
+			c.emit(usageMsg{u: u, history: history})
+		},
+		OnCompact: func(kind string, before, after int) {
+			c.emit(compactMsg{kind: kind, before: before, after: after})
+		},
+	}
+}
+
+func (c *chat) rebuild(reset bool) error {
+	if reset {
+		c.provName = c.cfg.Provider
+		c.modelName = c.cfg.ActiveModel()
+	}
+	if c.sess == nil {
+		c.window = tokens.Window(c.modelName)
+		return nil
+	}
+	if c.provName == "" {
+		c.provName = c.cfg.Provider
+	}
+	if c.modelName == "" {
+		c.modelName = c.cfg.ActiveModel()
+	}
+	if c.provName == "" {
+		return fmt.Errorf("no provider configured — run `wombat setup`")
+	}
+	pc, ok := c.cfg.Providers[c.provName]
+	if !ok {
+		return fmt.Errorf("provider %q not found — run `wombat setup`", c.provName)
+	}
+	if c.modelName == "" {
+		return fmt.Errorf("no model selected — pick one with /model")
+	}
+	prov, err := llm.New(c.provName, pc, c.cfg.APIKey(c.provName, pc))
+	if err != nil {
+		return err
+	}
+	cwd := c.sess.Meta.Cwd
+	if cwd == "" {
+		cwd = c.opt.Cwd
+	}
+	c.ag = &agent.Agent{
+		Provider:      prov,
+		Model:         c.modelName,
+		Tools:         tools.Registry(),
+		Env:           &tools.Env{Dir: cwd, Permit: c.permit},
+		Sess:          c.sess,
+		MaxSteps:      c.cfg.MaxSteps,
+		Compact:       true,
+		ContextWindow: tokens.Window(c.modelName),
+		NumCtx:        pc.NumCtx,
+	}
+	c.ag.Hooks = c.hooks()
+	c.window = c.ag.ContextWindow
+	c.history = c.ag.HistoryTokens()
+	c.sess.Meta.Provider = c.provName
+	c.sess.Meta.Model = c.modelName
+	_ = c.sess.Flush()
+	return nil
+}
+
+func (c *chat) openSession(id string) error {
+	if c.streaming {
+		return fmt.Errorf("stop the current run first (esc)")
+	}
+	s, err := session.Open(id, c.opt.Cwd)
+	if err != nil {
+		return err
+	}
+	c.sess = s
+	c.entries = nil
+	c.cumIn, c.cumOut, c.cumCached, c.history = 0, 0, 0, 0
+	if s.Meta.Provider != "" {
+		if _, ok := c.cfg.Providers[s.Meta.Provider]; ok {
+			c.provName = s.Meta.Provider
+		}
+	}
+	if s.Meta.Model != "" {
+		c.modelName = s.Meta.Model
+	}
+	buildErr := c.rebuild(false)
+	c.loadHistory()
+	c.follow = true
+	c.layout()
+	c.refresh()
+	if buildErr != nil {
+		c.note("error: "+buildErr.Error(), true)
+	}
+	return nil
+}
+
+func (c *chat) permit(kind, detail string) bool {
+	if v, ok := c.cfg.Permissions[kind]; ok {
+		switch v {
+		case "allow":
+			return true
+		case "deny":
+			c.emit(noteMsg{text: "[permission] " + kind + " is denied by config: " + clip(oneline(detail), 100), isErr: true})
+			return false
+		}
+	}
+	if c.auto || c.always[kind] {
+		return true
+	}
+	reply := make(chan bool, 1)
+	if c.send == nil {
+		return false
+	}
+	c.emit(permAskMsg{kind: kind, detail: detail, reply: reply})
+	select {
+	case ok := <-reply:
+		return ok
+	case <-time.After(10 * time.Minute):
+		return false
+	}
+}
+
+func (c *chat) loadHistory() {
+	c.entries = nil
+	var pending []*chatEntry
+	for i, m := range c.sess.Messages {
+		switch m.Role {
+		case "user":
+			if i == 0 && strings.HasPrefix(m.Content, "Today: ") {
+				continue
+			}
+			if strings.HasPrefix(m.Content, "[Conversation summary]") {
+				c.entries = append(c.entries, &chatEntry{kind: entryNote, text: "context was compacted (summary above kept verbatim)"})
+				continue
+			}
+			c.entries = append(c.entries, &chatEntry{kind: entryUser, text: m.Content})
+		case "assistant":
+			if strings.TrimSpace(m.Content) != "" {
+				c.entries = append(c.entries, &chatEntry{kind: entryAssistant, text: m.Content})
+			}
+			for _, tc := range m.ToolCalls {
+				e := &chatEntry{kind: entryTool, name: tc.Name, detail: toolArgsPreview(tc.Arguments), running: true}
+				c.entries = append(c.entries, e)
+				pending = append(pending, e)
+			}
+		case "tool":
+			if len(pending) == 0 {
+				continue
+			}
+			e := pending[0]
+			pending = pending[1:]
+			e.running = false
+			e.ok = !strings.HasPrefix(m.Content, "error:")
+			e.result = clip(oneline(m.Content), 120)
+			e.dur = 0
+		}
+	}
+	c.follow = true
+}
+
+func fmtDuration(d time.Duration) string {
+	if d <= 0 {
+		return "<1ms"
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.2fs", d.Seconds())
+}
+
+func toolArgsPreview(raw string) string {
+	var m map[string]any
+	if json.Unmarshal([]byte(raw), &m) == nil {
+		for _, k := range []string{"command", "path", "file_path", "pattern", "query", "glob"} {
+			if v, ok := m[k].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+	return clip(oneline(raw), 90)
+}
+
+func (c *chat) resize(w, h int) {
+	if w == c.w && h == c.h {
+		return
+	}
+	c.w, c.h = w, h
+	c.layout()
+	c.refresh()
+}
+
+func (c *chat) layout() {
+	if c.w <= 0 || c.h <= 0 {
+		return
+	}
+	inner := c.w - 4
+	if inner < 20 {
+		inner = 20
+	}
+	c.ta.SetWidth(inner - 2)
+	lines := 1
+	if c.perm != nil {
+		lines = 3
+	} else {
+		lines = strings.Count(c.ta.Value(), "\n") + 1
+		if lines < 1 {
+			lines = 1
+		}
+		if lines > 6 {
+			lines = 6
+		}
+	}
+	c.inputLines = lines
+	c.ta.SetHeight(lines)
+	vh := c.h - 1 - (lines + 2) - 1
+	if vh < 3 {
+		vh = 3
+	}
+	c.vp.Width = c.w
+	c.vp.Height = vh
+}
+
+func (c *chat) refresh() {
+	if c.w <= 0 || c.h <= 0 {
+		return
+	}
+	if len(c.entries) == 0 {
+		c.vp.SetContent(c.welcome())
+	} else {
+		var blocks []string
+		for _, e := range c.entries {
+			if lines := c.entryLines(e); len(lines) > 0 {
+				blocks = append(blocks, strings.Join(lines, "\n"))
+			}
+		}
+		content := strings.Join(blocks, "\n\n") + "\n"
+		if pad := c.vp.Height - strings.Count(content, "\n"); pad > 0 {
+			content = strings.Repeat("\n", pad) + content
+		}
+		c.vp.SetContent(content)
+	}
+	if c.follow {
+		c.vp.GotoBottom()
+	}
+}
+
+func (c *chat) welcome() string {
+	cwd := c.opt.Cwd
+	if home, err := os.UserHomeDir(); err == nil {
+		if rel, err := filepath.Rel(home, cwd); err == nil && !strings.HasPrefix(rel, "..") {
+			cwd = "~/" + rel
+		}
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleAccent.Bold(true).Render("◆ wombat") + "  " + styleDim.Render(c.opt.Version) + "\n\n")
+	b.WriteString("  " + styleTitle.Render("a lightweight coding agent") + "\n\n")
+	b.WriteString("  " + styleDim.Render("provider ") + c.provName + "/" + c.modelName + "\n")
+	b.WriteString("  " + styleDim.Render("session  ") + c.sessionID() + "\n")
+	b.WriteString("  " + styleDim.Render("dir      ") + clip(cwd, max(10, c.w-12)) + "\n\n")
+	b.WriteString("  " + styleFaint.Render("type a message to begin · /help for commands") + "\n")
+	return b.String()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (c *chat) note(text string, isErr bool) {
+	c.entries = append(c.entries, &chatEntry{kind: entryNote, text: text, isErr: isErr})
+	c.refresh()
+}
+
+func (c *chat) notePre(text string) {
+	c.entries = append(c.entries, &chatEntry{kind: entryNote, text: text, pre: true})
+	c.refresh()
+}
+
+func (c *chat) currentAssistant() *chatEntry {
+	if n := len(c.entries); n > 0 {
+		if e := c.entries[n-1]; e.kind == entryAssistant && e.streaming {
+			return e
+		}
+	}
+	e := &chatEntry{kind: entryAssistant, streaming: true}
+	c.entries = append(c.entries, e)
+	return e
+}
+
+func (c *chat) finishAssistant() {
+	if n := len(c.entries); n > 0 {
+		if e := c.entries[n-1]; e.kind == entryAssistant {
+			e.streaming = false
+		}
+	}
+}
+
+func (c *chat) ensureSession() error {
+	if c.sess != nil {
+		return nil
+	}
+	s, err := session.Create(c.opt.Cwd, c.provName, c.modelName, "")
+	if err != nil {
+		return err
+	}
+	c.sess = s
+	return c.rebuild(false)
+}
+
+func (c *chat) sessionID() string {
+	if c.sess == nil {
+		return "new"
+	}
+	return c.sess.ID()
+}
+
+func (c *chat) submit(text string) tea.Cmd {
+	c.ta.Reset()
+	c.layout()
+	if strings.HasPrefix(text, "/") {
+		cmd := c.command(text)
+		c.refresh()
+		return cmd
+	}
+	if err := c.ensureSession(); err != nil {
+		c.note("error: "+err.Error(), true)
+		return nil
+	}
+	if c.ag == nil {
+		c.note("no model configured — run `wombat setup`", true)
+		return nil
+	}
+	if c.sess.Meta.Title == "" {
+		c.sess.Meta.Title = clip(oneline(text), 80)
+		_ = c.sess.Flush()
+	}
+	c.entries = append(c.entries, &chatEntry{kind: entryUser, text: text})
+	c.entries = append(c.entries, &chatEntry{kind: entryAssistant, streaming: true})
+	c.streaming = true
+	c.follow = true
+	c.refresh()
+
+	ag := c.ag
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
+	return tea.Batch(func() tea.Msg {
+		go func() { c.emit(runDoneMsg{err: ag.Run(ctx, text)}) }()
+		return nil
+	}, c.sp.Tick)
+}
+
+func (c *chat) interrupt() {
+	if c.perm != nil {
+		c.answerPerm(false, false)
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.note("interrupting…", false)
+}
+
+func (c *chat) command(line string) tea.Cmd {
+	parts := strings.Fields(line)
+	name := parts[0]
+	arg := strings.TrimSpace(strings.TrimPrefix(line, name))
+	busy := func() bool {
+		if c.streaming {
+			c.note("stop the current run first (esc)", true)
+			return true
+		}
+		return false
+	}
+	switch name {
+	case "/exit", "/quit", "/q":
+		if busy() {
+			return nil
+		}
+		return exit("quit", "")
+	case "/help":
+		c.notePre(helpLines)
+	case "/model":
+		if busy() {
+			return nil
+		}
+		if arg == "" {
+			return openScreen(scrModels)
+		}
+		c.cfg.Model = arg
+		_ = c.cfg.Save()
+		c.provName = c.cfg.Provider
+		c.modelName = arg
+		if err := c.rebuild(false); err != nil {
+			c.note("error: "+err.Error(), true)
+		} else {
+			c.note("model: "+c.provName+"/"+c.modelName, false)
+		}
+	case "/provider":
+		if busy() {
+			return nil
+		}
+		if arg == "" {
+			return openScreen(scrModels)
+		}
+		if _, ok := c.cfg.Providers[arg]; !ok {
+			c.note("provider "+arg+" not in config — run `wombat setup`", true)
+			break
+		}
+		c.cfg.Provider = arg
+		c.cfg.Model = ""
+		_ = c.cfg.Save()
+		c.provName = arg
+		c.modelName = ""
+		return openScreen(scrModels)
+	case "/models":
+		return openScreen(scrModels)
+	case "/sessions":
+		return openScreen(scrSessions)
+	case "/doctor":
+		return openScreen(scrDoctor)
+	case "/usage":
+		return openScreen(scrUsage)
+	case "/new":
+		if busy() {
+			return nil
+		}
+		ns, err := session.Create(c.opt.Cwd, c.provName, c.modelName, "")
+		if err != nil {
+			c.note("error: "+err.Error(), true)
+			break
+		}
+		c.sess = ns
+		c.entries = nil
+		c.cumIn, c.cumOut, c.cumCached, c.history = 0, 0, 0, 0
+		if err := c.rebuild(false); err != nil {
+			c.note("error: "+err.Error(), true)
+		}
+		c.note("new session "+ns.ID(), false)
+	case "/compact":
+		if busy() || c.ag == nil {
+			return nil
+		}
+		ag := c.ag
+		c.note("compacting context…", false)
+		return func() tea.Msg {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer cancel()
+				c.emit(compactDoneMsg{err: ag.CompactNow(ctx)})
+			}()
+			return nil
+		}
+	case "/cost":
+		c.note(fmt.Sprintf("in %s (cache %s) · out %s · context %s/%s",
+			humanN(c.cumIn), humanN(c.cumCached), humanN(c.cumOut), humanN(c.history), humanN(c.window)), false)
+	case "/status":
+		cwd := c.opt.Cwd
+		if c.sess != nil {
+			cwd = c.sess.Meta.Cwd
+		}
+		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nauto-approve=%v",
+			c.provName, c.modelName, c.sessionID(), cwd, c.auto), false)
+	case "/yolo":
+		c.auto = !c.auto
+		c.note(fmt.Sprintf("auto-approve: %v", c.auto), false)
+	case "/clear":
+		c.entries = nil
+	case "/setup":
+		if busy() {
+			return nil
+		}
+		return exit("configure", "")
+	default:
+		c.note("unknown command "+name+" — /help", true)
+	}
+	return nil
+}
+
+func (c *chat) answerPerm(ok, always bool) {
+	p := c.perm
+	c.perm = nil
+	if p == nil {
+		return
+	}
+	if always && ok {
+		c.always[p.kind] = true
+	}
+	p.reply <- ok
+	if ok {
+		c.note("allowed "+p.kind, false)
+	} else {
+		c.note("denied "+p.kind, false)
+	}
+	c.layout()
+}
+
+func (c *chat) updateAsync(msg tea.Msg) tea.Cmd {
+	switch msg.(type) {
+	case textMsg, toolStartMsg, toolDoneMsg, usageMsg, compactMsg, compactDoneMsg, noteMsg, runDoneMsg:
+		return c.update(msg)
+	case spinner.TickMsg:
+		if c.streaming {
+			return c.update(msg)
+		}
+	}
+	return nil
+}
+
+func (c *chat) update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if !c.streaming {
+			return nil
+		}
+		var cmd tea.Cmd
+		c.sp, cmd = c.sp.Update(msg)
+		return cmd
+	case textMsg:
+		c.currentAssistant().text += string(msg)
+		c.refresh()
+		return nil
+	case toolStartMsg:
+		c.finishAssistant()
+		c.entries = append(c.entries, &chatEntry{kind: entryTool, name: msg.name, detail: msg.detail, running: true})
+		c.refresh()
+		return nil
+	case toolDoneMsg:
+		for i := len(c.entries) - 1; i >= 0; i-- {
+			e := c.entries[i]
+			if e.kind == entryTool && e.running {
+				e.running = false
+				e.ok = !strings.HasPrefix(msg.result, "error:")
+				e.dur = msg.dur
+				e.result = clip(oneline(msg.result), 120)
+				break
+			}
+		}
+		c.refresh()
+		return nil
+	case usageMsg:
+		c.cumIn += msg.u.In
+		c.cumOut += msg.u.Out
+		c.cumCached += msg.u.Cached
+		c.history = msg.history
+		return nil
+	case compactMsg:
+		c.note(fmt.Sprintf("%s compaction: %s → %s tokens", msg.kind, humanN(msg.before), humanN(msg.after)), false)
+		return nil
+	case compactDoneMsg:
+		if msg.err != nil {
+			c.note("error: "+msg.err.Error(), true)
+		}
+		return nil
+	case noteMsg:
+		c.note(msg.text, msg.isErr)
+		return nil
+	case permAskMsg:
+		p := msg
+		c.perm = &p
+		c.layout()
+		c.refresh()
+		return nil
+	case runDoneMsg:
+		c.streaming = false
+		c.cancel = nil
+		c.finishAssistant()
+		switch {
+		case msg.err == nil:
+		case errors.Is(msg.err, context.Canceled):
+			c.note("interrupted", false)
+		default:
+			c.note("error: "+msg.err.Error(), true)
+		}
+		if c.ag != nil {
+			c.history = c.ag.HistoryTokens()
+		}
+		c.refresh()
+		return nil
+	case tea.KeyMsg:
+		return c.key(msg)
+	}
+	var cmd tea.Cmd
+	c.ta, cmd = c.ta.Update(msg)
+	c.layout()
+	if c.follow {
+		c.vp.GotoBottom()
+	}
+	return cmd
+}
+
+func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
+	if c.perm != nil {
+		switch msg.String() {
+		case "y", "Y":
+			c.answerPerm(true, false)
+		case "a", "A":
+			c.answerPerm(true, true)
+		case "n", "N", "esc":
+			c.answerPerm(false, false)
+		}
+		return nil
+	}
+	switch msg.String() {
+	case "ctrl+c":
+		if c.streaming {
+			c.interrupt()
+			return nil
+		}
+		return exit("quit", "")
+	case "esc":
+		if c.streaming {
+			c.interrupt()
+		}
+		return nil
+	case "pgup":
+		c.follow = false
+		var cmd tea.Cmd
+		c.vp, cmd = c.vp.Update(msg)
+		return cmd
+	case "pgdown":
+		var cmd tea.Cmd
+		c.vp, cmd = c.vp.Update(msg)
+		if c.vp.AtBottom() {
+			c.follow = true
+		}
+		return cmd
+	case "enter":
+		if c.streaming {
+			return nil
+		}
+		text := strings.TrimSpace(c.ta.Value())
+		if text == "" {
+			return nil
+		}
+		return c.submit(text)
+	}
+	var cmd tea.Cmd
+	c.ta, cmd = c.ta.Update(msg)
+	c.layout()
+	if c.follow {
+		c.vp.GotoBottom()
+	}
+	return cmd
+}
+
+func (c *chat) header() string {
+	left := " " + styleAccent.Bold(true).Render("◆ wombat")
+	if c.streaming {
+		left += " " + c.sp.View()
+	}
+	right := styleDim.Render(c.provName+"/"+c.modelName) + "  " + styleFaint.Render(c.sessionID())
+	if c.w <= 0 {
+		return left
+	}
+	gap := c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	if gap < 1 {
+		right = styleDim.Render(clip(c.provName+"/"+c.modelName, 30))
+		gap = c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	}
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+func (c *chat) hint() string {
+	var left string
+	switch {
+	case c.perm != nil:
+		left = styleWarn.Render("waiting for permission") + styleDim.Render("  y allow · a always · n deny")
+	case c.streaming:
+		left = styleDim.Render("esc interrupt · working…")
+	default:
+		left = styleFaint.Render("enter send · alt+enter newline · /help · ctrl+c quit")
+	}
+	if c.cumIn+c.cumOut == 0 || c.w <= 0 {
+		return " " + left
+	}
+	right := styleFaint.Render(fmt.Sprintf("ctx %s/%s", humanN(c.history), humanN(c.window)))
+	gap := c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	if gap < 1 {
+		return " " + left
+	}
+	return " " + left + strings.Repeat(" ", gap) + right + " "
+}
+
+func (c *chat) permView() string {
+	p := c.perm
+	title := styleWarn.Bold(true).Render("permission") + "  " + styleTitle.Render(p.kind)
+	detail := styleDim.Render(clip(oneline(p.detail), max(10, c.w-16)))
+	keys := styleKey.Render(" y ") + " allow   " +
+		styleKey.Render(" a ") + " always " + p.kind + "   " +
+		styleKey.Render(" n ") + " deny"
+	return title + "\n" + detail + "\n" + keys
+}
+
+func (c *chat) view() string {
+	if c.w <= 0 || c.h <= 0 {
+		return ""
+	}
+	var box string
+	if c.perm != nil {
+		box = styleInputIdle.BorderForeground(cWarn).Width(c.w - 4).Render(c.permView())
+	} else {
+		style := styleInputIdle
+		if !c.streaming {
+			style = styleInputBox
+		}
+		box = style.Width(c.w - 4).Render(c.ta.View())
+	}
+	return c.header() + "\n" + c.vp.View() + "\n" + box + "\n" + c.hint()
+}
+
+func (c *chat) entryLines(e *chatEntry) []string {
+	w := c.w - 6
+	if w < 20 {
+		w = 20
+	}
+	switch e.kind {
+	case entryUser:
+		lines := []string{" " + styleAccent.Bold(true).Render("you")}
+		for _, ln := range wrap(e.text, w) {
+			lines = append(lines, "   "+ln)
+		}
+		return lines
+	case entryAssistant:
+		lines := []string{" " + styleAccent.Bold(true).Render("◆ wombat")}
+		var body []string
+		if strings.TrimSpace(e.text) != "" {
+			body = renderMarkdown(e.text, w)
+		}
+		if len(body) == 0 {
+			if !e.streaming {
+				return nil
+			}
+			body = []string{styleFaint.Render("thinking…")}
+		}
+		for _, ln := range body {
+			lines = append(lines, "   "+ln)
+		}
+		if e.streaming {
+			lines[len(lines)-1] += styleAccent.Render("▍")
+		}
+		return lines
+	case entryTool:
+		head := " "
+		switch {
+		case e.running:
+			head += c.sp.View() + " "
+		case e.ok:
+			head += styleGood.Render("✓") + " "
+		default:
+			head += styleBad.Render("✗") + " "
+		}
+		head += styleTitle.Render(e.name)
+		if e.detail != "" {
+			head += "  " + styleDim.Render(clip(oneline(e.detail), max(8, w-12)))
+		}
+		lines := []string{head}
+		if !e.running {
+			meta := styleFaint.Render("→ " + fmtDuration(e.dur))
+			if e.result != "" {
+				meta += styleFaint.Render(" · " + clip(e.result, max(8, w-24)))
+			}
+			lines = append(lines, "   "+meta)
+		}
+		return lines
+	default:
+		st := styleFaint
+		if e.isErr {
+			st = styleBad
+		}
+		var out []string
+		if e.pre {
+			for _, ln := range strings.Split(e.text, "\n") {
+				out = append(out, " "+st.Render(clip(ln, w+4)))
+			}
+			return out
+		}
+		for _, ln := range wrap(e.text, w) {
+			out = append(out, " "+st.Render(ln))
+		}
+		return out
+	}
+}
+
+func inlineStyle(s string) string {
+	parts := strings.Split(s, "`")
+	if len(parts) >= 3 {
+		for i := range parts {
+			if i%2 == 1 {
+				parts[i] = styleCode.Render(parts[i])
+			}
+		}
+		s = strings.Join(parts, "")
+	}
+	parts = strings.Split(s, "**")
+	if len(parts) >= 3 {
+		for i := range parts {
+			if i%2 == 1 {
+				parts[i] = styleTitle.Render(parts[i])
+			}
+		}
+		s = strings.Join(parts, "")
+	}
+	return s
+}
+
+func renderMarkdown(s string, width int) []string {
+	var out []string
+	inCode := false
+	for _, raw := range strings.Split(s, "\n") {
+		line := strings.TrimRight(raw, " \t")
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCode = !inCode
+			if !inCode {
+				out = append(out, "")
+			}
+			continue
+		}
+		if inCode {
+			out = append(out, styleCode.Render(" "+clip(line, width-2)))
+			continue
+		}
+		if trimmed == "" {
+			out = append(out, "")
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			out = append(out, styleTitle.Render(strings.TrimSpace(strings.TrimLeft(trimmed, "#"))))
+			continue
+		}
+		prefix := ""
+		body := trimmed
+		switch {
+		case strings.HasPrefix(trimmed, "- "), strings.HasPrefix(trimmed, "* "):
+			prefix, body = "• ", trimmed[2:]
+		case strings.HasPrefix(trimmed, "> "):
+			prefix, body = "│ ", trimmed[2:]
+		}
+		for i, ln := range wrap(body, max(8, width-2-len(prefix))) {
+			ln = inlineStyle(ln)
+			if i == 0 {
+				out = append(out, " "+styleDim.Render(prefix)+ln)
+			} else {
+				out = append(out, "  "+strings.Repeat(" ", len(prefix))+ln)
+			}
+		}
+	}
+	return out
+}

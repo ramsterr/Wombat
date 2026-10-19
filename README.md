@@ -3,14 +3,14 @@
 
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ramsterr/Wombat/releases)
-[![Lightweight](https://img.shields.io/badge/lightweight-~9%20MB-brightgreen)](#)
+[![Lightweight](https://img.shields.io/badge/lightweight-~12%20MB-brightgreen)](#)
 [![Single binary](https://img.shields.io/badge/single-binary-important)](#)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-zero-success)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#)
 
 A lightweight coding agent for the terminal. One static binary, fast startup, small memory footprint.
 
-Wombat runs an agentic loop against any OpenAI-compatible API, Anthropic, or a local model server (Ollama, LM Studio, llama.cpp, vLLM, MLX), with tools for reading, writing, editing, searching files, and running shell commands. Running `wombat` with no arguments opens a full-screen terminal UI: the wombat mascot, a chat button, a session browser with live transcript previews, a filterable model picker, a health-check dashboard, and a usage view with activity and tool-call charts.
+Wombat runs an agentic loop against any OpenAI-compatible API, Anthropic, or a local model server (Ollama, LM Studio, llama.cpp, vLLM, MLX), with tools for reading, writing, editing, searching files, and running shell commands. Running `wombat` with no arguments opens a full-screen chat TUI: streaming replies, inline tool calls and permission prompts, a session browser with live transcript previews, a filterable model picker, a health-check dashboard, and a usage view with activity and tool-call charts.
 
 ## Install
 
@@ -47,22 +47,22 @@ To uninstall, simply delete the binary (`rm ~/.local/bin/wombat`). Config lives 
 ## Quickstart
 
 ```
-wombat                 # full-screen TUI: chat, sessions, models, usage, doctor
-wombat chat            # jump straight into a session
+wombat                 # full-screen chat TUI
+wombat chat            # same TUI (line REPL when stdin is piped)
 wombat setup           # wizard: detect local servers, pick a provider and model
 wombat run "add tests for the parser and run them"
 wombat doctor          # verify config and connectivity
 ```
 
-The TUI is keyboard-driven: `↑`/`↓` to move, `enter` to open, `esc` to go back, `q` to quit. `c` starts a chat, `s` sessions, `m` models, `u` usage, `d` doctor, `p` configure. On a fresh install the Configure entry is selected — run it once and you are ready to chat. Everything works without a TTY too: `wombat chat`, `wombat run`, and piped input behave as before.
+The TUI is chat-first: type a message and press `enter` (`alt+enter` adds a newline), `esc` interrupts a running turn, `pgup`/`pgdn` scroll, `ctrl+c` quits. Tool calls stream inline; `bash`, `write`, and `edit` ask for permission with `y` (allow), `a` (always), or `n` (deny). Slash commands open everything in place: `/help`, `/models`, `/sessions`, `/usage`, `/doctor`, `/model <name>`, `/provider <name>`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/setup`, `/exit`. On a fresh install the setup wizard runs once, then the chat opens. Everything works without a TTY too: `wombat chat`, `wombat run`, and piped input fall back to the line REPL.
 
 ## Commands
 
 | command | what it does |
 |---|---|
-| `wombat` | full-screen TUI: chat, resume, sessions (transcript previews), models (filter + switch), usage charts, doctor; on a fresh install the configure entry is pre-selected |
-| `wombat chat` | interactive REPL directly (new session; skips the TUI) |
-| `wombat resume [id\|last]` | resume a session |
+| `wombat` | full-screen chat TUI: streaming chat, inline tool calls, permission prompts, sessions/models/usage/doctor via slash commands |
+| `wombat chat` | same TUI; line REPL when stdin is not a TTY |
+| `wombat resume [id\|last]` | resume a session in the TUI |
 | `wombat run "<task>"` | one-shot headless run (exit code reflects failure) |
 | `wombat run -c "<task>"` | continue the latest session headless |
 | `wombat setup` | wizard: provider, API key, model selection |
