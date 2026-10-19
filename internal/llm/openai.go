@@ -149,8 +149,10 @@ func toolSchemas(tools []Tool) []map[string]any {
 type oaiChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+			Reasoning        string `json:"reasoning"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Function struct {
@@ -242,6 +244,15 @@ func (o *openAI) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 			return nil
 		}
 		ch := c.Choices[0]
+		if reasoning := ch.Delta.ReasoningContent; reasoning != "" {
+			if req.OnReasoning != nil {
+				req.OnReasoning(reasoning)
+			}
+		} else if reasoning := ch.Delta.Reasoning; reasoning != "" {
+			if req.OnReasoning != nil {
+				req.OnReasoning(reasoning)
+			}
+		}
 		if ch.Delta.Content != "" {
 			result.Content += ch.Delta.Content
 			if onDelta != nil {

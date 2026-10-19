@@ -166,6 +166,7 @@ type antEvent struct {
 	Delta struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
+		Thinking    string `json:"thinking"`
 		PartialJSON string `json:"partial_json"`
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
@@ -259,6 +260,11 @@ func (a *anthropic) Chat(ctx context.Context, req Request, onDelta func(string))
 				order = append(order, e.Index)
 			}
 		case "content_block_delta":
+			if e.Delta.Type == "thinking_delta" && e.Delta.Thinking != "" {
+				if req.OnReasoning != nil {
+					req.OnReasoning(e.Delta.Thinking)
+				}
+			}
 			if e.Delta.Type == "text_delta" && e.Delta.Text != "" {
 				result.Content += e.Delta.Text
 				if onDelta != nil {

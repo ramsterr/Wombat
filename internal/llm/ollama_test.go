@@ -19,6 +19,7 @@ func TestOllamaChatStream(t *testing.T) {
 		_ = json.Unmarshal(raw, &gotBody)
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		lines := []string{
+			`{"message":{"role":"assistant","content":"","thinking":"Let me"},"done":false}`,
 			`{"message":{"role":"assistant","content":"Hi"},"done":false}`,
 			`{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"glob","arguments":{"pattern":"*.go"}}}]},"done":false}`,
 			`{"message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":30,"eval_count":7}`,
@@ -30,7 +31,7 @@ func TestOllamaChatStream(t *testing.T) {
 	defer srv.Close()
 
 	p := newOllama("test", srv.URL, 0)
-	var deltas string
+	var deltas, thoughts string
 	res, err := p.Chat(context.Background(), Request{
 		Model: "llama3",
 		Messages: []Message{
@@ -38,13 +39,14 @@ func TestOllamaChatStream(t *testing.T) {
 			{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "glob", Arguments: `{"pattern":"*.go"}`}}},
 			{Role: "tool", ToolCallID: "c1", Name: "glob", Content: "main.go"},
 		},
-		Tools: []Tool{{Name: "glob", Description: "d", Schema: map[string]any{"type": "object"}}},
+		Tools:       []Tool{{Name: "glob", Description: "d", Schema: map[string]any{"type": "object"}}},
+		OnReasoning: func(s string) { thoughts += s },
 	}, func(s string) { deltas += s })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hi" || deltas != "Hi" {
-		t.Fatalf("content=%q deltas=%q", res.Content, deltas)
+	if res.Content != "Hi" || deltas != "Hi" || thoughts != "Let me" {
+		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if len(res.ToolCalls) != 1 {
 		t.Fatalf("tool calls = %d", len(res.ToolCalls))

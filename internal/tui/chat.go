@@ -58,6 +58,7 @@ const (
 type chatEntry struct {
 	kind      entryKind
 	text      string
+	reasoning string
 	atts      []llm.Attachment
 	name      string
 	detail    string
@@ -71,6 +72,7 @@ type chatEntry struct {
 }
 
 type textMsg string
+type reasoningMsg string
 
 type toolStartMsg struct {
 	name   string
@@ -238,7 +240,8 @@ func (c *chat) emit(msg tea.Msg) {
 
 func (c *chat) hooks() agent.Hooks {
 	return agent.Hooks{
-		OnText: func(s string) { c.emit(textMsg(s)) },
+		OnText:      func(s string) { c.emit(textMsg(s)) },
+		OnReasoning: func(s string) { c.emit(reasoningMsg(s)) },
 		OnTool: func(name, detail string) {
 			c.emit(toolStartMsg{name: name, detail: detail})
 		},
@@ -892,7 +895,7 @@ func (c *chat) answerPerm(d tools.Decision) {
 
 func (c *chat) updateAsync(msg tea.Msg) tea.Cmd {
 	switch msg.(type) {
-	case textMsg, toolStartMsg, toolDoneMsg, usageMsg, compactMsg, compactDoneMsg, noteMsg, runDoneMsg:
+	case textMsg, reasoningMsg, toolStartMsg, toolDoneMsg, usageMsg, compactMsg, compactDoneMsg, noteMsg, runDoneMsg:
 		return c.update(msg)
 	case spinner.TickMsg:
 		if c.streaming {
@@ -913,6 +916,10 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case textMsg:
 		c.currentAssistant().text += string(msg)
+		c.refresh()
+		return nil
+	case reasoningMsg:
+		c.currentAssistant().reasoning += string(msg)
 		c.refresh()
 		return nil
 	case toolStartMsg:
@@ -1231,18 +1238,29 @@ func (c *chat) entryLines(e *chatEntry) []string {
 		return lines
 	case entryAssistant:
 		lines := []string{" " + styleAccent.Bold(true).Render("◆ wombat")}
+		if e.reasoning != "" {
+			lines = append(lines, "   "+styleFaint.Render("thinking"))
+			for _, ln := range wrap(e.reasoning, max(10, w-2)) {
+				lines = append(lines, "   "+styleThought.Render(ln))
+			}
+		}
 		var body []string
 		if strings.TrimSpace(e.text) != "" {
 			body = renderMarkdown(e.text, w)
 		}
-		if len(body) == 0 {
+		if len(body) == 0 && e.reasoning == "" {
 			if !e.streaming {
 				return nil
 			}
 			body = []string{styleFaint.Render("thinking…")}
 		}
-		for _, ln := range body {
-			lines = append(lines, "   "+ln)
+		if len(body) > 0 {
+			if e.reasoning != "" {
+				lines = append(lines, "")
+			}
+			for _, ln := range body {
+				lines = append(lines, "   "+ln)
+			}
 		}
 		if e.streaming {
 			lines[len(lines)-1] += styleAccent.Render("▍")

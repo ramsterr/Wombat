@@ -29,6 +29,7 @@ func TestAnthropicChatStream(t *testing.T) {
 			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"read\"}}",
 			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\"}}",
 			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"a.txt\\\"}\"}}",
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Consider\"}}",
 			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\"}}",
 			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}",
 			"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":42}}",
@@ -41,7 +42,7 @@ func TestAnthropicChatStream(t *testing.T) {
 	defer srv.Close()
 
 	p := newAnthropic("test", srv.URL, "ak")
-	var deltas string
+	var deltas, thoughts string
 	res, err := p.Chat(context.Background(), Request{
 		Model:  "claude-x",
 		System: "sys",
@@ -50,13 +51,14 @@ func TestAnthropicChatStream(t *testing.T) {
 			{Role: "assistant", ToolCalls: []ToolCall{{ID: "toolu_1", Name: "read", Arguments: `{"path":"a.txt"}`}}},
 			{Role: "tool", ToolCallID: "toolu_1", Name: "read", Content: "data"},
 		},
-		Tools: []Tool{{Name: "read", Description: "d", Schema: map[string]any{"type": "object"}}, {Name: "bash", Description: "d", Schema: map[string]any{"type": "object"}}},
+		Tools:       []Tool{{Name: "read", Description: "d", Schema: map[string]any{"type": "object"}}, {Name: "bash", Description: "d", Schema: map[string]any{"type": "object"}}},
+		OnReasoning: func(s string) { thoughts += s },
 	}, func(s string) { deltas += s })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Done" || deltas != "Done" {
-		t.Fatalf("content=%q deltas=%q", res.Content, deltas)
+	if res.Content != "Done" || deltas != "Done" || thoughts != "Consider" {
+		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if res.Usage.In != 160 || res.Usage.Cached != 50 || res.Usage.Out != 42 {
 		t.Fatalf("usage = %+v", res.Usage)

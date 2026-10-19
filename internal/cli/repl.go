@@ -23,6 +23,7 @@ type renderer struct {
 	quiet     bool
 	sp        *spinner
 	textOpen  bool
+	thinkOpen bool
 	windowFn  func() int
 	cumIn     int
 	cumOut    int
@@ -32,11 +33,31 @@ type renderer struct {
 func (r *renderer) hooks() agent.Hooks {
 	return agent.Hooks{
 		OnText: func(s string) {
+			if r.thinkOpen {
+				fmt.Fprintln(os.Stderr)
+				r.thinkOpen = false
+			}
 			if r.sp != nil && !r.textOpen {
 				r.sp.Stop()
 			}
 			r.textOpen = true
 			fmt.Print(s)
+		},
+		OnReasoning: func(s string) {
+			if r.quiet {
+				return
+			}
+			if !r.thinkOpen {
+				if r.sp != nil {
+					r.sp.Stop()
+				}
+				if r.textOpen {
+					r.breakLine()
+				}
+				fmt.Fprintln(os.Stderr, dim("thinking:"))
+				r.thinkOpen = true
+			}
+			fmt.Fprint(os.Stderr, dim(s))
 		},
 		OnTool: func(name, detail string) {
 			if r.quiet {
@@ -92,6 +113,10 @@ func (r *renderer) window() int {
 }
 
 func (r *renderer) breakLine() {
+	if r.thinkOpen {
+		fmt.Fprintln(os.Stderr)
+		r.thinkOpen = false
+	}
 	if r.textOpen {
 		fmt.Println()
 		r.textOpen = false

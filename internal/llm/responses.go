@@ -129,6 +129,11 @@ func responsesUserContent(m Message) (any, error) {
 	return parts, nil
 }
 
+func isReasoningModel(model string) bool {
+	m := strings.ToLower(model)
+	return strings.HasPrefix(m, "gpt-5") || strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4")
+}
+
 type respItem struct {
 	Type      string `json:"type"`
 	ID        string `json:"id"`
@@ -182,6 +187,9 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 	if req.System != "" {
 		body["instructions"] = req.System
 	}
+	if isReasoningModel(req.Model) {
+		body["reasoning"] = map[string]any{"summary": "auto"}
+	}
 	if len(req.Tools) > 0 {
 		tools := []map[string]any{}
 		for _, t := range req.Tools {
@@ -228,6 +236,10 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 			return nil
 		}
 		switch e.Type {
+		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			if e.Delta != "" && req.OnReasoning != nil {
+				req.OnReasoning(e.Delta)
+			}
 		case "response.output_text.delta":
 			if e.Delta != "" {
 				result.Content += e.Delta

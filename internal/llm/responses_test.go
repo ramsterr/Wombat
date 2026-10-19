@@ -22,6 +22,8 @@ func TestResponsesTextStream(t *testing.T) {
 		_ = json.Unmarshal(raw, &gotBody)
 		w.Header().Set("Content-Type", "text/event-stream")
 		events := []string{
+			`event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","output_index":0,"delta":"Think"}`,
 			`event: response.output_text.delta
 data: {"type":"response.output_text.delta","output_index":0,"delta":"Hel"}`,
 			`event: response.output_text.delta
@@ -37,17 +39,18 @@ data: {"type":"response.completed","response":{"status":"completed","output":[{"
 	defer srv.Close()
 
 	p := newResponses("test", srv.URL, "k")
-	var deltas string
+	var deltas, thoughts string
 	res, err := p.Chat(context.Background(), Request{
-		Model:    "gpt-x",
-		System:   "sys",
-		Messages: []Message{{Role: "user", Content: "hi"}},
+		Model:       "gpt-x",
+		System:      "sys",
+		Messages:    []Message{{Role: "user", Content: "hi"}},
+		OnReasoning: func(s string) { thoughts += s },
 	}, func(s string) { deltas += s })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hello" || deltas != "Hello" {
-		t.Fatalf("content=%q deltas=%q", res.Content, deltas)
+	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Think" {
+		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if res.Usage.In != 11 || res.Usage.Out != 5 || res.Usage.Cached != 7 {
 		t.Fatalf("usage = %+v", res.Usage)

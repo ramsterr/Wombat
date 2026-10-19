@@ -47,17 +47,18 @@ var (
 )
 
 var (
-	styleTitle  = lipgloss.NewStyle().Bold(true)
-	styleDim    = lipgloss.NewStyle().Foreground(cDim)
-	styleFaint  = lipgloss.NewStyle().Foreground(cFaint)
-	styleGood   = lipgloss.NewStyle().Foreground(cGreen)
-	styleBad    = lipgloss.NewStyle().Foreground(cRed)
-	styleWarn   = lipgloss.NewStyle().Foreground(cWarn)
-	styleAccent = lipgloss.NewStyle().Foreground(cAccent)
-	styleLink   = lipgloss.NewStyle().Foreground(cLink)
-	styleButton = lipgloss.NewStyle().Background(cAccent).Foreground(cInk).Bold(true)
-	styleKey    = lipgloss.NewStyle().Foreground(cInk).Background(cAccent).Bold(true)
-	stylePanel  = lipgloss.NewStyle().
+	styleTitle   = lipgloss.NewStyle().Bold(true)
+	styleDim     = lipgloss.NewStyle().Foreground(cDim)
+	styleFaint   = lipgloss.NewStyle().Foreground(cFaint)
+	styleThought = lipgloss.NewStyle().Foreground(cDim).Italic(true)
+	styleGood    = lipgloss.NewStyle().Foreground(cGreen)
+	styleBad     = lipgloss.NewStyle().Foreground(cRed)
+	styleWarn    = lipgloss.NewStyle().Foreground(cWarn)
+	styleAccent  = lipgloss.NewStyle().Foreground(cAccent)
+	styleLink    = lipgloss.NewStyle().Foreground(cLink)
+	styleButton  = lipgloss.NewStyle().Background(cAccent).Foreground(cInk).Bold(true)
+	styleKey     = lipgloss.NewStyle().Foreground(cInk).Background(cAccent).Bold(true)
+	stylePanel   = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(cBorder).
 			Padding(0, 1)

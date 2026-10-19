@@ -26,6 +26,7 @@ func TestGoogleChatStream(t *testing.T) {
 		_ = json.Unmarshal(raw, &gotBody)
 		w.Header().Set("Content-Type", "text/event-stream")
 		chunks := []string{
+			`data: {"candidates":[{"content":{"parts":[{"text":"Plan","thought":true}]}}]}`,
 			`data: {"candidates":[{"content":{"parts":[{"text":"Hel"}]}}]}`,
 			`data: {"candidates":[{"content":{"parts":[{"text":"lo"}]}}]}`,
 			`data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"bash","args":{"command":"ls"}}}]}}]}`,
@@ -39,7 +40,7 @@ func TestGoogleChatStream(t *testing.T) {
 	defer srv.Close()
 
 	p := newGoogle("test", srv.URL, "gk")
-	var deltas string
+	var deltas, thoughts string
 	res, err := p.Chat(context.Background(), Request{
 		Model:  "gemini-x",
 		System: "sys",
@@ -48,13 +49,14 @@ func TestGoogleChatStream(t *testing.T) {
 			{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "bash", Arguments: `{"command":"ls"}`}}},
 			{Role: "tool", ToolCallID: "c1", Name: "bash", Content: "a.txt"},
 		},
-		Tools: []Tool{{Name: "bash", Description: "d", Schema: map[string]any{"type": "object"}}},
+		Tools:       []Tool{{Name: "bash", Description: "d", Schema: map[string]any{"type": "object"}}},
+		OnReasoning: func(s string) { thoughts += s },
 	}, func(s string) { deltas += s })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hello" || deltas != "Hello" {
-		t.Fatalf("content=%q deltas=%q", res.Content, deltas)
+	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Plan" {
+		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if len(res.ToolCalls) != 1 || res.ToolCalls[0].Name != "bash" || res.ToolCalls[0].Arguments != `{"command":"ls"}` {
 		t.Fatalf("tool calls = %+v", res.ToolCalls)

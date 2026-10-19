@@ -45,6 +45,7 @@ type Request struct {
 	Temperature float64
 	NumCtx      int
 	SessionID   string
+	OnReasoning func(string)
 }
 
 type Result struct {

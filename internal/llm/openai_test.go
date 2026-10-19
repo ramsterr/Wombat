@@ -23,6 +23,7 @@ func TestOpenAIChatStream(t *testing.T) {
 		_ = json.Unmarshal(raw, &gotBody)
 		w.Header().Set("Content-Type", "text/event-stream")
 		lines := []string{
+			`data: {"choices":[{"delta":{"reasoning_content":"Think"}}]}`,
 			`data: {"choices":[{"delta":{"content":"Hel"}}]}`,
 			`data: {"choices":[{"delta":{"content":"lo"}}]}`,
 			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"bash","arguments":"{\"command\":"}}]}}]}`,
@@ -36,20 +37,21 @@ func TestOpenAIChatStream(t *testing.T) {
 	defer srv.Close()
 
 	p := newOpenAI("test", srv.URL, "test-key", 0)
-	var deltas string
+	var deltas, thoughts string
 	res, err := p.Chat(context.Background(), Request{
 		Model:  "m",
 		System: "sys",
 		Messages: []Message{
 			{Role: "user", Content: "hi"},
 		},
-		Tools: []Tool{{Name: "bash", Description: "d", Schema: map[string]any{"type": "object"}}},
+		Tools:       []Tool{{Name: "bash", Description: "d", Schema: map[string]any{"type": "object"}}},
+		OnReasoning: func(s string) { thoughts += s },
 	}, func(s string) { deltas += s })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hello" || deltas != "Hello" {
-		t.Fatalf("content=%q deltas=%q", res.Content, deltas)
+	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Think" {
+		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if len(res.ToolCalls) != 1 {
 		t.Fatalf("tool calls = %d", len(res.ToolCalls))

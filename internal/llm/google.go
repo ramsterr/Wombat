@@ -31,6 +31,12 @@ func newGoogle(name, base, key string) *google {
 
 func (g *google) Name() string { return g.name }
 
+func isGoogleThinkingModel(model string) bool {
+	m := strings.ToLower(model)
+	return strings.Contains(m, "gemini-2.5") || strings.Contains(m, "gemini-3") ||
+		strings.Contains(m, "thinking")
+}
+
 func (g *google) mapContents(msgs []Message) ([]map[string]any, error) {
 	out := []map[string]any{}
 	i := 0
@@ -124,6 +130,7 @@ type googleChunk struct {
 		Content struct {
 			Parts []struct {
 				Text         string `json:"text"`
+				Thought      bool   `json:"thought"`
 				FunctionCall *struct {
 					Name string          `json:"name"`
 					Args json.RawMessage `json:"args"`
@@ -166,8 +173,15 @@ func (g *google) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 		}
 		body["tools"] = []map[string]any{{"functionDeclarations": decls}}
 	}
+	genCfg := map[string]any{}
 	if req.MaxTokens > 0 {
-		body["generationConfig"] = map[string]any{"maxOutputTokens": req.MaxTokens}
+		genCfg["maxOutputTokens"] = req.MaxTokens
+	}
+	if isGoogleThinkingModel(req.Model) {
+		genCfg["thinkingConfig"] = map[string]any{"includeThoughts": true}
+	}
+	if len(genCfg) > 0 {
+		body["generationConfig"] = genCfg
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -215,9 +229,15 @@ func (g *google) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 			}
 			for _, p := range cand.Content.Parts {
 				if p.Text != "" {
-					result.Content += p.Text
-					if onDelta != nil {
-						onDelta(p.Text)
+					if p.Thought {
+						if req.OnReasoning != nil {
+							req.OnReasoning(p.Text)
+						}
+					} else {
+						result.Content += p.Text
+						if onDelta != nil {
+							onDelta(p.Text)
+						}
 					}
 				}
 				if p.FunctionCall != nil {

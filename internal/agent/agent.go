@@ -13,6 +13,7 @@ import (
 
 type Hooks struct {
 	OnText       func(string)
+	OnReasoning  func(string)
 	OnTool       func(name, detail string)
 	OnToolResult func(name, result string, dur time.Duration)
 	OnUsage      func(u llm.Usage, historyTokens int)
@@ -70,12 +71,13 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			a.maybeCompact(ctx)
 		}
 		res, err := a.Provider.Chat(ctx, llm.Request{
-			Model:     a.Model,
-			System:    system,
-			Messages:  a.Sess.Messages,
-			Tools:     a.toolDefs(),
-			NumCtx:    a.NumCtx,
-			SessionID: a.Sess.ID(),
+			Model:       a.Model,
+			System:      system,
+			Messages:    a.Sess.Messages,
+			Tools:       a.toolDefs(),
+			NumCtx:      a.NumCtx,
+			SessionID:   a.Sess.ID(),
+			OnReasoning: a.Hooks.OnReasoning,
 		}, a.Hooks.OnText)
 		if err != nil {
 			return err
