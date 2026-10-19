@@ -6,12 +6,35 @@ Wombat runs an agentic loop against any OpenAI-compatible API, Anthropic, or a l
 
 ## Install
 
-```
-go build -o wombat ./cmd/wombat
-mv wombat ~/.local/bin/        # or anywhere on PATH
+Requires Go 1.26+. No runtime dependencies — the result is a single static binary (~9 MB).
+
+```sh
+git clone https://github.com/ramsterr/Wombat.git
+cd Wombat
+
+mkdir -p ~/.local/bin
+go build -o ~/.local/bin/wombat ./cmd/wombat
 ```
 
-Requires Go 1.26+. No runtime dependencies.
+Builds are **silent on success** — no output is the expected result. Verify:
+
+```sh
+wombat version        # prints: wombat 0.1.0
+```
+
+If you get `command not found`, `~/.local/bin` isn't on your PATH yet. Add it to `~/.zshrc` (or `~/.bashrc`) and restart your shell:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Prefer somewhere else? The binary is self-contained — build it anywhere and move it to any directory on your PATH:
+
+```sh
+go build -o wombat ./cmd/wombat && mv wombat /usr/local/bin/
+```
+
+To uninstall, simply delete the binary (`rm ~/.local/bin/wombat`). Config lives in `~/.wombat/` if you want to remove that too.
 
 ## Quickstart
 
