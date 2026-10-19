@@ -18,6 +18,19 @@ func (s *stringList) Set(v string) error {
 	return nil
 }
 
+// looksLikeCommand distinguishes "/model" from an absolute file path.
+func looksLikeCommand(line string) bool {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "/") {
+		return false
+	}
+	tok := line
+	if i := strings.IndexAny(line, " \t\n"); i >= 0 {
+		tok = line[:i]
+	}
+	return len(tok) > 1 && !strings.ContainsAny(tok[1:], "/.~")
+}
+
 func attachFiles(sess *session.Session, paths []string, quiet bool) ([]llm.Attachment, error) {
 	out := make([]llm.Attachment, 0, len(paths))
 	for _, p := range paths {

@@ -164,7 +164,7 @@ func cmdRepl(args []string, resume bool) error {
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "/") {
+		if looksLikeCommand(line) {
 			done, newAg, newSess, err := handleCommand(line, cfg, ag, sess, p, r, &opts)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, red(err.Error()))
@@ -177,6 +177,31 @@ func cmdRepl(args []string, resume bool) error {
 				sess = newSess
 				r.sess = newSess
 				ag.Hooks = r.hooks()
+			}
+			continue
+		}
+		if path, ok := llm.MediaPath(line); ok {
+			line = ""
+			mentions := []string{path}
+			atts, err := attachFiles(sess, mentions, *quiet)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
+				continue
+			}
+			if firstInput {
+				sess.Meta.Title = clipLine(atts[0].Name, 80)
+				_ = sess.Flush()
+				firstInput = false
+			}
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+			r.sp = startSpinner("thinking…")
+			r.textOpen = false
+			err = ag.RunWithAttachments(ctx, line, atts)
+			r.sp.Stop()
+			stop()
+			r.breakLine()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
 			}
 			continue
 		}

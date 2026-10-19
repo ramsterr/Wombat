@@ -27,6 +27,7 @@ func cmdHome(sessionID string) error {
 			Cwd:       cwd,
 			Cfg:       cfg,
 			SessionID: sessionID,
+			Mouse:     cfg.Mouse,
 		})
 		if err != nil {
 			return err

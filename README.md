@@ -56,7 +56,7 @@ wombat run "add tests for the parser and run them"
 wombat doctor          # verify config and connectivity
 ```
 
-The TUI is chat-first: type a message and press `enter` (`alt+enter` adds a newline), `esc` interrupts a running turn, the mouse wheel or `pgup`/`pgdn`/`↑`/`↓` (empty input) scrolls, `ctrl+c` quits. Tool calls stream inline; `bash`, `write`, and `edit` ask for permission: `y` allow, `a` always, `n` deny, or `f` to deny with instructions the model will see. Slash commands open everything in place: `/help`, `/models`, `/sessions`, `/usage`, `/doctor`, `/model <name>`, `/provider <name>`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/setup`, `/exit`. On a fresh install the setup wizard runs once, then the chat opens. Everything works without a TTY too: `wombat chat`, `wombat run`, and piped input fall back to the line REPL.
+The TUI is chat-first: type a message and press `enter` (`alt+enter` adds a newline), `esc` interrupts a running turn, `pgup`/`pgdn` (or `ctrl+u`/`ctrl+d`) scroll, `ctrl+c` quits. The mouse is off by default so you can select and copy text normally; run `/mouse` to enable wheel scrolling (then hold Option/Shift to select). Tool calls stream inline; `bash`, `write`, and `edit` ask for permission: `y` allow, `a` always, `n` deny, or `f` to deny with instructions the model will see. Slash commands open everything in place: `/help`, `/models`, `/sessions`, `/usage`, `/doctor`, `/model <name>`, `/provider <name>`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/setup`, `/exit`. On a fresh install the setup wizard runs once, then the chat opens. Everything works without a TTY too: `wombat chat`, `wombat run`, and piped input fall back to the line REPL.
 
 ## Commands
 
@@ -85,6 +85,8 @@ Send images, video, audio, and documents to any model that supports them. Attach
 
 - type `@path/to/file` inside a message (`@"path with spaces"` when needed)
 - `/attach <path>` in the chat TUI (pending chips show above the input; `/detach [n|all]`)
+- press `ctrl+v` or run `/paste` to grab an image from the system clipboard (macOS, or Linux with wl-paste/xclip)
+- paste a media file path on its own line to attach it
 - `wombat run --image shot.png --file report.pdf "what changed?"`
 
 Files are copied into the session store at `~/.wombat/sessions/<project-hash>/.attachments/` and referenced from the transcript, so history and `wombat resume` keep working. Each file is capped at 20 MB; text-like files are folded into the prompt, everything else is sent as native media. Gemini inlines at most about 14 MB per request, so shrink or split large files.

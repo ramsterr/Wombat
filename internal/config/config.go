@@ -24,6 +24,7 @@ type Config struct {
 	Providers   map[string]*Provider `json:"providers"`
 	Permissions map[string]string    `json:"permissions,omitempty"`
 	MaxSteps    int                  `json:"max_steps,omitempty"`
+	Mouse       bool                 `json:"mouse,omitempty"`
 }
 
 type Preset struct {

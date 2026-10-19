@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	clipboard "github.com/ramsterr/Wombat/internal/clip"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
@@ -33,7 +34,9 @@ const helpLines = `/help             this list
 /models           browse models
 /sessions         browse sessions
 /attach <path>    attach an image, video, audio, or file
+/paste            attach an image from the clipboard (ctrl+v)
 /detach [n|all]   remove pending attachments
+/mouse            toggle mouse: wheel scroll vs text selection
 /new              start a fresh session
 /compact          compact context now
 /cost             token usage
@@ -95,6 +98,11 @@ type compactDoneMsg struct{ err error }
 
 type runDoneMsg struct{ err error }
 
+type clipImageMsg struct {
+	path string
+	err  error
+}
+
 type noteMsg struct {
 	text  string
 	isErr bool
@@ -133,6 +141,7 @@ type chat struct {
 	permInput    textinput.Model
 
 	pending []llm.Attachment
+	mouse   bool
 
 	auto   bool
 	always map[string]bool
@@ -153,6 +162,7 @@ func newChat(opt Options) (*chat, error) {
 	c := &chat{
 		opt:    opt,
 		cfg:    opt.Cfg,
+		mouse:  opt.Mouse,
 		always: map[string]bool{},
 		follow: true,
 	}
@@ -558,10 +568,14 @@ func (c *chat) sessionID() string {
 func (c *chat) submit(text string) tea.Cmd {
 	c.ta.Reset()
 	c.layout()
-	if strings.HasPrefix(text, "/") {
+	if looksLikeCommand(text) {
 		cmd := c.command(text)
 		c.refresh()
 		return cmd
+	}
+	if c.autoAttachPath(text) {
+		c.refresh()
+		return nil
 	}
 	text, mentions := llm.ParseMentions(text)
 	for _, path := range mentions {
@@ -614,6 +628,35 @@ func (c *chat) submit(text string) tea.Cmd {
 		go func() { c.emit(runDoneMsg{err: ag.RunWithAttachments(ctx, text, atts)}) }()
 		return nil
 	}, c.sp.Tick)
+}
+
+func (c *chat) pasteImage() tea.Cmd {
+	return func() tea.Msg {
+		path, err := clipboard.Image()
+		return clipImageMsg{path: path, err: err}
+	}
+}
+
+func (c *chat) autoAttachPath(text string) bool {
+	path, ok := llm.MediaPath(text)
+	if !ok {
+		return false
+	}
+	_ = c.addAttachment(path)
+	return true
+}
+
+// looksLikeCommand distinguishes "/model" from an absolute file path.
+func looksLikeCommand(line string) bool {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "/") {
+		return false
+	}
+	tok := line
+	if i := strings.IndexAny(line, " \t\n"); i >= 0 {
+		tok = line[:i]
+	}
+	return len(tok) > 1 && !strings.ContainsAny(tok[1:], "/.~")
 }
 
 func (c *chat) addAttachment(path string) error {
@@ -737,6 +780,18 @@ func (c *chat) command(line string) tea.Cmd {
 		return openScreen(scrModels)
 	case "/sessions":
 		return openScreen(scrSessions)
+	case "/paste":
+		return c.pasteImage()
+	case "/mouse":
+		c.mouse = !c.mouse
+		c.cfg.Mouse = c.mouse
+		_ = c.cfg.Save()
+		if c.mouse {
+			c.note("mouse on — wheel scrolls; hold Option/Shift to select text", false)
+			return func() tea.Msg { return tea.EnableMouseCellMotion() }
+		}
+		c.note("mouse off — select and copy normally; pgup/pgdn scroll", false)
+		return func() tea.Msg { return tea.DisableMouse() }
 	case "/attach":
 		path := strings.TrimSpace(strings.Trim(arg, `"'`))
 		if path == "" {
@@ -918,6 +973,19 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		}
 		c.refresh()
 		return nil
+	case clipImageMsg:
+		if msg.err != nil {
+			if errors.Is(msg.err, clipboard.ErrNoImage) {
+				c.note("no image in clipboard", false)
+			} else {
+				c.note("error: "+msg.err.Error(), true)
+			}
+			return nil
+		}
+		if err := c.addAttachment(msg.path); err != nil {
+			c.note("error: "+err.Error(), true)
+		}
+		return nil
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
@@ -999,6 +1067,8 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 			c.interrupt()
 		}
 		return nil
+	case "ctrl+v":
+		return c.pasteImage()
 	case "pgup", "ctrl+u":
 		c.scrollUp(max(1, c.vp.Height-2))
 		return nil
@@ -1078,7 +1148,7 @@ func (c *chat) hint() string {
 	case c.streaming:
 		left = styleDim.Render("esc interrupt · wheel/pgup scroll · working…")
 	default:
-		left = styleFaint.Render("enter send · alt+enter newline · wheel/pgup scroll · /help")
+		left = styleFaint.Render("enter send · alt+enter newline · ctrl+v image · pgup scroll · /help")
 	}
 	if c.cumIn+c.cumOut == 0 || c.w <= 0 {
 		return " " + left

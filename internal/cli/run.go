@@ -33,6 +33,12 @@ func cmdRun(args []string) error {
 	task, mentions := llm.ParseMentions(task)
 	paths := append(append(append(append([]string{}, images...), videos...), audios...), files...)
 	paths = append(paths, mentions...)
+	if len(paths) == 0 {
+		if p, ok := llm.MediaPath(task); ok {
+			paths = append(paths, p)
+			task = ""
+		}
+	}
 	if task == "" && len(paths) == 0 && !*cont {
 		return fmt.Errorf(`usage: wombat run [--image path] [--file path] "<task>"`)
 	}

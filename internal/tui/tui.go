@@ -20,6 +20,7 @@ type Options struct {
 	Cwd       string
 	Cfg       *config.Config
 	SessionID string
+	Mouse     bool
 }
 
 type screenID int
@@ -192,7 +193,11 @@ func Run(opt Options) (Action, error) {
 		doctor: newDoctor(opt),
 		usage:  newUsage(opt),
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if opt.Mouse {
+		opts = append(opts, tea.WithMouseCellMotion())
+	}
+	p := tea.NewProgram(m, opts...)
 	m.chat.send = p.Send
 	final, err := p.Run()
 	if err != nil {

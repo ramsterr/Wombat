@@ -288,6 +288,20 @@ func ParseMentions(text string) (string, []string) {
 	return strings.TrimSpace(result), paths
 }
 
+// MediaPath reports whether text is a single existing media file path and
+// returns its resolved path.
+func MediaPath(text string) (string, bool) {
+	t := strings.TrimSpace(text)
+	if t == "" || strings.ContainsAny(t, " \t\n") || strings.HasPrefix(t, "@") {
+		return "", false
+	}
+	a, err := NewAttachment(strings.Trim(t, `"'`))
+	if err != nil || a.Kind == "file" {
+		return "", false
+	}
+	return a.Path, true
+}
+
 func isSpaceByte(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
