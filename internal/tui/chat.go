@@ -381,8 +381,8 @@ func (c *chat) loadHistory() {
 			}
 			c.entries = append(c.entries, &chatEntry{kind: entryUser, text: m.Content, atts: m.Attachments})
 		case "assistant":
-			if strings.TrimSpace(m.Content) != "" {
-				c.entries = append(c.entries, &chatEntry{kind: entryAssistant, text: m.Content})
+			if strings.TrimSpace(m.Content) != "" || m.Reasoning != "" {
+				c.entries = append(c.entries, &chatEntry{kind: entryAssistant, text: m.Content, reasoning: m.Reasoning})
 			}
 			for _, tc := range m.ToolCalls {
 				e := &chatEntry{kind: entryTool, name: tc.Name, detail: toolArgsPreview(tc.Arguments), running: true}

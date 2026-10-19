@@ -36,7 +36,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 
 ## Features
 
-- **Chat-first terminal UI** with streaming replies, a dim reasoning block for thinking models, inline tool steps, and permission prompts.
+- **Chat-first terminal UI** with streaming replies, inline tool steps, and permission prompts. Reasoning is shown for thinking models, persisted with the turn, and replayed where the provider requires it.
 - **Multimodal input** — images, video, audio, and documents, wherever the selected model supports them.
 - **Resumable sessions** stored as JSONL, keyed to the working directory, with a browsable history and transcript previews.
 - **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.

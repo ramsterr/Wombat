@@ -230,6 +230,7 @@ func (g *google) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 			for _, p := range cand.Content.Parts {
 				if p.Text != "" {
 					if p.Thought {
+						result.Reasoning += p.Text
 						if req.OnReasoning != nil {
 							req.OnReasoning(p.Text)
 						}

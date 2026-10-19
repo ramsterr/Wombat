@@ -49,7 +49,7 @@ data: {"type":"response.completed","response":{"status":"completed","output":[{"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Think" {
+	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Think" || res.Reasoning != "Think" {
 		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if res.Usage.In != 11 || res.Usage.Out != 5 || res.Usage.Cached != 7 {

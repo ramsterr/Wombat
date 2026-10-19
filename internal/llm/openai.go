@@ -35,10 +35,11 @@ func newOpenAI(name, base, key string, numCtx int) *openAI {
 func (o *openAI) Name() string { return o.name }
 
 type oaiMessage struct {
-	Role       string       `json:"role"`
-	Content    any          `json:"content"`
-	ToolCalls  []oaiToolCal `json:"tool_calls,omitempty"`
-	ToolCallID string       `json:"tool_call_id,omitempty"`
+	Role             string       `json:"role"`
+	Content          any          `json:"content"`
+	ReasoningContent string       `json:"reasoning_content,omitempty"`
+	ToolCalls        []oaiToolCal `json:"tool_calls,omitempty"`
+	ToolCallID       string       `json:"tool_call_id,omitempty"`
 }
 
 type oaiToolCal struct {
@@ -61,6 +62,9 @@ func (o *openAI) mapMessages(req Request) ([]oaiMessage, error) {
 			return nil, err
 		}
 		mm := oaiMessage{Role: m.Role, Content: content}
+		if m.Role == "assistant" {
+			mm.ReasoningContent = m.Reasoning
+		}
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
 			for _, tc := range m.ToolCalls {
 				var t oaiToolCal
@@ -245,10 +249,12 @@ func (o *openAI) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 		}
 		ch := c.Choices[0]
 		if reasoning := ch.Delta.ReasoningContent; reasoning != "" {
+			result.Reasoning += reasoning
 			if req.OnReasoning != nil {
 				req.OnReasoning(reasoning)
 			}
 		} else if reasoning := ch.Delta.Reasoning; reasoning != "" {
+			result.Reasoning += reasoning
 			if req.OnReasoning != nil {
 				req.OnReasoning(reasoning)
 			}

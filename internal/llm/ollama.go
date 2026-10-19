@@ -177,8 +177,11 @@ func (o *ollama) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 		if c.Error != "" {
 			return fmt.Errorf("%s: %s", o.name, c.Error)
 		}
-		if c.Message.Thinking != "" && req.OnReasoning != nil {
-			req.OnReasoning(c.Message.Thinking)
+		if c.Message.Thinking != "" {
+			result.Reasoning += c.Message.Thinking
+			if req.OnReasoning != nil {
+				req.OnReasoning(c.Message.Thinking)
+			}
 		}
 		if c.Message.Content != "" {
 			result.Content += c.Message.Content

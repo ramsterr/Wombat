@@ -261,6 +261,7 @@ func (a *anthropic) Chat(ctx context.Context, req Request, onDelta func(string))
 			}
 		case "content_block_delta":
 			if e.Delta.Type == "thinking_delta" && e.Delta.Thinking != "" {
+				result.Reasoning += e.Delta.Thinking
 				if req.OnReasoning != nil {
 					req.OnReasoning(e.Delta.Thinking)
 				}

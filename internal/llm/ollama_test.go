@@ -45,7 +45,7 @@ func TestOllamaChatStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hi" || deltas != "Hi" || thoughts != "Let me" {
+	if res.Content != "Hi" || deltas != "Hi" || thoughts != "Let me" || res.Reasoning != "Let me" {
 		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if len(res.ToolCalls) != 1 {

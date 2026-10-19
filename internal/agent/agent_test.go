@@ -31,6 +31,7 @@ func (f *fakeProvider) Chat(_ context.Context, req llm.Request, onDelta func(str
 	switch f.step {
 	case 1:
 		return &llm.Result{
+			Reasoning: "plan",
 			ToolCalls: []llm.ToolCall{{ID: "c1", Name: "write", Arguments: `{"path":"hello.txt","content":"hi"}`}},
 			Usage:     llm.Usage{In: 10, Out: 5},
 		}, nil
@@ -105,6 +106,9 @@ func TestAgentToolLoop(t *testing.T) {
 	}
 	if msgs[2].Role != "assistant" || len(msgs[2].ToolCalls) != 1 {
 		t.Errorf("third message should carry the tool call: %+v", msgs[2])
+	}
+	if msgs[2].Reasoning != "plan" {
+		t.Errorf("reasoning should be persisted with the tool call: %+v", msgs[2])
 	}
 	if msgs[3].Role != "tool" || msgs[3].ToolCallID != "c1" || !strings.Contains(msgs[3].Content, "hello.txt") {
 		t.Errorf("fourth message should be the tool result: %+v", msgs[3])

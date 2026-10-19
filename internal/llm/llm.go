@@ -16,6 +16,7 @@ type ToolCall struct {
 type Message struct {
 	Role        string       `json:"role"`
 	Content     string       `json:"content,omitempty"`
+	Reasoning   string       `json:"reasoning,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 	ToolCalls   []ToolCall   `json:"tool_calls,omitempty"`
 	ToolCallID  string       `json:"tool_call_id,omitempty"`
@@ -50,6 +51,7 @@ type Request struct {
 
 type Result struct {
 	Content    string
+	Reasoning  string
 	ToolCalls  []ToolCall
 	Usage      Usage
 	StopReason string

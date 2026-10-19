@@ -57,7 +57,7 @@ func TestAnthropicChatStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Done" || deltas != "Done" || thoughts != "Consider" {
+	if res.Content != "Done" || deltas != "Done" || thoughts != "Consider" || res.Reasoning != "Consider" {
 		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if res.Usage.In != 160 || res.Usage.Cached != 50 || res.Usage.Out != 42 {

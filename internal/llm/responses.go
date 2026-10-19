@@ -237,8 +237,11 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 		}
 		switch e.Type {
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
-			if e.Delta != "" && req.OnReasoning != nil {
-				req.OnReasoning(e.Delta)
+			if e.Delta != "" {
+				result.Reasoning += e.Delta
+				if req.OnReasoning != nil {
+					req.OnReasoning(e.Delta)
+				}
 			}
 		case "response.output_text.delta":
 			if e.Delta != "" {

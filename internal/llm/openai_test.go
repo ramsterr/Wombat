@@ -50,8 +50,8 @@ func TestOpenAIChatStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Think" {
-		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
+	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Think" || res.Reasoning != "Think" {
+		t.Fatalf("content=%q deltas=%q thoughts=%q reasoning=%q", res.Content, deltas, thoughts, res.Reasoning)
 	}
 	if len(res.ToolCalls) != 1 {
 		t.Fatalf("tool calls = %d", len(res.ToolCalls))
@@ -146,5 +146,23 @@ func TestOpenAIListModels(t *testing.T) {
 	}
 	if len(models) != 2 || models[0] != "a" || models[1] != "b" {
 		t.Fatalf("models = %v", models)
+	}
+}
+
+func TestOpenAIReasoningReplay(t *testing.T) {
+	msgs, err := (&openAI{}).mapMessages(Request{Messages: []Message{{
+		Role:      "assistant",
+		Reasoning: "because",
+		ToolCalls: []ToolCall{{ID: "c1", Name: "bash", Arguments: "{}"}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msgs[0].ReasoningContent != "because" {
+		t.Fatalf("reasoning_content = %q", msgs[0].ReasoningContent)
+	}
+	raw, _ := json.Marshal(msgs[0])
+	if !strings.Contains(string(raw), `"reasoning_content":"because"`) {
+		t.Fatalf("reasoning_content missing from payload: %s", raw)
 	}
 }

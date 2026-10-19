@@ -20,7 +20,7 @@ const (
 func (a *Agent) historyTokens() int {
 	total := 0
 	for _, m := range a.Sess.Messages {
-		total += tokens.Estimate(m.Content) + 6
+		total += tokens.Estimate(m.Content) + tokens.Estimate(m.Reasoning) + 6
 		for _, at := range m.Attachments {
 			total += attachmentTokens(at)
 		}

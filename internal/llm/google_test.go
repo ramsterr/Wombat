@@ -55,7 +55,7 @@ func TestGoogleChatStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Plan" {
+	if res.Content != "Hello" || deltas != "Hello" || thoughts != "Plan" || res.Reasoning != "Plan" {
 		t.Fatalf("content=%q deltas=%q thoughts=%q", res.Content, deltas, thoughts)
 	}
 	if len(res.ToolCalls) != 1 || res.ToolCalls[0].Name != "bash" || res.ToolCalls[0].Arguments != `{"command":"ls"}` {
