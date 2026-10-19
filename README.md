@@ -1,5 +1,6 @@
 ## Wombat
-<img width="2872" height="676" alt="image" src="https://github.com/user-attachments/assets/574a4db4-9091-41ff-9344-31584cc9e095" />
+<img width="2872" height="676" alt="image" src="https://github.com/user-attachments/assets/ea6d7dda-05b3-47e3-be67-f79af2133db7" />
+
 
 
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
