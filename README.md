@@ -1,6 +1,12 @@
 ## Wombat
 <img width="2872" height="676" alt="image" src="https://github.com/user-attachments/assets/65962a7c-c646-438b-a5b7-2fa5c0626709" />
 
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ramsterr/Wombat/releases)
+[![Lightweight](https://img.shields.io/badge/lightweight-~9%20MB-brightgreen)](#)
+[![Single binary](https://img.shields.io/badge/single-binary-important)](#)
+[![Dependencies](https://img.shields.io/badge/runtime%20deps-zero-success)](#)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#)
 
 A lightweight coding agent for the terminal. One static binary, fast startup, small memory footprint.
 
