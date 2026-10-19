@@ -5,57 +5,42 @@ import (
 	"os"
 
 	"github.com/ramsterr/Wombat/internal/config"
-	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/tui"
 )
 
 func cmdHome() error {
-	cfg := mustConfig()
 	for {
-		cwd, _ := os.Getwd()
-		last := ""
-		if meta, err := session.Latest(cwd); err == nil {
-			last = meta.ID
-			if meta.Title != "" {
-				last += " · " + clipLine(meta.Title, 40)
-			}
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
+			return err
 		}
-		action, err := runMenu(cfg, last)
+		cwd, _ := os.Getwd()
+		action, err := tui.Run(tui.Options{
+			Version: Version,
+			Cwd:     cwd,
+			Cfg:     cfg,
+		})
 		if err != nil {
 			return err
 		}
-		switch action {
+		switch action.Kind {
 		case "chat":
 			if cfg.ActiveModel() == "" {
 				if err := cmdSetup(nil); err != nil {
 					fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
+					continue
 				}
-				cfg, _ = config.Load()
 				continue
 			}
 			return cmdRepl(nil, false)
 		case "resume":
-			return cmdRepl([]string{"last"}, true)
+			return cmdRepl([]string{action.ID}, true)
 		case "configure":
 			if err := cmdSetup(nil); err != nil {
 				fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
 			}
-			cfg, _ = config.Load()
-		case "models":
-			if err := cmdModels(nil); err != nil {
-				fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
-			}
-			pause()
-		case "sessions":
-			if err := cmdSessions(nil); err != nil {
-				fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
-			}
-			pause()
-		case "doctor":
-			if err := cmdDoctor(nil); err != nil {
-				fmt.Fprintln(os.Stderr, red("error: "+err.Error()))
-			}
-			pause()
-		case "quit":
+		case "quit", "":
 			return nil
 		}
 	}

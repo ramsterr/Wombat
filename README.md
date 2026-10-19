@@ -3,9 +3,9 @@
 
 
 
-A lightweight coding agent for the terminal. One static binary, zero dependencies, fast startup, small memory footprint.
+A lightweight coding agent for the terminal. One static binary, fast startup, small memory footprint.
 
-Wombat runs an agentic loop against any OpenAI-compatible API, Anthropic, or a local model server (Ollama, LM Studio, llama.cpp, vLLM, MLX), with tools for reading, writing, editing, searching files, and running shell commands.
+Wombat runs an agentic loop against any OpenAI-compatible API, Anthropic, or a local model server (Ollama, LM Studio, llama.cpp, vLLM, MLX), with tools for reading, writing, editing, searching files, and running shell commands. Running `wombat` with no arguments opens a full-screen terminal UI: the wombat mascot, a chat button, a session browser with live transcript previews, a filterable model picker, a health-check dashboard, and a usage view with activity and tool-call charts.
 
 ## Install
 
@@ -42,21 +42,21 @@ To uninstall, simply delete the binary (`rm ~/.local/bin/wombat`). Config lives 
 ## Quickstart
 
 ```
-wombat                 # start menu: chat, configure provider, models, doctor
+wombat                 # full-screen TUI: chat, sessions, models, usage, doctor
 wombat chat            # jump straight into a session
 wombat setup           # wizard: detect local servers, pick a provider and model
 wombat run "add tests for the parser and run them"
 wombat doctor          # verify config and connectivity
 ```
 
-On a fresh install, `wombat` opens the start menu with **Configure provider & model** pre-selected — run it once and you are ready to chat.
+The TUI is keyboard-driven: `↑`/`↓` to move, `enter` to open, `esc` to go back, `q` to quit. `c` starts a chat, `s` sessions, `m` models, `u` usage, `d` doctor, `p` configure. On a fresh install the Configure entry is selected — run it once and you are ready to chat. Everything works without a TTY too: `wombat chat`, `wombat run`, and piped input behave as before.
 
 ## Commands
 
 | command | what it does |
 |---|---|
-| `wombat` | start menu (arrow keys): chat, resume, configure, models, sessions, doctor; on a fresh install the configure option is pre-selected |
-| `wombat chat` | interactive REPL directly (new session; skips the menu) |
+| `wombat` | full-screen TUI: chat, resume, sessions (transcript previews), models (filter + switch), usage charts, doctor; on a fresh install the configure entry is pre-selected |
+| `wombat chat` | interactive REPL directly (new session; skips the TUI) |
 | `wombat resume [id\|last]` | resume a session |
 | `wombat run "<task>"` | one-shot headless run (exit code reflects failure) |
 | `wombat run -c "<task>"` | continue the latest session headless |
