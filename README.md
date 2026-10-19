@@ -42,17 +42,21 @@ To uninstall, simply delete the binary (`rm ~/.local/bin/wombat`). Config lives 
 ## Quickstart
 
 ```
-wombat setup          # detect local servers, pick a provider and model
-wombat                # interactive session in the current directory
+wombat                 # start menu: chat, configure provider, models, doctor
+wombat chat            # jump straight into a session
+wombat setup           # wizard: detect local servers, pick a provider and model
 wombat run "add tests for the parser and run them"
-wombat doctor         # verify config and connectivity
+wombat doctor          # verify config and connectivity
 ```
+
+On a fresh install, `wombat` opens the start menu with **Configure provider & model** pre-selected — run it once and you are ready to chat.
 
 ## Commands
 
 | command | what it does |
 |---|---|
-| `wombat` | interactive REPL (new session) |
+| `wombat` | start menu (arrow keys): chat, resume, configure, models, sessions, doctor; on a fresh install the configure option is pre-selected |
+| `wombat chat` | interactive REPL directly (new session; skips the menu) |
 | `wombat resume [id\|last]` | resume a session |
 | `wombat run "<task>"` | one-shot headless run (exit code reflects failure) |
 | `wombat run -c "<task>"` | continue the latest session headless |

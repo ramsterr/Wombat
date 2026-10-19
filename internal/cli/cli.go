@@ -18,7 +18,15 @@ func Main() {
 	}
 	var err error
 	switch cmd {
-	case "", "chat":
+	case "":
+		if len(args) == 0 && isTTY(os.Stdin) {
+			err = cmdHome()
+		} else {
+			err = cmdRepl(args, false)
+		}
+	case "home":
+		err = cmdHome()
+	case "chat":
 		err = cmdRepl(args, false)
 	case "run":
 		err = cmdRun(args)
@@ -53,7 +61,8 @@ func help() {
 	fmt.Print(`wombat — a lightweight coding agent
 
 usage:
-  wombat                     interactive session (new)
+  wombat                     start menu (chat, configure, models, …)
+  wombat chat                chat now, skip the menu
   wombat resume [id|last]    resume a session
   wombat run "<task>"        one-shot headless run
   wombat setup               configure providers and models
