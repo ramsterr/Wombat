@@ -795,6 +795,14 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		}
 		c.refresh()
 		return nil
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			c.scrollUp(3)
+		case tea.MouseButtonWheelDown:
+			c.scrollDown(3)
+		}
+		return nil
 	case tea.KeyMsg:
 		return c.key(msg)
 	}
@@ -831,18 +839,22 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 			c.interrupt()
 		}
 		return nil
-	case "pgup":
-		c.follow = false
-		var cmd tea.Cmd
-		c.vp, cmd = c.vp.Update(msg)
-		return cmd
-	case "pgdown":
-		var cmd tea.Cmd
-		c.vp, cmd = c.vp.Update(msg)
-		if c.vp.AtBottom() {
-			c.follow = true
+	case "pgup", "ctrl+u":
+		c.scrollUp(max(1, c.vp.Height-2))
+		return nil
+	case "pgdown", "ctrl+d":
+		c.scrollDown(max(1, c.vp.Height-2))
+		return nil
+	case "up":
+		if c.ta.Value() == "" {
+			c.scrollUp(1)
+			return nil
 		}
-		return cmd
+	case "down":
+		if c.ta.Value() == "" {
+			c.scrollDown(1)
+			return nil
+		}
 	case "enter":
 		if c.streaming {
 			return nil
@@ -860,6 +872,18 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		c.vp.GotoBottom()
 	}
 	return cmd
+}
+
+func (c *chat) scrollUp(n int) {
+	c.follow = false
+	c.vp.LineUp(n)
+}
+
+func (c *chat) scrollDown(n int) {
+	c.vp.LineDown(n)
+	if c.vp.AtBottom() {
+		c.follow = true
+	}
 }
 
 func (c *chat) header() string {
@@ -888,9 +912,9 @@ func (c *chat) hint() string {
 	case c.perm != nil:
 		left = styleWarn.Render("waiting for permission") + styleDim.Render("  y allow · a always · n deny")
 	case c.streaming:
-		left = styleDim.Render("esc interrupt · working…")
+		left = styleDim.Render("esc interrupt · wheel/pgup scroll · working…")
 	default:
-		left = styleFaint.Render("enter send · alt+enter newline · /help · ctrl+c quit")
+		left = styleFaint.Render("enter send · alt+enter newline · wheel/pgup scroll · /help")
 	}
 	if c.cumIn+c.cumOut == 0 || c.w <= 0 {
 		return " " + left

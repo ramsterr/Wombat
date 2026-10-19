@@ -192,7 +192,7 @@ func Run(opt Options) (Action, error) {
 		doctor: newDoctor(opt),
 		usage:  newUsage(opt),
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.chat.send = p.Send
 	final, err := p.Run()
 	if err != nil {
