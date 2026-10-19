@@ -1,5 +1,6 @@
 ## Wombat
-<img width="2872" height="676" alt="image" src="https://github.com/user-attachments/assets/65962a7c-c646-438b-a5b7-2fa5c0626709" />
+<img width="2872" height="676" alt="image" src="https://github.com/user-attachments/assets/574a4db4-9091-41ff-9344-31584cc9e095" />
+
 
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ramsterr/Wombat/releases)
