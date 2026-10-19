@@ -5,9 +5,11 @@ import (
 	"os"
 
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/llm"
 )
 
 func Main() {
+	llm.UserAgent = "wombat/" + Version
 	args := os.Args[1:]
 	cmd := ""
 	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {

@@ -12,10 +12,11 @@ import (
 )
 
 type anthropic struct {
-	name string
-	base string
-	key  string
-	http *http.Client
+	name    string
+	base    string
+	key     string
+	http    *http.Client
+	prepare func(*http.Request)
 }
 
 func newAnthropic(name, base, key string) *anthropic {
@@ -163,6 +164,9 @@ func (a *anthropic) Chat(ctx context.Context, req Request, onDelta func(string))
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", a.key)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	if a.prepare != nil {
+		a.prepare(httpReq)
+	}
 	resp, err := a.http.Do(httpReq)
 	if err != nil {
 		return nil, err
@@ -239,6 +243,9 @@ func (a *anthropic) ListModels(ctx context.Context) ([]string, error) {
 	}
 	req.Header.Set("x-api-key", a.key)
 	req.Header.Set("anthropic-version", "2023-06-01")
+	if a.prepare != nil {
+		a.prepare(req)
+	}
 	resp, err := a.http.Do(req)
 	if err != nil {
 		return nil, err

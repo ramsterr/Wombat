@@ -65,11 +65,12 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 			a.maybeCompact(ctx)
 		}
 		res, err := a.Provider.Chat(ctx, llm.Request{
-			Model:    a.Model,
-			System:   system,
-			Messages: a.Sess.Messages,
-			Tools:    a.toolDefs(),
-			NumCtx:   a.NumCtx,
+			Model:     a.Model,
+			System:    system,
+			Messages:  a.Sess.Messages,
+			Tools:     a.toolDefs(),
+			NumCtx:    a.NumCtx,
+			SessionID: a.Sess.ID(),
 		}, a.Hooks.OnText)
 		if err != nil {
 			return err

@@ -13,11 +13,12 @@ import (
 )
 
 type openAI struct {
-	name   string
-	base   string
-	key    string
-	numCtx int
-	http   *http.Client
+	name    string
+	base    string
+	key     string
+	numCtx  int
+	http    *http.Client
+	prepare func(*http.Request)
 }
 
 func newOpenAI(name, base, key string, numCtx int) *openAI {
@@ -145,6 +146,9 @@ func (o *openAI) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 	if o.key != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+o.key)
 	}
+	if o.prepare != nil {
+		o.prepare(httpReq)
+	}
 	resp, err := o.http.Do(httpReq)
 	if err != nil {
 		return nil, err
@@ -231,6 +235,9 @@ func (o *openAI) ListModels(ctx context.Context) ([]string, error) {
 	}
 	if o.key != "" {
 		req.Header.Set("Authorization", "Bearer "+o.key)
+	}
+	if o.prepare != nil {
+		o.prepare(req)
 	}
 	resp, err := o.http.Do(req)
 	if err != nil {

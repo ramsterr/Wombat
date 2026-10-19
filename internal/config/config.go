@@ -42,6 +42,8 @@ var Presets = []Preset{
 	{Name: "groq", Kind: "openai", Base: "https://api.groq.com/openai/v1", KeyEnv: "GROQ_API_KEY"},
 	{Name: "xai", Kind: "openai", Base: "https://api.x.ai/v1", KeyEnv: "XAI_API_KEY"},
 	{Name: "mistral", Kind: "openai", Base: "https://api.mistral.ai/v1", KeyEnv: "MISTRAL_API_KEY"},
+	{Name: "opencode", Kind: "opencode", Base: "https://opencode.ai/inference", KeyEnv: "OPENCODE_API_KEY"},
+	{Name: "opencode-go", Kind: "opencode", Base: "https://opencode.ai/inference/go", KeyEnv: "OPENCODE_API_KEY"},
 	{Name: "ollama", Kind: "ollama", Base: "http://127.0.0.1:11434", Local: true},
 	{Name: "lmstudio", Kind: "openai", Base: "http://127.0.0.1:1234/v1", Local: true},
 	{Name: "llamacpp", Kind: "openai", Base: "http://127.0.0.1:9931/v1", Local: true},

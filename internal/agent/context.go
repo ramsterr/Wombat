@@ -143,6 +143,7 @@ func (a *Agent) summarize(ctx context.Context) error {
 		Model:     a.Model,
 		MaxTokens: 2048,
 		Messages:  []llm.Message{{Role: "user", Content: prompt}},
+		SessionID: a.Sess.ID(),
 	}, nil)
 	if err != nil {
 		return err

@@ -3,8 +3,10 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,38 @@ type providerChoice struct {
 	name   string
 	preset config.Preset
 	models []string
+}
+
+// openCodeAppKeys reads API keys stored by the OpenCode app so setup can
+// reuse them without asking the user to paste anything.
+func openCodeAppKeys() map[string]string {
+	paths := []string{}
+	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
+		paths = append(paths, filepath.Join(x, "opencode", "auth.json"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".local", "share", "opencode", "auth.json"))
+	}
+	for _, p := range paths {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var m map[string]map[string]any
+		if json.Unmarshal(raw, &m) != nil {
+			continue
+		}
+		out := map[string]string{}
+		for name, v := range m {
+			if v["type"] == "api" {
+				if k, ok := v["key"].(string); ok && k != "" {
+					out[name] = k
+				}
+			}
+		}
+		return out
+	}
+	return map[string]string{}
 }
 
 func cmdSetup(_ []string) error {
@@ -106,7 +140,9 @@ func cmdSetup(_ []string) error {
 			if c.preset.KeyEnv != "" {
 				envKey = os.Getenv(c.preset.KeyEnv)
 			}
-			if envKey != "" {
+			appKeys := openCodeAppKeys()
+			switch {
+			case envKey != "":
 				fmt.Printf("found $%s in environment — use it? [%s]: ", c.preset.KeyEnv, bold("Y"))
 				if ans := strings.ToLower(readLine(in)); ans == "" || ans == "y" || ans == "yes" {
 					key = ""
@@ -114,7 +150,16 @@ func cmdSetup(_ []string) error {
 					fmt.Print("api key: ")
 					key = readLine(in)
 				}
-			} else {
+			case appKeys[name] != "":
+				k := appKeys[name]
+				fmt.Printf("found an OpenCode key in the OpenCode app (%s…) — use it? [%s]: ", k[:min(12, len(k))], bold("Y"))
+				if ans := strings.ToLower(readLine(in)); ans == "" || ans == "y" || ans == "yes" {
+					key = k
+				} else {
+					fmt.Print("api key: ")
+					key = readLine(in)
+				}
+			default:
 				fmt.Print("api key (enter to skip, can set later via env): ")
 				key = readLine(in)
 			}

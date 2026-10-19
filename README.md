@@ -71,6 +71,21 @@ Presets: `openai`, `anthropic`, `openrouter`, `deepseek`, `groq`, `xai`, `mistra
 
 API keys resolve in order: config file → preset env var (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …) → `<PROVIDER>_API_KEY`. Local servers need no key.
 
+### OpenCode Zen and Go
+
+`opencode` ([Zen](https://opencode.ai/zen), pay-as-you-go) and `opencode-go` ([Go](https://opencode.ai/go), subscription) are supported natively. Each model is served on a different protocol, and Wombat routes automatically:
+
+| family | protocol |
+|---|---|
+| GLM, Kimi, DeepSeek, MiMo, LongCat, Qwen Max, … | OpenAI chat completions |
+| Claude, MiniMax, Qwen Plus/Flash | Anthropic messages |
+| GPT, Grok, Muse | OpenAI Responses API |
+| Gemini | Google generateContent |
+
+Unknown models start on chat completions and fall back across protocols if the gateway reports a protocol mismatch; the winning route is cached per model. Wombat sends the `User-Agent` and `x-opencode-session` headers the Go gateway expects for routing and prompt caching — the same session ID is reused across turns, so cache hits show up in `/cost`.
+
+If the OpenCode app is installed on the same machine, `wombat setup` detects its stored credentials and offers to reuse them — no key to paste. Note: `*-free` models are restricted to the OpenCode app itself and cannot be used from third-party clients.
+
 ## Tools
 
 | tool | class | notes |

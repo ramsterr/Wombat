@@ -43,6 +43,7 @@ type Request struct {
 	MaxTokens   int
 	Temperature float64
 	NumCtx      int
+	SessionID   string
 }
 
 type Result struct {
@@ -58,6 +59,8 @@ type Provider interface {
 	ListModels(ctx context.Context) ([]string, error)
 }
 
+var UserAgent = "wombat/dev"
+
 func New(name string, pc *config.Provider, apiKey string) (Provider, error) {
 	switch pc.Kind {
 	case "openai":
@@ -66,6 +69,8 @@ func New(name string, pc *config.Provider, apiKey string) (Provider, error) {
 		return newAnthropic(name, pc.BaseURL, apiKey), nil
 	case "ollama":
 		return newOllama(name, pc.BaseURL, pc.NumCtx), nil
+	case "opencode":
+		return newOpenCode(name, pc.BaseURL, apiKey), nil
 	default:
 		return nil, fmt.Errorf("provider %q: unknown kind %q", name, pc.Kind)
 	}
