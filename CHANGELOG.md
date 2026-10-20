@@ -8,6 +8,11 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **A `question` tool**: when the output depends on a choice only the user can
+  make, the agent asks - with two or three concrete options, and the user can
+  type their own answer - instead of guessing. The prompt also tells the agent
+  to hand the work back when it is done rather than keep polishing on its own.
+
 - **Web tools**: `websearch` and `webfetch` are real tools now, so research
   costs one round-trip instead of a shell command plus a permission prompt.
   The read-only workers get them as well.

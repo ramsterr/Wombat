@@ -161,7 +161,8 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 	}
 	for _, t := range ag.Tools {
 		switch t.Name() {
-		case "update_plan", "delegate", "delegate_many", "run_checks", "delegate_write":
+		case "update_plan", "delegate", "delegate_many", "run_checks", "delegate_write", "question":
+			// Workers and writers have nobody to ask.
 			continue
 		}
 		o.writerTools = append(o.writerTools, t)

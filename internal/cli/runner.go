@@ -136,6 +136,9 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		env.SandboxAsk = func(kind, command string) tools.SandboxDecision {
 			return p.AskSandbox(kind, command)
 		}
+		env.AskUser = func(q tools.Question) (string, error) {
+			return p.AskUser(q)
+		}
 	}
 	if cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(sess.Path()), cwd)
@@ -147,7 +150,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	ag := &agent.Agent{
 		Provider:      prov,
 		Model:         model,
-		Tools:         tools.Registry(),
+		Tools:         tools.RegistryWithQuestion(),
 		Env:           env,
 		Sess:          sess,
 		MaxSteps:      cfg.MaxSteps,

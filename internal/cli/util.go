@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,6 +190,33 @@ func nonInteractiveNote(kind string) string {
 func declinedNote() string {
 	return "the user declined this call. Do not claim it was done. Continue without it, " +
 		"or tell the user what you need in order to proceed."
+}
+
+// AskUser asks the user a question and waits for the answer. It reads the
+// answer from the same input the prompts use.
+func (p *Prompter) AskUser(q tools.Question) (string, error) {
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, yellow("?")+" "+q.Question)
+	for i, o := range q.Options {
+		fmt.Fprintf(os.Stderr, "  %d) %s", i+1, o.Label)
+		if o.Description != "" {
+			fmt.Fprintf(os.Stderr, " - %s", o.Description)
+		}
+		fmt.Fprintln(os.Stderr)
+	}
+	fmt.Fprint(os.Stderr, "  (number, or type your own answer): ")
+	line, err := p.in.ReadString('\n')
+	if err != nil {
+		return "", nil
+	}
+	answer := strings.TrimSpace(line)
+	if answer == "" {
+		return "", nil
+	}
+	if n, err := strconv.Atoi(answer); err == nil && n >= 1 && n <= len(q.Options) {
+		return q.Options[n-1].Label, nil
+	}
+	return answer, nil
 }
 
 // AskSandbox asks the user whether a command blocked by the sandbox may run.

@@ -380,6 +380,7 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `multi_edit` | edit | several edits to one file, applied atomically |
 | `webfetch` | network | fetch a URL and return readable text |
 | `websearch` | network | search the web and return ranked results |
+| `question` | ask | ask the user to choose, with 2-3 options or free text |
 | `update_plan` | plan | create/replace the ledger, steps, and checks |
 | `run_checks` | verify | run a step's checks and record evidence |
 | `delegate` / `delegate_many` | delegate | read-only investigation workers |
@@ -452,6 +453,26 @@ harnesses do it:
   ```sh
   wombat config set scout_model gpt-5-mini
   ```
+
+## Asking you, instead of guessing
+
+The agent has a `question` tool. When the result depends on a choice only you
+can make - which direction, which option, what "good" means here - it asks
+instead of picking for you:
+
+```
+? Which direction should the poster take?
+  1) Editorial / magazine - Bold serif headline, high contrast.
+  2) Minimal / gallery    - Lots of white space, small type.
+  (number, or type your own answer): 1
+```
+
+In the TUI, press `1`-`9` to pick, `f` to type your own answer, or `esc` to
+skip. The answer comes back to the model, which then acts on it.
+
+The prompt also tells the agent to **hand the work back when it is done** rather
+than keep refining on its own: another round of its own guesses is slower and
+usually worse than one question.
 
 ## Showing or hiding the thinking
 

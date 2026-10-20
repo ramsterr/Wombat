@@ -105,6 +105,14 @@ type permAskMsg struct {
 	reply  chan tools.Decision
 }
 
+// questionMsg asks the user to choose between options, the way opencode
+// does. The answer comes back as free text: a chosen option's label, or
+// whatever the user typed.
+type questionMsg struct {
+	question tools.Question
+	reply    chan string
+}
+
 // permColor returns the colour that marks a permission kind. Requests that
 // go beyond the sandbox get their own colour so they stand out.
 func permColor(kind tools.PermKind) lipgloss.TerminalColor {
@@ -174,6 +182,12 @@ type chat struct {
 	perm         *permAskMsg
 	permFeedback bool
 	permInput    textinput.Model
+
+	question       *tools.Question
+	questionText   textinput.Model
+	questionTyping bool
+	questionSel    int
+	askReply       chan string
 
 	pending []llm.Attachment
 	mouse   bool
@@ -355,6 +369,7 @@ func (c *chat) rebuild(reset bool) error {
 		Mode:          c.mode.Label(),
 	}
 	env.SandboxAsk = c.askSandbox
+	env.AskUser = c.askUser
 	if c.cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(c.sess.Path()), cwd)
 		if err != nil {
@@ -368,7 +383,7 @@ func (c *chat) rebuild(reset bool) error {
 	c.ag = &agent.Agent{
 		Provider:      prov,
 		Model:         c.modelName,
-		Tools:         tools.Registry(),
+		Tools:         tools.RegistryWithQuestion(),
 		Env:           env,
 		Sess:          c.sess,
 		MaxSteps:      c.cfg.MaxSteps,
@@ -606,6 +621,130 @@ func (c *chat) currentSandbox() sandbox.Settings {
 		return c.sandboxState.Settings()
 	}
 	return c.sandbox
+}
+
+// askUser asks the user a question and waits for the answer.
+func (c *chat) askUser(q tools.Question) (string, error) {
+	if c.send == nil {
+		return "", fmt.Errorf("the user cannot be asked here")
+	}
+	reply := make(chan string, 1)
+	c.askReply = reply
+	c.emit(questionMsg{question: q, reply: reply})
+	select {
+	case answer := <-reply:
+		return answer, nil
+	case <-time.After(30 * time.Minute):
+		return "", fmt.Errorf("the user did not answer")
+	}
+}
+
+// initQuestionInput prepares the free-text input for a question.
+func (c *chat) initQuestionInput() {
+	if c.questionText.Placeholder == "" {
+		c.questionText = textinput.New()
+		c.questionText.Placeholder = "type your own answer"
+		c.questionText.CharLimit = 400
+	}
+}
+
+// questionKey handles the keys while a question is open.
+func (c *chat) questionKey(msg tea.KeyMsg) tea.Cmd {
+	if c.questionTyping {
+		switch msg.String() {
+		case "enter":
+			text := strings.TrimSpace(c.questionText.Value())
+			if text == "" {
+				c.questionTyping = false
+				c.questionText.Blur()
+				c.layout()
+				c.refresh()
+				return nil
+			}
+			c.sendQuestion(text)
+			return nil
+		case "esc":
+			c.questionTyping = false
+			c.questionText.Blur()
+			c.layout()
+			c.refresh()
+			return nil
+		}
+		var cmd tea.Cmd
+		c.questionText, cmd = c.questionText.Update(msg)
+		return cmd
+	}
+	switch msg.String() {
+	case "up", "ctrl+p":
+		if c.questionSel > 0 {
+			c.questionSel--
+		}
+		c.layout()
+		c.refresh()
+		return nil
+	case "down", "ctrl+n":
+		if c.questionSel < len(c.question.Options)-1 {
+			c.questionSel++
+		}
+		c.layout()
+		c.refresh()
+		return nil
+	case "f", "F":
+		c.initQuestionInput()
+		c.questionTyping = true
+		c.questionText.Focus()
+		c.layout()
+		c.refresh()
+		return nil
+	case "esc":
+		c.sendQuestion("")
+		return nil
+	case "ctrl+c":
+		c.sendQuestion("")
+		c.interrupt()
+		return nil
+	}
+	if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
+		idx := int(msg.Runes[0] - '1')
+		if idx < len(c.question.Options) {
+			c.questionSel = idx
+			c.sendQuestion(c.question.Options[idx].Label)
+			return nil
+		}
+	}
+	return nil
+}
+
+// sendQuestion delivers the answer and closes the question.
+func (c *chat) sendQuestion(answer string) {
+	if c.question == nil {
+		return
+	}
+	c.question = nil
+	c.questionTyping = false
+	c.questionText.Reset()
+	c.questionText.Blur()
+	c.layout()
+	c.refresh()
+	if c.askReply != nil {
+		c.askReply <- answer
+		c.askReply = nil
+	}
+}
+
+// answerQuestion delivers the user's answer.
+func (c *chat) answerQuestion(answer string) {
+	if c.question == nil {
+		return
+	}
+	q := c.question
+	c.question = nil
+	c.questionTyping = false
+	c.questionText.Reset()
+	c.questionText.Blur()
+	c.layout()
+	c.refresh()
+	_ = q
 }
 
 // askSandbox asks the user whether a command blocked by the sandbox may run.
@@ -1295,6 +1434,15 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 	case noteMsg:
 		c.note(msg.text, msg.isErr)
 		return nil
+	case questionMsg:
+		q := msg.question
+		c.question = &q
+		c.questionSel = 0
+		c.questionTyping = false
+		c.initQuestionInput()
+		c.layout()
+		c.refresh()
+		return nil
 	case permAskMsg:
 		p := msg
 		c.perm = &p
@@ -1353,6 +1501,9 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 }
 
 func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
+	if c.question != nil {
+		return c.questionKey(msg)
+	}
 	if c.perm != nil {
 		if c.permFeedback {
 			switch msg.String() {
@@ -1578,12 +1729,47 @@ func (c *chat) permView() string {
 	return title + "\n" + detail + "\n" + keys
 }
 
+// questionView renders the question box.
+func (c *chat) questionView() string {
+	q := c.question
+	if q == nil {
+		return ""
+	}
+	var b strings.Builder
+	if q.Header != "" {
+		b.WriteString(styleTitle.Render(q.Header) + "\n")
+	}
+	b.WriteString(styleAccent.Render(q.Question) + "\n")
+	for i, o := range q.Options {
+		marker := "  "
+		style := styleDim
+		if c.questionSel == i {
+			marker = styleKey.Render(" > ")
+			style = styleAccent
+		}
+		b.WriteString(marker + style.Render(fmt.Sprintf("%d) %s", i+1, o.Label)))
+		if o.Description != "" {
+			b.WriteString(styleDim.Render(" - " + o.Description))
+		}
+		b.WriteString("\n")
+	}
+	if c.questionTyping {
+		b.WriteString("  " + c.questionText.View() + "\n")
+		b.WriteString(styleFaint.Render("  enter send · esc cancel"))
+	} else {
+		b.WriteString(styleFaint.Render("  1-9 pick · f type your own · esc skip"))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func (c *chat) view() string {
 	if c.w <= 0 || c.h <= 0 {
 		return ""
 	}
 	var box string
-	if c.perm != nil {
+	if c.question != nil {
+		box = styleInputIdle.BorderForeground(cAccent).Width(c.w - 4).Render(c.questionView())
+	} else if c.perm != nil {
 		box = styleInputIdle.BorderForeground(permColor(c.perm.perm)).Width(c.w - 4).Render(c.permView())
 	} else {
 		style := styleInputIdle

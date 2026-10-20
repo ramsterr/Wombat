@@ -56,6 +56,10 @@ type Env struct {
 	// read the parts it needs instead of carrying the whole thing in its
 	// context. The agent sets it.
 	spillDir string
+
+	// AskUser asks the user a question and waits for the answer. It is nil
+	// where nobody can answer, such as inside a worker.
+	AskUser func(q Question) (string, error)
 }
 
 // SetSpillDir sets the directory large tool results are written to.
@@ -203,6 +207,12 @@ type Tool interface {
 
 func Registry() []Tool {
 	return []Tool{&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &Glob{}, &Grep{}, &Batch{}, &WebFetch{}, &WebSearch{}}
+}
+
+// RegistryWithQuestion is the full tool set, including the question tool the
+// lead uses to hand decisions back to the user.
+func RegistryWithQuestion() []Tool {
+	return append(Registry(), &QuestionTool{})
 }
 
 func (e *Env) Check(kind, detail string) error {
