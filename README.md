@@ -231,6 +231,7 @@ same list, and an unknown `/command` shows the closest matches.
 |---|---|
 | `/mode`, `/modes` | switch or list the working modes |
 | `/sandbox` | sandbox and network control |
+| `/thinking on\|off` | show or hide the model's thinking |
 | `/toolset` | the tools this session can use, and how each is gated |
 | `/sources` | the sites and files this session used |
 | `/history` | the messages in this session |
@@ -411,6 +412,40 @@ curl -sL -o /tmp/cat.png https://example.com/cat.png
 Reading an image attaches it to the agent's next message, so a
 vision-capable model actually sees it — the same path a pasted image takes.
 Text models simply get a note that the file is an image.
+
+## Speed
+
+Wombat is built to be fast, and the changes below come from how the quick
+harnesses do it:
+
+- **Tool calls run in parallel.** Independent read-only calls (`read`,
+  `glob`, `grep`, and bash that only inspects) run at the same time instead of
+  one after another; anything that can change the workspace runs on its own,
+  in order. Tool execution is roughly half of an agent's wall-clock time, so
+  this is the biggest single win.
+- **The history stays small.** Only the newest assistant turn keeps its
+  reasoning in the request, and tool results are trimmed hard, so every
+  request is cheap to prefill.
+- **A stuck agent is stopped.** The same call repeated with the same
+  arguments three times ends with "stop repeating it", instead of burning the
+  turn.
+- **A script beats a pile of reads.** The prompt asks the agent to compute
+  answers with one command rather than reading twenty files into its context.
+- **Parallel scouts.** A research task is one `delegate_many` call with two to
+  five scouts, each in its own context, so the lead's context stays small.
+
+## Showing or hiding the thinking
+
+The model's thinking is hidden by default — you get a one-line summary instead
+of a wall of text. Turn it on when you want to see it:
+
+```sh
+/thinking on      # show the thinking as it arrives
+/thinking off     # hide it again
+```
+
+The setting is saved. The thinking is always stored in the session, so
+`/history` and a resumed session still show it.
 
 ## Parallel work
 

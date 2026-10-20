@@ -146,6 +146,9 @@ type chat struct {
 	sandboxState *sandbox.State
 	mode         mode.Mode
 
+	// showThinking controls whether the model's thinking is displayed.
+	showThinking bool
+
 	// cmdList is the palette of matching commands or options. cmdSel is the
 	// highlighted entry and cmdTop is the first visible one.
 	cmdList []paletteEntry
@@ -270,8 +273,12 @@ func (c *chat) emit(msg tea.Msg) {
 
 func (c *chat) hooks() agent.Hooks {
 	return agent.Hooks{
-		OnText:      func(s string) { c.emit(textMsg(s)) },
-		OnReasoning: func(s string) { c.emit(reasoningMsg(s)) },
+		OnText: func(s string) { c.emit(textMsg(s)) },
+		OnReasoning: func(s string) {
+			if c.showThinking {
+				c.emit(reasoningMsg(s))
+			}
+		},
 		OnTool: func(name, detail string) {
 			c.emit(toolStartMsg{name: name, detail: detail})
 		},
@@ -330,6 +337,7 @@ func (c *chat) rebuild(reset bool) error {
 	if c.sandboxState == nil {
 		c.sandboxState = sandbox.NewState(c.sandbox)
 	}
+	c.showThinking = c.cfg.ShowThinking
 	if c.mode == "" {
 		if m, err := mode.Parse(c.cfg.Mode); err == nil {
 			c.mode = m
@@ -1140,6 +1148,18 @@ func (c *chat) command(line string) tea.Cmd {
 			return nil
 		}
 		c.note(msg, false)
+	case "/thinking":
+		settings, msg, changed, err := commands.ThinkingCommand(line, c.showThinking)
+		if err != nil {
+			c.note(err.Error(), true)
+			return nil
+		}
+		if changed {
+			c.showThinking = settings
+			c.cfg.ShowThinking = settings
+			_ = c.cfg.Save()
+		}
+		c.note(msg, false)
 	case "/toolset":
 		c.note(c.toolsetView(), false)
 	case "/sources":
@@ -1718,9 +1738,13 @@ func (c *chat) entryLines(e *chatEntry) []string {
 	case entryAssistant:
 		lines := []string{" " + styleAccent.Bold(true).Render("◆ wombat")}
 		if e.reasoning != "" {
-			lines = append(lines, "   "+styleFaint.Render("thinking"))
-			for _, ln := range wrap(e.reasoning, max(10, w-2)) {
-				lines = append(lines, "   "+styleThought.Render(ln))
+			if c.showThinking {
+				lines = append(lines, "   "+styleFaint.Render("thinking"))
+				for _, ln := range wrap(e.reasoning, max(10, w-2)) {
+					lines = append(lines, "   "+styleThought.Render(ln))
+				}
+			} else {
+				lines = append(lines, "   "+styleFaint.Render(fmt.Sprintf("thought · /thinking to show (%d chars)", len(e.reasoning))))
 			}
 		}
 		var body []string

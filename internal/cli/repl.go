@@ -352,6 +352,19 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 	case "/yolo":
 		p.auto = !p.auto
 		fmt.Println(dim(fmt.Sprintf("auto-approve: %v", p.auto)))
+	case "/thinking":
+		show := cfg.ShowThinking
+		newState, msg, changed, err := commands.ThinkingCommand(line, show)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		fmt.Println(msg)
+		if changed {
+			cfg.ShowThinking = newState
+			if err := cfg.Save(); err != nil {
+				return false, nil, nil, err
+			}
+		}
 	case "/toolset":
 		current := mode.Create
 		if ag != nil && ag.Env != nil && ag.Env.Mode != "" {

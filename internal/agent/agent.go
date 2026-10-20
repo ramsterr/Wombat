@@ -102,6 +102,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	if a.Env != nil {
 		a.Env.SetMediaSink(&media)
 	}
+	// Repeating the same call with the same arguments means the model is
+	// stuck; stop it before it burns the budget.
+	calls := map[string]int{}
 	system := buildSystem(a.Env.Dir)
 	if note := strings.TrimSpace(a.ModeNote); note != "" {
 		system += "\n\n" + note
@@ -148,32 +151,21 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if len(res.ToolCalls) == 0 {
 			return nil
 		}
-		for _, tc := range res.ToolCalls {
-			if a.Hooks.OnTool != nil {
-				a.Hooks.OnTool(tc.Name, toolDetail(tc))
-			}
-			a.Trace.Emit("tool_start", map[string]any{"name": tc.Name, "detail": tools.Truncate(toolDetail(tc), 0, 0, 500)})
-			start := time.Now()
-			var content string
-			if ctx.Err() != nil {
-				content = "error: interrupted by user"
-			} else {
-				out, err := a.execTool(ctx, tc)
-				switch {
-				case ctx.Err() != nil:
-					content = "error: interrupted by user"
-				case err != nil:
-					content = "error: " + err.Error()
-				default:
-					content = out
-				}
-			}
-			content = tools.Truncate(content, 0, 0, 64*1024)
+		// Run the tool calls. Calls that cannot change anything run
+		// concurrently; anything that mutates runs on its own, in order, so
+		// the workspace stays consistent. Results are always committed in
+		// the order the model asked for them.
+		results, err := a.runToolCalls(ctx, res.ToolCalls, calls)
+		if err != nil {
+			return err
+		}
+		for i, tc := range res.ToolCalls {
+			r := results[i]
 			if err := a.Sess.Append(llm.Message{
 				Role:       "tool",
 				ToolCallID: tc.ID,
 				Name:       tc.Name,
-				Content:    content,
+				Content:    r.content,
 			}); err != nil {
 				return err
 			}
@@ -184,11 +176,11 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 				media = media[:0]
 			}
 			a.Trace.Emit("tool_end", map[string]any{
-				"name": tc.Name, "duration_ms": time.Since(start).Milliseconds(),
-				"result_bytes": len(content),
+				"name": tc.Name, "duration_ms": r.duration.Milliseconds(),
+				"result_bytes": len(r.content),
 			})
 			if a.Hooks.OnToolResult != nil {
-				a.Hooks.OnToolResult(tc.Name, content, time.Since(start))
+				a.Hooks.OnToolResult(tc.Name, r.content, r.duration)
 			}
 		}
 		if err := ctx.Err(); err != nil {
@@ -199,6 +191,114 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 }
 
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }
+
+// toolResult is the outcome of one tool call.
+// parallelToolLimit is how many read-only tool calls run at once.
+const parallelToolLimit = 6
+
+// maxRepeatedToolCall is how many times the same call may repeat in a turn
+// before the agent is told to stop.
+const maxRepeatedToolCall = 3
+
+type toolResult struct {
+	content  string
+	duration time.Duration
+}
+
+// runToolCalls runs the tool calls of one assistant turn. Read-only calls
+// run concurrently - tool execution is a large part of an agent's wall-clock
+// time - while calls that can change the workspace run alone, in order.
+func (a *Agent) runToolCalls(ctx context.Context, toolCalls []llm.ToolCall, seen map[string]int) ([]toolResult, error) {
+	results := make([]toolResult, len(toolCalls))
+	exclusive := make([]bool, len(toolCalls))
+	blocked := make([]bool, len(toolCalls))
+	for i, tc := range toolCalls {
+		exclusive[i] = a.exclusiveTool(tc)
+		// Count repeats before dispatching, so the map is never touched
+		// from the worker goroutines.
+		key := tc.Name + " " + tc.Arguments
+		seen[key]++
+		if seen[key] > maxRepeatedToolCall {
+			blocked[i] = true
+		}
+	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, parallelToolLimit)
+	for i, tc := range toolCalls {
+		if exclusive[i] {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, tc llm.ToolCall) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			results[i] = a.callTool(ctx, tc, blocked[i])
+		}(i, tc)
+	}
+	wg.Wait()
+	for i, tc := range toolCalls {
+		if !exclusive[i] {
+			continue
+		}
+		results[i] = a.callTool(ctx, tc, blocked[i])
+	}
+	return results, nil
+}
+
+// exclusiveTool reports whether a call must run on its own. Anything that can
+// change the filesystem or the repository is exclusive.
+func (a *Agent) exclusiveTool(tc llm.ToolCall) bool {
+	switch tc.Name {
+	case "read", "glob", "grep":
+		return false
+	case "bash":
+		// A bash call that only inspects is safe to run alongside others.
+		return tools.MayMutate(toolArg(tc, "command"))
+	}
+	return true
+}
+
+// callTool runs one tool call and captures its result.
+func (a *Agent) callTool(ctx context.Context, tc llm.ToolCall, blocked bool) toolResult {
+	if blocked {
+		return toolResult{
+			content: fmt.Sprintf("error: %s was called with the same arguments %d times in this turn. "+
+				"Stop repeating it: change the arguments, use a different tool, or ask the user what to do.",
+				tc.Name, maxRepeatedToolCall+1),
+		}
+	}
+	if a.Hooks.OnTool != nil {
+		a.Hooks.OnTool(tc.Name, toolDetail(tc))
+	}
+	a.Trace.Emit("tool_start", map[string]any{"name": tc.Name, "detail": tools.Truncate(toolDetail(tc), 0, 0, 500)})
+	start := time.Now()
+	var content string
+	if ctx.Err() != nil {
+		content = "error: interrupted by user"
+	} else {
+		out, err := a.execTool(ctx, tc)
+		switch {
+		case ctx.Err() != nil:
+			content = "error: interrupted by user"
+		case err != nil:
+			content = "error: " + err.Error()
+		default:
+			content = out
+		}
+	}
+	return toolResult{content: tools.Truncate(content, 0, 0, 64*1024), duration: time.Since(start)}
+}
+
+// toolArg returns one argument of a tool call.
+func toolArg(tc llm.ToolCall, key string) string {
+	var m map[string]any
+	_ = json.Unmarshal([]byte(tc.Arguments), &m)
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
 
 // appendMedia attaches files a tool produced to a user message, so the model
 // receives them as images the way a pasted image arrives.

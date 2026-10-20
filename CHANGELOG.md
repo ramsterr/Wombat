@@ -8,6 +8,14 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Parallel tool execution**: independent read-only tool calls now run at the
+  same time, while anything that can change the workspace still runs alone and
+  in order. Tool execution is about half of an agent's wall-clock time, so
+  this is the largest single speed win.
+- A doom-loop guard: the same call repeated with the same arguments three
+  times stops with "stop repeating it" instead of burning the turn.
+- `/thinking on|off` and a `show_thinking` setting. The thinking is hidden by
+  default and shown as a one-line summary; it is always kept in the session.
 - A `reasoning` setting (off, low, medium, high) that maps to the provider's
   thinking controls, so the cost of thinking is the user's choice.
 

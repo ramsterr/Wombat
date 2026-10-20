@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,14 +14,20 @@ import (
 	"github.com/ramsterr/Wombat/internal/tools"
 )
 
-type fleetProvider struct{ n int }
+type fleetProvider struct {
+	mu sync.Mutex
+	n  int
+}
 
 func (p *fleetProvider) Name() string                                 { return "mock" }
 func (p *fleetProvider) ListModels(context.Context) ([]string, error) { return []string{"mock"}, nil }
 func (p *fleetProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	p.mu.Lock()
 	p.n++
-	report := map[string]any{"status": "completed", "summary": fmt.Sprintf("scout %d", p.n),
-		"findings": []map[string]any{{"claim": fmt.Sprintf("angle %d", p.n), "evidence": "README.md:1"}},
+	n := p.n
+	p.mu.Unlock()
+	report := map[string]any{"status": "completed", "summary": fmt.Sprintf("scout %d", n),
+		"findings": []map[string]any{{"claim": fmt.Sprintf("angle %d", n), "evidence": "README.md:1"}},
 		"changes":  []any{}, "tests": []any{}, "risks": []any{}, "next_steps": []any{}}
 	body, _ := json.Marshal(report)
 	return &llm.Result{Content: string(body), Usage: llm.Usage{In: 50, Out: 20}}, nil

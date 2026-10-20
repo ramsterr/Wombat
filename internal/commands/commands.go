@@ -50,6 +50,10 @@ var List = []Command{
 		{Value: "mode workspace-write", Summary: "writes limited to the working directory"},
 		{Value: "mode danger-full-access", Summary: "no restrictions"},
 	}},
+	{Name: "/thinking", Args: "[on|off]", Summary: "show or hide the model's thinking", Options: []Option{
+		{Value: "on", Summary: "show the model's thinking as it arrives"},
+		{Value: "off", Summary: "hide it and show a one-line summary instead"},
+	}},
 	{Name: "/toolset", Summary: "the tools this session can use"},
 	{Name: "/sources", Summary: "sites and files used in this session"},
 	{Name: "/history", Summary: "the messages in this session"},

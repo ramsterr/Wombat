@@ -48,6 +48,7 @@ type Config struct {
 	TurnWriterTokenBudget int                  `json:"turn_writer_token_budget"`
 	Mode                  string               `json:"mode"`
 	Reasoning             string               `json:"reasoning,omitempty"`
+	ShowThinking          bool                 `json:"show_thinking"`
 	Sandbox               string               `json:"sandbox"`
 	SandboxNetwork        bool                 `json:"sandbox_network"`
 	Checkpoints           bool                 `json:"checkpoints"`
