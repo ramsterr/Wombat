@@ -399,6 +399,19 @@ inventing from scratch, credits what it reuses, reads the repository's own
 `examples/` directory first, and looks at its own output before claiming it
 works.
 
+## Looking at images
+
+The agent can look at images it finds, not only ones you paste. It downloads
+one (with `curl`, or any tool) and then reads it:
+
+```sh
+curl -sL -o /tmp/cat.png https://example.com/cat.png
+```
+
+Reading an image attaches it to the agent's next message, so a
+vision-capable model actually sees it — the same path a pasted image takes.
+Text models simply get a note that the file is an image.
+
 ## Parallel work
 
 The prompt also tells the agent to **work in parallel**:

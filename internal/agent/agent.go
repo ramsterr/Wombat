@@ -93,6 +93,12 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	if maxSteps <= 0 {
 		maxSteps = 64
 	}
+	// Files a tool hands over (an image the agent downloaded) are attached to
+	// the next user message so the model can actually look at them.
+	var media []tools.Media
+	if a.Env != nil {
+		a.Env.SetMediaSink(&media)
+	}
 	system := buildSystem(a.Env.Dir)
 	if note := strings.TrimSpace(a.ModeNote); note != "" {
 		system += "\n\n" + note
@@ -167,6 +173,12 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}); err != nil {
 				return err
 			}
+			if len(media) > 0 {
+				if err := a.appendMedia(media); err != nil {
+					return err
+				}
+				media = media[:0]
+			}
 			a.Trace.Emit("tool_end", map[string]any{
 				"name": tc.Name, "duration_ms": time.Since(start).Milliseconds(),
 				"result_bytes": len(content),
@@ -183,6 +195,19 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 }
 
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }
+
+// appendMedia attaches files a tool produced to a user message, so the model
+// receives them as images the way a pasted image arrives.
+func (a *Agent) appendMedia(media []tools.Media) error {
+	names := make([]string, 0, len(media))
+	attachments := make([]llm.Attachment, 0, len(media))
+	for _, m := range media {
+		names = append(names, m.Name)
+		attachments = append(attachments, llm.Attachment{Kind: "image", MIME: m.MIME, Name: m.Name, Path: m.Path})
+	}
+	content := "I read " + strings.Join(names, ", ") + ". Look at the attached image and continue."
+	return a.Sess.Append(llm.Message{Role: "user", Content: content, Attachments: attachments})
+}
 
 func (a *Agent) execTool(ctx context.Context, tc llm.ToolCall) (string, error) {
 	for _, tool := range a.Tools {

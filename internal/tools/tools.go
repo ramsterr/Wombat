@@ -45,6 +45,37 @@ type Env struct {
 	// SandboxAsk asks the user whether a command blocked by the sandbox may
 	// run anyway. It returns SandboxDeny when the user declines.
 	SandboxAsk func(kind, command string) SandboxDecision
+
+	// media collects files a tool wants the model to look at, such as an
+	// image the agent downloaded. The agent owns the list.
+	media *[]Media
+}
+
+// Media is a file a tool produced for the model to look at.
+type Media struct {
+	// Path is the file on disk.
+	Path string
+	// MIME is the content type.
+	MIME string
+	// Name is a friendly name for the model.
+	Name string
+}
+
+// SetMediaSink gives the environment the list that collects files for the
+// model. The agent owns it and drains it after every tool call.
+func (e *Env) SetMediaSink(m *[]Media) {
+	if e == nil {
+		return
+	}
+	e.media = m
+}
+
+// AddMedia hands a file to the model as an attachment.
+func (e *Env) AddMedia(m Media) {
+	if e == nil || e.media == nil {
+		return
+	}
+	*e.media = append(*e.media, m)
 }
 
 // SandboxDecision is the user's answer to a sandbox escalation request.

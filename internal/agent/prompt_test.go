@@ -30,11 +30,11 @@ func TestCraftStandardInPrompt(t *testing.T) {
 		"2-5 workers",
 		"delegate_many",
 		"established libraries",
-		"Prefer proven, licensed sources",
-		"credit what you reuse",
-		"Search the web when the network is available",
+		"prefer proven, licensed sources",
+		"Credit what you reuse",
+		"Search the web when the network allows it",
 		"examples/ directory",
-		"before claiming it works",
+		"before you claim it works",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the system prompt is missing %q", want)

@@ -524,7 +524,7 @@ func TestOrchestrationPromptPushesParallelScouts(t *testing.T) {
 	for _, want := range []string{
 		"delegate_many",
 		"two to five",
-		"run at the same time",
+		"at the same time",
 		"faster",
 		"fewer tokens",
 	} {

@@ -13,6 +13,40 @@ const maxFileBytes = 8 << 20
 
 type Read struct{}
 
+// maxImageBytes caps an image the agent may look at.
+const maxImageBytes = 12 << 20
+
+// imageMIME reports whether a path is an image the model can look at.
+func imageMIME(path string) (string, bool) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".gif":
+		return "image/gif", true
+	case ".webp":
+		return "image/webp", true
+	case ".bmp":
+		return "image/bmp", true
+	}
+	return "", false
+}
+
+// readImage hands an image to the model so it can look at it, instead of
+// returning the bytes as text.
+func (t *Read) readImage(env *Env, path, mime string) (string, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if st.Size() > maxImageBytes {
+		return "", fmt.Errorf("image too large (%d bytes, max %d)", st.Size(), maxImageBytes)
+	}
+	env.AddMedia(Media{Path: path, MIME: mime, Name: filepath.Base(path)})
+	return fmt.Sprintf("image: %s (%s, %d bytes). It is attached to this message for you to look at.", path, mime, st.Size()), nil
+}
+
 type readArgs struct {
 	Path   string `json:"path"`
 	Offset int    `json:"offset"`
@@ -50,6 +84,9 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	}
 	if st.Size() > maxFileBytes {
 		return "", fmt.Errorf("file too large (%d bytes)", st.Size())
+	}
+	if mime, ok := imageMIME(path); ok {
+		return t.readImage(env, path, mime)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

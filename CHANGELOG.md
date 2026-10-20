@@ -8,13 +8,16 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- The agent can look at images it finds: reading an image file attaches it to
+  the next message, so a vision-capable model sees it exactly like a pasted
+  image. Download with curl, then read the file.
 - The system prompt tells the agent to work in parallel: fan out two to five
   workers with `delegate_many` for research, comparison, or anything with
   more than two steps, each on a different angle, then synthesize.
 
 ### Changed
 
-- The system prompt is compressed by about a third (it is sent with every
+- The system prompt is compressed by about 40% (it is sent with every
   request), and the orchestration rules were tightened the same way.
 - The lead keeps far less tool output verbatim in its history (16k tokens
   instead of 40k) and tool results are smaller, so every request is cheaper.
