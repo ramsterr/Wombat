@@ -73,6 +73,16 @@ func Supported(mode Mode) bool {
 	return false
 }
 
+// Resolve returns a mode the host can actually enforce. Sandbox modes that
+// need OS support that is missing fall back to Off instead of failing every
+// command, so the agent still works on hosts without sandbox-exec or bwrap.
+func Resolve(mode Mode) Mode {
+	if Supported(mode) {
+		return mode
+	}
+	return Off
+}
+
 // Command returns the executable and arguments used to run command under the
 // configured sandbox. It fails closed when a sandbox mode needs OS support that
 // is not available, except for off and danger-full-access.

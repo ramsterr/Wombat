@@ -269,6 +269,20 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 	return jsonMarshalIndent(result)
 }
 
+// writerSandboxMode picks the sandbox mode for a writer: writers need write
+// access, so a read-only lead becomes workspace-write, and the rest is
+// inherited.
+func writerSandboxMode(lead sandbox.Mode) sandbox.Mode {
+	switch lead {
+	case sandbox.Off, sandbox.DangerFullAccess:
+		return lead
+	case sandbox.ReadOnly:
+		return sandbox.WorkspaceWrite
+	default:
+		return sandbox.WorkspaceWrite
+	}
+}
+
 func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string, facts []string) {
 	cfg := o.cfg
 	o.worktreeMu.Lock()
@@ -294,7 +308,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	env.DenyOutside = true
 	env.AllowOutside = false
 	env.Sandbox = sandbox.Policy{
-		Mode:         sandbox.WorkspaceWrite,
+		Mode:         sandbox.Resolve(writerSandboxMode(o.lead.Env.Sandbox.Mode)),
 		Workspace:    wt.Path,
 		AllowNetwork: o.lead.Env.Sandbox.AllowNetwork,
 	}

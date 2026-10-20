@@ -16,6 +16,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,9 +65,8 @@ jobs:
           echo "stable now points at ${GITHUB_SHA}"
 
       - name: Update the Homebrew tap
-        if: github.event_name == 'push' && secrets.HOMEBREW_TAP_TOKEN != ''
+        if: github.event_name == 'push' && env.HOMEBREW_TAP_TOKEN != ''
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e

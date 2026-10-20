@@ -298,9 +298,7 @@ func (c *chat) rebuild(reset bool) error {
 	if err != nil {
 		return err
 	}
-	if !sandbox.Supported(mode) {
-		mode = sandbox.Off
-	}
+	mode = sandbox.Resolve(mode)
 	env := &tools.Env{
 		Dir:    cwd,
 		Permit: c.permit,

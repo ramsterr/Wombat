@@ -74,3 +74,20 @@ func runErr(p sandbox.Policy, dir, command string) error {
 	cmd.Dir = dir
 	return cmd.Run()
 }
+
+func TestResolveFallsBackToOff(t *testing.T) {
+	if got := sandbox.Resolve(sandbox.Off); got != sandbox.Off {
+		t.Errorf("Resolve(off) = %q", got)
+	}
+	if got := sandbox.Resolve(sandbox.DangerFullAccess); got != sandbox.DangerFullAccess {
+		t.Errorf("Resolve(danger) = %q", got)
+	}
+	got := sandbox.Resolve(sandbox.WorkspaceWrite)
+	if sandbox.Supported(sandbox.WorkspaceWrite) {
+		if got != sandbox.WorkspaceWrite {
+			t.Errorf("Resolve(workspace-write) = %q, want workspace-write", got)
+		}
+	} else if got != sandbox.Off {
+		t.Errorf("Resolve(workspace-write) = %q, want off on an unsupported host", got)
+	}
+}

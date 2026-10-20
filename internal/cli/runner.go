@@ -92,9 +92,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	if err != nil {
 		return nil, err
 	}
-	if !sandbox.Supported(mode) {
-		mode = sandbox.Off
-	}
+	mode = sandbox.Resolve(mode)
 	env := &tools.Env{
 		Dir:    cwd,
 		Permit: p.Permit,
