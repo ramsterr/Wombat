@@ -8,6 +8,13 @@ All notable changes to Wombat are recorded here. The format follows
 
 Nothing yet.
 
+## [0.2.5] — 2026-10-20
+
+### Fixed
+
+- The Homebrew tap update authenticates with an authorization header and
+  reports what is wrong when the token cannot reach the tap repository.
+
 ## [0.2.4] — 2026-10-20
 
 ### Fixed
@@ -86,7 +93,8 @@ Reliability, verification, parallel writers, and the release pipeline.
 - Bash runs through a shared command runner with a bounded output buffer.
 - The version string is stamped at build time instead of being hardcoded.
 
-[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.5
 [0.2.4]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.4
 [0.2.3]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.3
 [0.2.2]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.2

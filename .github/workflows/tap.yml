@@ -44,3 +44,4 @@ jobs:
           echo "updating the tap to ${VERSION}"
           gh release download "v${VERSION}" --pattern checksums.txt --dir . --clobber
           python3 packaging/homebrew/update-tap.py --tap ramsterr/homebrew-wombat --version "$VERSION" --checksums checksums.txt
+          echo "the Homebrew formula is up to date"

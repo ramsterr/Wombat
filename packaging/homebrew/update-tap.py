@@ -70,6 +70,12 @@ def run(args: list[str], cwd: str | None = None) -> str:
     return result.stdout
 
 
+def basic_auth(token: str) -> str:
+    import base64
+
+    return base64.b64encode(f"x-access-token:{token}".encode()).decode()
+
+
 def parse_checksums(path: str) -> dict[str, str]:
     sums: dict[str, str] = {}
     with open(path, encoding="utf-8") as handle:
@@ -100,7 +106,7 @@ def main() -> int:
     parser.add_argument("--message", default="")
     args = parser.parse_args()
 
-    token = os.environ.get("HOMEBREW_TAP_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    token = (os.environ.get("HOMEBREW_TAP_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
     if not token:
         raise SystemExit("HOMEBREW_TAP_TOKEN is not set in this repository")
 
@@ -111,12 +117,27 @@ def main() -> int:
     workdir = tempfile.mkdtemp(prefix="wombat-tap-")
     try:
         base = os.environ.get("TAP_REPO_URL", "").strip()
+        # Pass the token as an Authorization header instead of embedding it in
+        # the URL: a stray newline or an escaped character in the secret would
+        # otherwise break authentication.
+        auth = ["-c", f"http.extraHeader=Authorization: Basic {basic_auth(token)}"]
         if base:
             url = base
         else:
-            url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+            url = f"https://github.com/{owner}/{repo}.git"
+        print(f"checking access to {owner}/{repo}")
+        try:
+            run(["git", "-c", f"http.extraHeader=Authorization: Basic {basic_auth(token)}",
+                 "ls-remote", "--heads", url])
+        except subprocess.CalledProcessError as error:
+            sys.stderr.write(error.stderr or "")
+            raise SystemExit(
+                f"cannot read {owner}/{repo} with HOMEBREW_TAP_TOKEN. The token needs "
+                "read access to the tap repository; check that it exists, has not "
+                "expired, and was pasted without extra characters"
+            ) from error
         print(f"cloning {owner}/{repo}")
-        run(["git", "clone", "--depth", "1", url, workdir])
+        run(["git", *auth, "clone", "--depth", "1", url, workdir])
         run(["git", "config", "user.name", "wombat-release-bot"], cwd=workdir)
         run(["git", "config", "user.email", "wombat@localhost"], cwd=workdir)
 
@@ -132,12 +153,19 @@ def main() -> int:
         with open(target, "w", encoding="utf-8") as handle:
             handle.write(formula)
 
-        run(["git", "add", FORMULA_PATH], cwd=workdir)
+        run(["git", *auth, "add", FORMULA_PATH], cwd=workdir)
         run(
             ["git", "commit", "-m", args.message or f"wombat {args.version}"],
             cwd=workdir,
         )
-        run(["git", "push", "origin", "HEAD"], cwd=workdir)
+        try:
+            run(["git", *auth, "push", "origin", "HEAD"], cwd=workdir)
+        except subprocess.CalledProcessError as error:
+            sys.stderr.write(error.stderr or "")
+            raise SystemExit(
+                f"cannot push to {owner}/{repo}. The token needs write access "
+                "(fine-grained PAT: Contents -> Read and write on the tap repository)"
+            ) from error
         print(f"updated {owner}/{repo}/{FORMULA_PATH} to {args.version}")
     except subprocess.CalledProcessError as error:
         sys.stderr.write(error.stdout or "")
