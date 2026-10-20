@@ -1,0 +1,69 @@
+# Release pipeline for wombat.
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# The tag push runs .github/workflows/release.yml, which builds the binaries
+# with goreleaser and publishes them as a GitHub release. Assets are named
+# wombat_<version>_<os>_<arch>.tar.gz (zip on Windows) plus checksums.txt,
+# which is what internal/release and install.sh expect.
+version: 2
+
+project_name: wombat
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: wombat
+    main: ./cmd/wombat
+    binary: wombat
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/ramsterr/Wombat/internal/cli.Version={{ .Version }}
+      - -X github.com/ramsterr/Wombat/internal/cli.Commit={{ .FullCommit }}
+      - -X github.com/ramsterr/Wombat/internal/cli.Date={{ .Date }}
+
+archives:
+  - id: wombat
+    ids:
+      - wombat
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - CHANGELOG.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github-native
+
+release:
+  prerelease: auto
+  footer: |
+    Install:
+      curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
+    Update an existing install with:
+      wombat upgrade

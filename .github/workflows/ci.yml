@@ -20,7 +20,22 @@ jobs:
         run: go vet ./...
       - name: test
         run: go test ./...
+      - name: test (race)
+        run: go test -race ./internal/agent ./internal/orchestrator ./internal/tools ./internal/checkpoint ./internal/worktree ./internal/llm ./internal/eval ./internal/release
       - name: build
         run: go build ./...
       - name: eval tasks
         run: go run ./cmd/eval -tasks eval/tasks -dry-run
+
+  release-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check the release configuration
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          args: check

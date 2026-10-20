@@ -11,7 +11,31 @@ import (
 	"github.com/ramsterr/Wombat/internal/tools"
 )
 
-const Version = "0.1.0"
+// Version, Commit, and Date are stamped at build time with
+// -ldflags "-X github.com/ramsterr/Wombat/internal/cli.Version=...".
+// Local builds report "dev".
+var (
+	Version = "dev"
+	Commit  = "none"
+	Date    = "unknown"
+)
+
+// VersionString is the human readable build description.
+func VersionString() string {
+	v := "wombat " + Version
+	if Commit != "" && Commit != "none" {
+		short := Commit
+		if len(short) > 7 {
+			short = short[:7]
+		}
+		v += " (" + short
+		if Date != "" && Date != "unknown" {
+			v += ", " + Date
+		}
+		v += ")"
+	}
+	return v
+}
 
 var colorEnabled = os.Getenv("NO_COLOR") == "" && isTTY(os.Stdout)
 

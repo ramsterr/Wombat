@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify tag matches version
+        if: github.event_name == 'push'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "releasing ${VERSION}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Verify tag matches version (manual)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="${{ inputs.tag }}"
+          VERSION="${VERSION#v}"
+          git fetch --tags --force
+          git checkout "v${VERSION}"
+          echo "releasing ${VERSION}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move the stable tag
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f stable "$GITHUB_SHA"
+          git push --force origin refs/tags/stable
+          echo "stable now points at ${GITHUB_SHA}"
+
+      - name: Update the Homebrew tap
+        if: github.event_name == 'push' && secrets.HOMEBREW_TAP_TOKEN != ''
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release download "v${VERSION}" --pattern checksums.txt --dir . --clobber
+          python3 packaging/homebrew/update-tap.py --tap ramsterr/homebrew-tap --version "$VERSION" --checksums checksums.txt
+
+      - name: Publish the rolling install assets
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          printf '%s\n' "$VERSION" > VERSION.txt
+          if gh release view stable >/dev/null 2>&1; then
+            gh release upload stable VERSION.txt install.sh --clobber
+          else
+            gh release create stable --title "stable" --notes "Rolling release tag. See the latest tagged release for the version." VERSION.txt install.sh
+          fi
+          echo "published stable install assets for ${VERSION}"
