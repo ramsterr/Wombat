@@ -6,6 +6,14 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- The agent's turn budgets: `max_turn_tokens`, `max_turn_cost`,
+  `max_turn_duration_seconds`, and `max_tool_calls` (and the `price_*`
+  settings that fed the cost budget). A turn now ends when the work is done
+  or when `max_steps` is reached. Worker, writer, and delegation budgets are
+  unchanged.
+
 ### Added
 
 - A **craft standard** in the system prompt: aim at a professional result, and

@@ -41,12 +41,6 @@ type Agent struct {
 	SandboxNote string
 	ModeNote    string
 
-	MaxTurnTokens   int
-	MaxTurnCost     float64
-	MaxTurnDuration time.Duration
-	MaxToolCalls    int
-	Pricing         Pricing
-
 	mu    sync.Mutex
 	usage UsageStats
 }
@@ -73,11 +67,6 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		a.RunStart()
 	}
 	a.markStarted()
-	if a.MaxTurnDuration > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, a.MaxTurnDuration)
-		defer cancel()
-	}
 	traceStart := time.Now()
 	traceUsage := a.Usage()
 	a.Trace.Emit("run_start", map[string]any{"model": a.Model, "max_steps": a.MaxSteps})
@@ -90,12 +79,6 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			"out":         u.Out - traceUsage.Out,
 		})
 	}()
-	turnStart := time.Now()
-	turnUsage := a.Usage()
-	toolCalls := 0
-	if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
-		return err
-	}
 	if len(a.Sess.Messages) == 0 {
 		if err := a.Sess.Append(llm.Message{Role: "user", Content: startupContext(a.Env.Dir)}); err != nil {
 			return err
@@ -123,9 +106,6 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		}
 	}
 	for step := 0; step < maxSteps; step++ {
-		if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
-			return err
-		}
 		if a.Compact {
 			a.maybeCompact(ctx)
 		}
@@ -155,17 +135,10 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if a.Hooks.OnUsage != nil {
 			a.Hooks.OnUsage(res.Usage, a.historyTokens())
 		}
-		if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
-			return err
-		}
 		if len(res.ToolCalls) == 0 {
 			return nil
 		}
 		for _, tc := range res.ToolCalls {
-			toolCalls++
-			if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
-				return err
-			}
 			if a.Hooks.OnTool != nil {
 				a.Hooks.OnTool(tc.Name, toolDetail(tc))
 			}

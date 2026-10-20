@@ -291,30 +291,3 @@ func TestAgentRejectsUnregisteredTool(t *testing.T) {
 		t.Fatalf("tool result = %q", got)
 	}
 }
-
-func TestTurnTokenBudgetStopsBeforeTool(t *testing.T) {
-	a, _, workdir, _, _ := newTestAgent(t, true)
-	a.MaxTurnTokens = 10
-	err := a.Run(context.Background(), "write hello")
-	if err == nil || !strings.Contains(err.Error(), "budget exhausted") {
-		t.Fatalf("error = %v", err)
-	}
-	if _, statErr := os.Stat(filepath.Join(workdir, "hello.txt")); !os.IsNotExist(statErr) {
-		t.Fatalf("tool should not run after budget exhaustion")
-	}
-}
-
-func TestToolCallBudget(t *testing.T) {
-	a, _, workdir, _, _ := newTestAgent(t, true)
-	a.MaxToolCalls = 0
-	a.MaxTurnTokens = 1000
-	a.MaxToolCalls = 1
-	err := a.Run(context.Background(), "write hello")
-	if err != nil {
-		t.Fatalf("first tool call should run: %v", err)
-	}
-	data, statErr := os.ReadFile(filepath.Join(workdir, "hello.txt"))
-	if statErr != nil || string(data) != "hi" {
-		t.Fatalf("hello.txt = %q err=%v", data, statErr)
-	}
-}

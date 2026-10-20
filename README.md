@@ -299,7 +299,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat sessions` | list sessions for this directory |
 | `wombat doctor` | config, permissions, and connectivity checks |
 | `wombat config` | show config with API keys redacted |
-| `wombat config set <key> <value>` | set `provider`, `model`, `max_steps`, sandbox, budgets, writers, or a permission |
+| `wombat config set <key> <value>` | set `provider`, `model`, `mode`, `max_steps`, sandbox, writers, or a permission |
 | `wombat checkpoint list` | list snapshots for the latest session |
 | `wombat checkpoint restore <id>` | restore a snapshot (`--yes` for non-interactive use) |
 | `wombat upgrade` | update wombat to the latest release (`--check` to only look) |
@@ -461,7 +461,7 @@ What can be requested, and how you change it:
 | checkpoints | on | `wombat config set checkpoints false` |
 
 `--yolo` (and `permissions: allow`) skips the prompts but never the OS
-sandbox, the dangerous-command list, or the budget limits. Reads are never
+sandbox, the dangerous-command list, or the worker budgets. Reads are never
 gated: `read`, `glob`, and `grep` always work.
 
 ### You control the sandbox
@@ -552,13 +552,6 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   "worker_max_steps": 24,
   "worker_token_budget": 120000,
   "turn_worker_token_budget": 240000,
-  "max_turn_tokens": 1000000,
-  "max_turn_cost": 0,
-  "price_in": 0,
-  "price_cached": 0,
-  "price_out": 0,
-  "max_turn_duration_seconds": 3600,
-  "max_tool_calls": 500,
   "sandbox": "workspace-write",
   "sandbox_network": false,
   "checkpoints": true,
@@ -572,7 +565,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, `max_parallel_scouts` caps concurrent scouts, and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops. Lead turns also stop at `max_turn_tokens`, `max_turn_duration_seconds`, and `max_tool_calls` (`max_turn_cost` is optional; set `price_in`, `price_cached`, and `price_out` (USD per 1M tokens) to make it effective). `sandbox` is `off`, `read-only`, `workspace-write`, or `danger-full-access`; checkpoints are on by default. Writers additionally use `max_parallel_writers`, per-writer and per-turn token budgets, and step/timeout caps.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, `max_parallel_scouts` caps concurrent scouts, and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops. Lead turns are not capped: the only stop is `max_steps`. `sandbox` is `off`, `read-only`, `workspace-write`, or `danger-full-access`; checkpoints are on by default. Writers additionally use `max_parallel_writers`, per-writer and per-turn token budgets, and step/timeout caps.
 
 ## Orchestration
 

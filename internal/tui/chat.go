@@ -358,22 +358,17 @@ func (c *chat) rebuild(reset bool) error {
 		_ = c.ag.Trace.Close()
 	}
 	c.ag = &agent.Agent{
-		Provider:        prov,
-		Model:           c.modelName,
-		Tools:           tools.Registry(),
-		Env:             env,
-		Sess:            c.sess,
-		MaxSteps:        c.cfg.MaxSteps,
-		Compact:         true,
-		ContextWindow:   tokens.Window(c.modelName),
-		NumCtx:          pc.NumCtx,
-		MaxTurnTokens:   c.cfg.MaxTurnTokens,
-		MaxTurnCost:     c.cfg.MaxTurnCost,
-		MaxTurnDuration: time.Duration(c.cfg.MaxTurnDuration) * time.Second,
-		MaxToolCalls:    c.cfg.MaxToolCalls,
-		Pricing:         agent.Pricing{InputPerMTok: c.cfg.PriceIn, CachedPerMTok: c.cfg.PriceCached, OutputPerMTok: c.cfg.PriceOut},
-		SandboxNote:     c.sandbox.Note(),
-		ModeNote:        c.mode.Note(),
+		Provider:      prov,
+		Model:         c.modelName,
+		Tools:         tools.Registry(),
+		Env:           env,
+		Sess:          c.sess,
+		MaxSteps:      c.cfg.MaxSteps,
+		Compact:       true,
+		ContextWindow: tokens.Window(c.modelName),
+		NumCtx:        pc.NumCtx,
+		SandboxNote:   c.sandbox.Note(),
+		ModeNote:      c.mode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		c.ag.Trace = tr

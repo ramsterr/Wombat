@@ -145,22 +145,17 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		env.Checkpoint = cp
 	}
 	ag := &agent.Agent{
-		Provider:        prov,
-		Model:           model,
-		Tools:           tools.Registry(),
-		Env:             env,
-		Sess:            sess,
-		MaxSteps:        cfg.MaxSteps,
-		Compact:         true,
-		ContextWindow:   tokens.Window(model),
-		NumCtx:          pc.NumCtx,
-		MaxTurnTokens:   cfg.MaxTurnTokens,
-		MaxTurnCost:     cfg.MaxTurnCost,
-		MaxTurnDuration: time.Duration(cfg.MaxTurnDuration) * time.Second,
-		MaxToolCalls:    cfg.MaxToolCalls,
-		Pricing:         agent.Pricing{InputPerMTok: cfg.PriceIn, CachedPerMTok: cfg.PriceCached, OutputPerMTok: cfg.PriceOut},
-		SandboxNote:     settings.Note(),
-		ModeNote:        sessionMode.Note(),
+		Provider:      prov,
+		Model:         model,
+		Tools:         tools.Registry(),
+		Env:           env,
+		Sess:          sess,
+		MaxSteps:      cfg.MaxSteps,
+		Compact:       true,
+		ContextWindow: tokens.Window(model),
+		NumCtx:        pc.NumCtx,
+		SandboxNote:   settings.Note(),
+		ModeNote:      sessionMode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		ag.Trace = tr

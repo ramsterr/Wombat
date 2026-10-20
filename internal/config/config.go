@@ -23,9 +23,6 @@ const (
 	DefaultWorkerMaxSteps        = 24
 	DefaultWorkerTokenBudget     = 120_000
 	DefaultTurnWorkerTokenBudget = 240_000
-	DefaultMaxTurnTokens         = 1_000_000
-	DefaultMaxToolCalls          = 500
-	DefaultMaxTurnDuration       = 3600
 	DefaultMaxParallelWriters    = 2
 	DefaultWriterMaxSteps        = 40
 	DefaultWriterTokenBudget     = 200_000
@@ -45,13 +42,6 @@ type Config struct {
 	WorkerMaxSteps        int                  `json:"worker_max_steps"`
 	WorkerTokenBudget     int                  `json:"worker_token_budget"`
 	TurnWorkerTokenBudget int                  `json:"turn_worker_token_budget"`
-	MaxTurnTokens         int                  `json:"max_turn_tokens"`
-	MaxTurnCost           float64              `json:"max_turn_cost,omitempty"`
-	PriceIn               float64              `json:"price_in,omitempty"`
-	PriceCached           float64              `json:"price_cached,omitempty"`
-	PriceOut              float64              `json:"price_out,omitempty"`
-	MaxTurnDuration       int                  `json:"max_turn_duration_seconds"`
-	MaxToolCalls          int                  `json:"max_tool_calls"`
 	MaxParallelWriters    int                  `json:"max_parallel_writers"`
 	WriterMaxSteps        int                  `json:"writer_max_steps"`
 	WriterTokenBudget     int                  `json:"writer_token_budget"`
@@ -136,9 +126,6 @@ func Defaults() *Config {
 		WorkerMaxSteps:        DefaultWorkerMaxSteps,
 		WorkerTokenBudget:     DefaultWorkerTokenBudget,
 		TurnWorkerTokenBudget: DefaultTurnWorkerTokenBudget,
-		MaxTurnTokens:         DefaultMaxTurnTokens,
-		MaxTurnDuration:       DefaultMaxTurnDuration,
-		MaxToolCalls:          DefaultMaxToolCalls,
 		MaxParallelWriters:    DefaultMaxParallelWriters,
 		WriterMaxSteps:        DefaultWriterMaxSteps,
 		WriterTokenBudget:     DefaultWriterTokenBudget,
@@ -195,15 +182,6 @@ func Load() (*Config, error) {
 	}
 	if c.TurnWorkerTokenBudget <= 0 {
 		c.TurnWorkerTokenBudget = DefaultTurnWorkerTokenBudget
-	}
-	if c.MaxTurnTokens <= 0 {
-		c.MaxTurnTokens = DefaultMaxTurnTokens
-	}
-	if c.MaxTurnDuration <= 0 {
-		c.MaxTurnDuration = DefaultMaxTurnDuration
-	}
-	if c.MaxToolCalls <= 0 {
-		c.MaxToolCalls = DefaultMaxToolCalls
 	}
 	if c.MaxParallelWriters <= 0 {
 		c.MaxParallelWriters = DefaultMaxParallelWriters
