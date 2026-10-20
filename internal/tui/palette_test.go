@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func newPaletteChat() *chat {
@@ -58,5 +59,51 @@ func TestCompleteCommand(t *testing.T) {
 	}
 	if len(c.cmdList) != 0 {
 		t.Error("the palette should close after completing")
+	}
+}
+
+// TestPaletteAppearsWhileTyping drives the real key handler: the palette must
+// appear as the user types, not only when updatePalette is called by hand.
+func TestPaletteAppearsWhileTyping(t *testing.T) {
+	c := newPaletteChat()
+	c.ta.Focus()
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if len(c.cmdList) == 0 {
+		t.Fatal("the palette did not open when / was typed")
+	}
+	if c.ta.Value() != "/" {
+		t.Errorf("input = %q", c.ta.Value())
+	}
+	if !c.paletteOpen() {
+		t.Error("paletteOpen should be true")
+	}
+	// typing more filters the list
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if len(c.cmdList) == 0 {
+		t.Fatal("the palette closed while typing")
+	}
+	if c.cmdList[0].Name != "/sessions" && c.cmdList[0].Name != "/sandbox" && c.cmdList[0].Name != "/status" && c.cmdList[0].Name != "/setup" && c.cmdList[0].Name != "/sources" {
+		t.Errorf("filtered list = %+v", c.cmdList)
+	}
+}
+
+// TestPaletteClosesOnSubmit checks the palette does not linger after a
+// message is sent.
+func TestPaletteClosesOnSubmit(t *testing.T) {
+	c := newPaletteChat()
+	c.ta.Focus()
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !c.paletteOpen() {
+		t.Fatal("the palette did not open")
+	}
+	c.cmdList = nil
+	c.updatePalette()
+	if !c.paletteOpen() {
+		t.Error("the palette should still reflect the input")
+	}
+	// submitting clears the input and the palette
+	c.submit("/help")
+	if c.paletteOpen() {
+		t.Error("the palette should close after a message is sent")
 	}
 }

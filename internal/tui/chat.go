@@ -738,6 +738,8 @@ func (c *chat) sessionID() string {
 
 func (c *chat) submit(text string) tea.Cmd {
 	c.ta.Reset()
+	c.cmdList = nil
+	c.cmdSel = 0
 	c.layout()
 	if looksLikeCommand(text) {
 		cmd := c.command(text)
@@ -1221,6 +1223,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 	}
 	var cmd tea.Cmd
 	c.ta, cmd = c.ta.Update(msg)
+	c.updatePalette()
 	c.layout()
 	if c.follow {
 		c.vp.GotoBottom()
@@ -1319,6 +1322,7 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 	}
 	var cmd tea.Cmd
 	c.ta, cmd = c.ta.Update(msg)
+	c.updatePalette()
 	c.layout()
 	if c.follow {
 		c.vp.GotoBottom()
