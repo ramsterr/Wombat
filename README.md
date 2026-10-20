@@ -4,7 +4,7 @@
 [![CI](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg)](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ramsterr/Wombat)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#install)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#install)
 [![Binary](https://img.shields.io/badge/binary-~11%20MB-brightgreen)](#install)
 [![Runtime deps](https://img.shields.io/badge/runtime%20deps-none-success)](#install)
 [![Multimodal](https://img.shields.io/badge/multimodal-images%20%7C%20video%20%7C%20audio%20%7C%20files-blueviolet)](#attachments)
@@ -45,11 +45,13 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
-- **No runtime dependencies** — one self-contained binary; no Python, Node, or external service required.
+- **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required. On Windows, shell commands need Git Bash or WSL.
 
 ## Install
 
 Requires Go 1.26+. The result is a single self-contained binary of about 11 MB.
+
+### macOS and Linux
 
 ```sh
 git clone https://github.com/ramsterr/Wombat.git
@@ -79,6 +81,61 @@ go build -o wombat ./cmd/wombat && mv wombat /usr/local/bin/
 
 To uninstall, delete the binary (`rm ~/.local/bin/wombat`) and, if you want, `~/.wombat/`.
 
+### Windows
+
+Wombat builds natively as `wombat.exe`; the TUI, sessions, providers, and file tools work on Windows. The `bash` tool runs commands through a POSIX `sh`, so use **WSL2** or **Git Bash**. Native PowerShell/cmd is not fully supported yet: chat and file editing work, but shell commands fail without `sh` on `PATH`.
+
+#### WSL2 (recommended)
+
+Install Ubuntu once from an elevated PowerShell:
+
+```powershell
+wsl --install
+```
+
+Then, inside the Ubuntu terminal (Windows Terminal works well):
+
+```sh
+sudo apt update && sudo apt install -y git curl
+# install Go 1.26+ from https://go.dev/dl/
+git clone https://github.com/ramsterr/Wombat.git
+cd Wombat
+
+mkdir -p ~/.local/bin
+go build -o ~/.local/bin/wombat ./cmd/wombat
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+wombat version
+```
+
+Run `wombat` from the same Ubuntu terminal. Repos on Windows drives are available under `/mnt/c/...` (for example `/mnt/c/Users/you/code/app`); keeping projects in the WSL home directory is faster. Config and sessions live in `~/.wombat/` inside WSL.
+
+WSL shares the Windows clipboard through WSLg, but image paste also needs `wl-paste` or `xclip`. If it is unavailable, use `/attach /mnt/c/Users/you/Pictures/image.png` instead.
+
+#### Git Bash (native `wombat.exe`)
+
+Install [Go for Windows](https://go.dev/dl/) and [Git for Windows](https://git-scm.com/download/win), then run this in **Git Bash**:
+
+```sh
+git clone https://github.com/ramsterr/Wombat.git
+cd Wombat
+
+mkdir -p ~/bin
+go build -o ~/bin/wombat.exe ./cmd/wombat
+~/bin/wombat.exe version
+```
+
+`~/bin` maps to `%USERPROFILE%\bin`. Add that folder to your user `PATH`, or call the binary by path. Launch Wombat from Git Bash so `sh.exe` is available to the `bash` tool. Config and sessions live in `%USERPROFILE%\.wombat\`.
+
+Clipboard image paste is not implemented on Windows; attach an image by path instead:
+
+```text
+/attach C:\Users\you\Pictures\screenshot.png
+```
+
+To uninstall, delete `wombat.exe` and, if you want, the `%USERPROFILE%\.wombat` folder.
+
 ## Quickstart
 
 ```sh
@@ -103,7 +160,7 @@ Type a message and press `enter`. Responses stream in; tool calls appear as they
 | `esc` | interrupt the current run |
 | `pgup` / `pgdn`, `ctrl+u` / `ctrl+d` | scroll the transcript |
 | `up` / `down` | scroll one line when the input is empty |
-| `ctrl+v` | attach an image from the clipboard |
+| `ctrl+v` | attach an image from the clipboard (macOS/Linux) |
 | `ctrl+c` | quit (interrupts while running) |
 | `/mouse` | toggle mouse: wheel scroll vs. native text selection |
 | `/` | slash commands |
@@ -122,7 +179,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `/models` | browse models |
 | `/sessions` | browse and resume sessions |
 | `/attach <path>` | attach an image, video, audio, or file |
-| `/paste` | attach an image from the clipboard |
+| `/paste` | attach an image from the clipboard (macOS/Linux) |
 | `/detach [n\|all]` | remove pending attachments |
 | `/new` | start a fresh session |
 | `/compact` | compact context now |
@@ -161,7 +218,7 @@ Send images, video, audio, and documents to any model that supports them. Attach
 
 - typing `@path/to/file` inside a message (`@"path with spaces"` when needed)
 - using `/attach <path>` in the TUI — pending files appear above the input; `/detach [n|all]` removes them
-- pressing `ctrl+v` or running `/paste` to grab an image from the system clipboard (macOS, or Linux with `wl-paste`/`xclip`)
+- pressing `ctrl+v` or running `/paste` to grab an image from the system clipboard (macOS, or Linux with `wl-paste`/`xclip`; on Windows use `/attach <path>`)
 - pasting a media file path on its own line
 - passing `--image`, `--video`, `--audio`, or `--file` to `wombat run`
 
