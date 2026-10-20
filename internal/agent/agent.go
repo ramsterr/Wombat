@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
 )
@@ -137,16 +139,26 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if step == maxSteps-1 {
 			defs = nil
 		}
-		res, err := a.Provider.Chat(ctx, llm.Request{
-			Model:       a.Model,
-			System:      system,
-			Messages:    a.requestMessages(),
-			Tools:       defs,
-			NumCtx:      a.NumCtx,
-			Reasoning:   a.Reasoning,
-			SessionID:   a.Sess.ID(),
-			OnReasoning: a.Hooks.OnReasoning,
-		}, a.Hooks.OnText)
+		res, err := a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
+		if err != nil && llm.InvalidRequest(err) {
+			// The provider rejected the request itself. The history is the
+			// problem, so repair it and try again: otherwise every later
+			// prompt in this session would fail the same way.
+			for attempt := 0; attempt < 2 && err != nil && llm.InvalidRequest(err); attempt++ {
+				var repaired bool
+				var note string
+				if attempt == 0 {
+					repaired, note = a.repairHistory()
+				} else {
+					repaired, note = a.dropLastExchange()
+				}
+				if !repaired {
+					break
+				}
+				_ = a.Sess.Append(llm.Message{Role: "user", Content: note})
+				res, err = a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -328,6 +340,134 @@ func (a *Agent) spillDir() string {
 	return filepath.Join(a.Env.Dir, ".wombat", "spill")
 }
 
+// fileSize is the size of a file, or zero when it cannot be read.
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// request builds the provider request for this turn.
+func (a *Agent) request(system string, tools []llm.Tool) llm.Request {
+	return llm.Request{
+		Model:       a.Model,
+		System:      system,
+		Messages:    a.requestMessages(),
+		Tools:       tools,
+		NumCtx:      a.NumCtx,
+		Reasoning:   a.Reasoning,
+		SessionID:   a.Sess.ID(),
+		OnReasoning: a.Hooks.OnReasoning,
+	}
+}
+
+// repairHistory fixes a history the provider refused, so the session is usable
+// again instead of failing the same way on every later prompt.
+//
+// It removes what a provider commonly rejects: images sent to a text-only
+// model, an assistant turn whose tool calls were never answered, and tool
+// results with no matching call.
+func (a *Agent) repairHistory() (bool, string) {
+	msgs := a.Sess.Messages
+	changed := false
+	notes := make([]string, 0, 3)
+
+	// 1. images a text-only model cannot take
+	vision := tokens.SupportsImages(a.Model)
+	for i := range msgs {
+		if len(msgs[i].Attachments) == 0 {
+			continue
+		}
+		changed = true
+		if vision {
+			continue
+		}
+		names := make([]string, 0, len(msgs[i].Attachments))
+		for _, at := range msgs[i].Attachments {
+			names = append(names, at.Name)
+		}
+		notes = append(notes, "removed "+strings.Join(names, ", ")+" from the conversation because this model cannot see images")
+		msgs[i].Attachments = nil
+		msgs[i].Content = strings.TrimSpace(msgs[i].Content + " (the image was removed: this model cannot see images)")
+	}
+
+	// 2. tool calls without results, and results without calls
+	answered := map[string]bool{}
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			answered[tc.ID] = false
+		}
+	}
+	for _, m := range msgs {
+		if m.Role != "tool" {
+			continue
+		}
+		if _, ok := answered[m.ToolCallID]; !ok {
+			continue
+		}
+		answered[m.ToolCallID] = true
+	}
+	kept := make([]llm.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == "tool" {
+			if state, ok := answered[m.ToolCallID]; !ok || !state {
+				changed = true
+				notes = append(notes, "dropped a tool result that did not match any call")
+				continue
+			}
+		}
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			missing := false
+			for _, tc := range m.ToolCalls {
+				if !answered[tc.ID] {
+					missing = true
+				}
+			}
+			if missing {
+				changed = true
+				notes = append(notes, "dropped an unfinished tool call")
+				continue
+			}
+		}
+		kept = append(kept, m)
+	}
+	if changed {
+		a.Sess.Messages = kept
+		_ = a.Sess.Flush()
+	}
+	if len(notes) == 0 {
+		return false, ""
+	}
+	return true, "The previous request was rejected and I repaired the conversation (" +
+		strings.Join(notes, "; ") + "). Please continue."
+}
+
+// dropLastExchange removes the newest assistant turn and the results that
+// belong to it. It is the last resort when the provider still refuses the
+// history: the session stays usable, and the next prompt starts from
+// something the provider accepts.
+func (a *Agent) dropLastExchange() (bool, string) {
+	msgs := a.Sess.Messages
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != "assistant" {
+			continue
+		}
+		end := i + 1
+		for end < len(msgs) && msgs[end].Role == "tool" {
+			end++
+		}
+		if end < len(msgs) && msgs[end].Role == "user" && len(msgs[end].Attachments) > 0 {
+			end++
+		}
+		a.Sess.Messages = append(append([]llm.Message{}, msgs[:i]...), msgs[end:]...)
+		_ = a.Sess.Flush()
+		return true, "The last exchange was rejected by the provider, so I dropped it. Please continue from where we left off."
+	}
+	return false, ""
+}
+
 // requestMessages returns the history to send. The reasoning of older turns
 // is only dropped when the user asked for it: some gateways reject a
 // request whose thinking turns are missing their reasoning.
@@ -341,6 +481,15 @@ func (a *Agent) requestMessages() []llm.Message {
 // appendMedia attaches files a tool produced to a user message, so the model
 // receives them as images the way a pasted image arrives.
 func (a *Agent) appendMedia(media []tools.Media) error {
+	if !tokens.SupportsImages(a.Model) {
+		parts := make([]string, 0, len(media))
+		for _, m := range media {
+			parts = append(parts, fmt.Sprintf("%s is an image (%s, %d bytes) at %s", m.Name, m.MIME, fileSize(m.Path), m.Path))
+		}
+		content := "I read " + strings.Join(parts, ", and ") + ". This model cannot see images, so I cannot " +
+			"look at them. Use the file directly (a tool that reads its metadata, or a command) if you need facts about it."
+		return a.Sess.Append(llm.Message{Role: "user", Content: content})
+	}
 	names := make([]string, 0, len(media))
 	attachments := make([]llm.Attachment, 0, len(media))
 	for _, m := range media {

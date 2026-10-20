@@ -54,7 +54,7 @@ func TestImageReachesTheModel(t *testing.T) {
 	prov := &imageProvider{}
 	a := &Agent{
 		Provider: prov,
-		Model:    "mock",
+		Model:    "gpt-5",
 		Tools:    tools.Registry(),
 		Env: &tools.Env{Dir: dir, Permit: func(string, string) tools.Decision {
 			return tools.Decision{Allow: true}
