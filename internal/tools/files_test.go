@@ -165,8 +165,8 @@ func TestMutationsTakeCheckpoints(t *testing.T) {
 	run(t, &Write{}, env, `{"path":"a.txt","content":"a"}`)
 	run(t, &Edit{}, env, `{"path":"a.txt","old_string":"a","new_string":"b"}`)
 	run(t, &Bash{}, env, `{"command":"echo hi > out.txt"}`)
-	if len(cp.reasons) != 3 {
-		t.Fatalf("checkpoints = %v", cp.reasons)
+	if len(cp.reasons) != 2 {
+		t.Fatalf("write/edit checkpoints = %v", cp.reasons)
 	}
 	if len(cp.paths[0]) != 1 || cp.paths[0][0] != "a.txt" {
 		t.Fatalf("write checkpoint paths = %v", cp.paths[0])
@@ -189,5 +189,20 @@ func TestDenyOutsideBlocksWrites(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outside); statErr == nil {
 		t.Fatal("file was written outside the workspace")
+	}
+}
+
+func TestOutsideWriteIsAllowedAndNotCheckpointed(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "x.txt")
+	cp := &recordingCheckpointer{}
+	env := testEnv(dir)
+	env.Checkpoint = cp
+	run(t, &Write{}, env, `{"path":"`+outside+`","content":"hello"}`)
+	if data, err := os.ReadFile(outside); err != nil || string(data) != "hello" {
+		t.Fatalf("outside write failed: %q err=%v", data, err)
+	}
+	if len(cp.reasons) != 0 {
+		t.Fatalf("an outside path must not be checkpointed: %v", cp.reasons)
 	}
 }

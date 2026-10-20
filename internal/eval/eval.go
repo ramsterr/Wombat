@@ -67,7 +67,6 @@ type Options struct {
 	Model          string
 	Tools          []tools.Tool
 	Env            tools.Env
-	MaxSteps       int
 	ContextWindow  int
 	NumCtx         int
 	Timeout        time.Duration
@@ -231,7 +230,6 @@ func RunTask(ctx context.Context, task Task, opts Options) Result {
 		Tools:         toolsList,
 		Env:           &env,
 		Sess:          sess,
-		MaxSteps:      opts.MaxSteps,
 		Compact:       false,
 		ContextWindow: opts.ContextWindow,
 		NumCtx:        opts.NumCtx,

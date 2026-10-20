@@ -3,7 +3,7 @@ package tools
 // PermKind identifies why the user is being asked for permission. Each kind
 // gets its own colour and wording in the interface so it is obvious whether
 // the model is asking for ordinary tool access or for something outside the
-// sandbox.
+// workspace.
 type PermKind string
 
 const (
@@ -15,10 +15,8 @@ const (
 	PermEdit PermKind = "edit"
 	// PermOutside is a write or edit outside the working directory.
 	PermOutside PermKind = "outside"
-	// PermNetwork is network access the sandbox is blocking.
+	// PermNetwork is network access.
 	PermNetwork PermKind = "network"
-	// PermSandboxWrite is a write the sandbox is blocking.
-	PermSandboxWrite PermKind = "sandbox-write"
 	// PermDangerous is a command on the dangerous list.
 	PermDangerous PermKind = "dangerous"
 )
@@ -36,19 +34,17 @@ func (k PermKind) Label() string {
 		return "write outside the workspace"
 	case PermNetwork:
 		return "network access"
-	case PermSandboxWrite:
-		return "write access outside the sandbox"
 	case PermDangerous:
 		return "a dangerous command"
 	}
 	return string(k)
 }
 
-// Outside reports whether the request goes beyond the sandbox, so the
+// Outside reports whether the request goes beyond the workspace, so the
 // interface can mark it differently from ordinary tool permission.
 func (k PermKind) Outside() bool {
 	switch k {
-	case PermNetwork, PermSandboxWrite, PermDangerous, PermOutside:
+	case PermNetwork, PermDangerous, PermOutside:
 		return true
 	}
 	return false

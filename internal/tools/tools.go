@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/ramsterr/Wombat/internal/sandbox"
 )
 
 type Checkpointer interface {
@@ -27,26 +25,16 @@ const toolsDeniedNote = "the user declined this call. Do not claim it was done. 
 	"Continue without it, or tell the user what you need in order to proceed."
 
 type Env struct {
-	Dir           string
-	Permit        func(kind, detail string) Decision
-	ReadOnly      bool
-	AllowOutside  bool
-	DenyDangerous bool
-	DenyNetwork   bool
-	DenyGit       bool
-	DenyOutside   bool
-	DenyMutate    bool
-	Mode          string
-	Sandbox       sandbox.Policy
-	Checkpoint    Checkpointer
-
-	// SandboxState is the session's live sandbox configuration. When set it
-	// overrides Sandbox, so a change made mid-session takes effect at once.
-	SandboxState *sandbox.State
-
-	// SandboxAsk asks the user whether a command blocked by the sandbox may
-	// run anyway. It returns SandboxDeny when the user declines.
-	SandboxAsk func(kind, command string) SandboxDecision
+	Dir          string
+	Permit       func(kind, detail string) Decision
+	ReadOnly     bool
+	AllowOutside bool
+	DenyNetwork  bool
+	DenyGit      bool
+	DenyOutside  bool
+	DenyMutate   bool
+	Mode         string
+	Checkpoint   Checkpointer
 
 	// media collects files a tool wants the model to look at, such as an
 	// image the agent downloaded. The agent owns the list.
@@ -97,104 +85,52 @@ func (e *Env) AddMedia(m Media) {
 	*e.media = append(*e.media, m)
 }
 
-// SandboxDecision is the user's answer to a sandbox escalation request.
-type SandboxDecision int
-
-const (
-	// SandboxDeny keeps the sandbox in place and refuses the command.
-	SandboxDeny SandboxDecision = iota
-	// SandboxAllowOnce runs this one command with the restriction lifted.
-	SandboxAllowOnce
-	// SandboxAllowSession widens the sandbox for the rest of the session.
-	SandboxAllowSession
-)
-
-// Sandbox escalation kinds.
-const (
-	SandboxNetwork   = "network"
-	SandboxWrite     = "write"
-	SandboxDangerous = "dangerous"
-)
-
-// sandboxPolicy returns the policy in force for this environment.
-func (e *Env) sandboxPolicy() sandbox.Policy {
-	if e == nil {
-		return sandbox.Policy{}
-	}
-	if e.SandboxState != nil {
-		return e.SandboxState.Policy(e.Dir)
-	}
-	return e.Sandbox
-}
-
-// askSandbox asks the user about a blocked command.
-func (e *Env) askSandbox(kind, command string) SandboxDecision {
-	if e == nil || e.SandboxAsk == nil {
-		return SandboxDeny
-	}
-	return e.SandboxAsk(kind, command)
-}
-
-// allowDangerous asks the user about a command on the dangerous list. It
-// returns true when the command may run.
-func (e *Env) allowDangerous(command string) bool {
-	if e == nil || !IsDangerousCommand(command) {
-		return true
-	}
-	if e.SandboxState != nil && e.SandboxState.Settings().AllowDangerous {
-		return true
-	}
-	if e.SandboxAsk == nil {
-		return false
-	}
-	switch e.askSandbox(SandboxDangerous, command) {
-	case SandboxAllowOnce:
-		return true
-	case SandboxAllowSession:
-		e.widenSandbox(func(s *sandbox.Settings) { s.AllowDangerous = true })
-		return true
-	}
-	return false
-}
-
-// AskNetwork resolves network access for a tool that reaches the network
-// itself, such as webfetch and websearch. The sandbox cannot police those
-// calls, because they run inside the agent process, so the decision is made
-// here.
-func (e *Env) AskNetwork(detail string) error {
-	policy := e.sandboxPolicy()
-	if !e.DenyNetwork && (!policy.Enabled() || policy.AllowNetwork) {
-		return nil
-	}
-	if e.SandboxAsk == nil {
-		return describeNetworkBlock(detail, e)
-	}
-	switch e.askSandbox(SandboxNetwork, detail) {
-	case SandboxAllowOnce:
-		return nil
-	case SandboxAllowSession:
-		e.widenSandbox(func(s *sandbox.Settings) { s.Network = true })
-		return nil
-	}
-	return describeNetworkBlock(detail, e)
-}
-
-// widenSandbox changes the session sandbox settings.
-func (e *Env) widenSandbox(fn func(*sandbox.Settings)) {
-	if e == nil || e.SandboxState == nil {
-		return
-	}
-	e.SandboxState.Update(fn)
-}
-
+// Snapshot takes a checkpoint of the given paths. Paths outside the
+// workspace are ignored: a checkpoint must never block a write the user
+// explicitly allowed. When no path is inside the workspace, nothing is
+// snapshotted.
 func (e *Env) Snapshot(reason string, paths ...string) error {
 	if e == nil || e.Checkpoint == nil || e.ReadOnly {
 		return nil
 	}
-	if _, err := e.Checkpoint.Snapshot(reason, paths); err != nil {
+	inside := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if e.InsideWorkspace(p) {
+			inside = append(inside, p)
+		}
+	}
+	if len(inside) == 0 {
+		return nil
+	}
+	if _, err := e.Checkpoint.Snapshot(reason, inside); err != nil {
 		return fmt.Errorf("checkpoint failed: %w", err)
 	}
 	return nil
+}
+
+// InsideWorkspace reports whether path is inside the workspace. A read-only
+// environment, or one with an empty directory, treats every path as inside.
+func (e *Env) InsideWorkspace(path string) bool {
+	if e == nil || e.Dir == "" || strings.TrimSpace(path) == "" {
+		return true
+	}
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(e.Dir, abs)
+	}
+	abs, err := filepath.Abs(abs)
+	if err != nil {
+		return false
+	}
+	root, err := filepath.Abs(e.Dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
 }
 
 type Tool interface {
@@ -232,34 +168,11 @@ func (e *Env) checkPolicy(kind, detail string) error {
 	if e.DenyMutate && (kind == "write" || kind == "edit") {
 		return fmt.Errorf("chat mode: %s is disabled — switch to create mode to change files", kind)
 	}
-	if kind == "network" {
-		// The web tools reach the network directly, so the sandbox's network
-		// rule applies to them too.
-		policy := e.sandboxPolicy()
-		if e.DenyNetwork || (policy.Enabled() && !policy.AllowNetwork) {
-			if e.SandboxAsk == nil {
-				return describeNetworkBlock(detail, e)
-			}
-			return nil // the tool asks the user before it runs
-		}
+	if kind == "network" && e.DenyNetwork {
+		return fmt.Errorf("network access is disabled: %s", detail)
 	}
-	if kind == "bash" {
-		// A dangerous command is always blocked here; the bash tool asks the
-		// user first when it can, and falls back to refusing.
-		if e.DenyDangerous && IsDangerousCommand(detail) && e.SandboxAsk == nil {
-			return fmt.Errorf("blocked dangerous command: %s", detail)
-		}
-		// The network is blocked by the sandbox. When the user can be asked,
-		// the bash tool handles the escalation, so do not refuse here.
-		if e.SandboxAsk == nil {
-			policy := e.sandboxPolicy()
-			if (e.DenyNetwork || (policy.Enabled() && !policy.AllowNetwork)) && IsNetworkCommand(detail) {
-				return describeNetworkBlock(detail, e)
-			}
-		}
-		if e.DenyGit && IsGitMutatingCommand(detail) {
-			return fmt.Errorf("git mutations are disabled for this worker: %s", detail)
-		}
+	if kind == "bash" && e.DenyGit && IsGitMutatingCommand(detail) {
+		return fmt.Errorf("git mutations are disabled for this worker: %s", detail)
 	}
 	return nil
 }

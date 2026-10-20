@@ -44,7 +44,7 @@ var (
 	cLink   = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
 	cBorder = lipgloss.AdaptiveColor{Light: "110", Dark: "60"}
 	cCode   = lipgloss.AdaptiveColor{Light: "25", Dark: "117"}
-	// cSandbox marks requests that go beyond the sandbox, so they are easy
+	// cSandbox marks network requests, so they are easy
 	// to tell apart from ordinary tool permission.
 	cSandbox = lipgloss.AdaptiveColor{Light: "90", Dark: "177"}
 	// cOutside marks writes that leave the working directory.

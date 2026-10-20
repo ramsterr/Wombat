@@ -42,14 +42,6 @@ var List = []Command{
 		{Value: "create", Summary: "read, write, edit, and run any command"},
 	}},
 	{Name: "/modes", Summary: "list the working modes"},
-	{Name: "/sandbox", Args: "[network on|off]", Summary: "sandbox and network control", Options: []Option{
-		{Value: "network on", Summary: "let commands reach the internet"},
-		{Value: "network off", Summary: "block the internet"},
-		{Value: "mode off", Summary: "no sandbox"},
-		{Value: "mode read-only", Summary: "commands may not write"},
-		{Value: "mode workspace-write", Summary: "writes limited to the working directory"},
-		{Value: "mode danger-full-access", Summary: "no restrictions"},
-	}},
 	{Name: "/thinking", Args: "[on|off]", Summary: "show or hide the model's thinking", Options: []Option{
 		{Value: "on", Summary: "show the model's thinking as it arrives"},
 		{Value: "off", Summary: "hide it and show a one-line summary instead"},

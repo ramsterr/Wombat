@@ -89,7 +89,6 @@ func cmdDoctor(_ []string) error {
 		m = mode.Create
 	}
 	fmt.Println("  mode     " + bold(m.Label()) + dim(" — "+m.Description()))
-	fmt.Println("  sandbox  " + dim(cfg.Sandbox+dim(" (network "+boolWord(cfg.SandboxNetwork)+")")))
 
 	fmt.Println()
 	fmt.Println(bold("updates"))

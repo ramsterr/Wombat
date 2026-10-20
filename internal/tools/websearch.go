@@ -43,9 +43,6 @@ func (t *WebSearch) Run(ctx context.Context, raw json.RawMessage, env *Env) (str
 	if limit > 20 {
 		limit = 20
 	}
-	if err := env.AskNetwork(query); err != nil {
-		return "", err
-	}
 	if err := env.Check("network", query); err != nil {
 		return "", err
 	}

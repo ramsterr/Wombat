@@ -83,7 +83,6 @@ func testOptions(provider llm.Provider) Options {
 		Model:          "fake-model",
 		Tools:          tools.Registry(),
 		Env:            tools.Env{Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
-		MaxSteps:       4,
 		Timeout:        20 * time.Second,
 		CommandTimeout: 10 * time.Second,
 		Home:           tTempDir(),

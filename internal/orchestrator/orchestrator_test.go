@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -59,8 +58,7 @@ func newOrch(t *testing.T, provider llm.Provider, cfg Config) (*Orchestrator, *a
 			Dir:    sess.Meta.Cwd,
 			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
 		},
-		Sess:     sess,
-		MaxSteps: 8,
+		Sess: sess,
 	}
 	o, err := Attach(ag, cfg)
 	if err != nil {
@@ -182,7 +180,7 @@ func TestAttachToolsPromptAndTurnReset(t *testing.T) {
 	p := &scriptProvider{fn: func(int, llm.Request) (*llm.Result, error) {
 		return &llm.Result{Content: "ok"}, nil
 	}}
-	o, ag, _ := newOrch(t, p, Config{MaxDelegations: 2})
+	o, ag, _ := newOrch(t, p, Config{})
 	var names []string
 	for _, tool := range ag.Tools {
 		names = append(names, tool.Name())
@@ -194,17 +192,11 @@ func TestAttachToolsPromptAndTurnReset(t *testing.T) {
 	if !strings.Contains(ag.SystemExtra(), "## Orchestration") {
 		t.Fatalf("missing orchestration prompt: %s", ag.SystemExtra())
 	}
-	o.mu.Lock()
-	o.delegations = 2
-	o.mu.Unlock()
 	if err := ag.Run(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	o.mu.Lock()
-	got := o.delegations
-	o.mu.Unlock()
-	if got != 0 {
-		t.Fatalf("delegations after turn = %d, want 0", got)
+	if got := o.Delegations(); got != 0 {
+		t.Fatalf("delegations = %d, want 0", got)
 	}
 	if _, err := Attach(ag, Config{}); err == nil {
 		t.Fatal("second Attach should fail")
@@ -236,7 +228,7 @@ func TestDelegateRunsReadOnlyWorkerAndUpdatesLedger(t *testing.T) {
 			return nil, fmt.Errorf("unexpected lead call %d", call)
 		}
 	}
-	o, ag, home := newOrch(t, p, Config{MaxDelegations: 2, WorkerMaxSteps: 4})
+	o, ag, home := newOrch(t, p, Config{})
 	if _, err := o.updatePlan("ship", nil, []Step{{ID: "s1", Title: "Survey", Status: StepInProgress}}); err != nil {
 		t.Fatal(err)
 	}
@@ -275,20 +267,14 @@ func TestDelegateRunsReadOnlyWorkerAndUpdatesLedger(t *testing.T) {
 	}
 }
 
-func TestDelegateBudgetAndUnknownStep(t *testing.T) {
-	o := &Orchestrator{ledger: &Ledger{}, cfg: Config{MaxDelegations: 1}}
-	o.delegations = 1
-	_, err := o.delegate(context.Background(), delegateArgs{Title: "t", Objective: "o"})
-	if err == nil || !strings.Contains(err.Error(), "budget") {
-		t.Fatalf("budget error = %v", err)
-	}
-	o.delegations = 0
-	_, err = o.delegate(context.Background(), delegateArgs{StepID: "missing", Title: "t", Objective: "o"})
+func TestDelegateUnknownStepAndDependency(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}, cfg: Config{}}
+	_, err := o.delegate(context.Background(), delegateArgs{StepID: "missing", Title: "t", Objective: "o"})
 	if err == nil || !strings.Contains(err.Error(), "unknown step") {
 		t.Fatalf("unknown step error = %v", err)
 	}
-	if o.delegations != 0 || o.Delegations() != 0 {
-		t.Fatalf("unknown step consumed budget: per-turn=%d total=%d", o.delegations, o.Delegations())
+	if o.Delegations() != 0 {
+		t.Fatalf("unknown step incremented delegations: %d", o.Delegations())
 	}
 	o.ledger = &Ledger{Steps: []Step{
 		{ID: "a", Title: "A", Status: StepPending},
@@ -379,25 +365,20 @@ func (b *blockedProvider) Chat(ctx context.Context, _ llm.Request, _ func(string
 	return nil, ctx.Err()
 }
 
-func TestDelegationTimeout(t *testing.T) {
-	o, _, _ := newOrch(t, &blockedProvider{}, Config{MaxDelegations: 1, WorkerTimeout: 20 * time.Millisecond})
-	start := time.Now()
-	_, usage, _, err := o.runWorker(context.Background(), delegateArgs{Title: "slow", Objective: "wait"}, nil, "", nil, 2, 100000)
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("timeout error = %v", err)
-	}
-	if time.Since(start) > 2*time.Second {
-		t.Fatal("timeout took too long")
-	}
-	if usage.Calls != 0 {
-		t.Fatalf("usage = %+v", usage)
+func TestDelegationStopsOnContextCancel(t *testing.T) {
+	o, _, _ := newOrch(t, &blockedProvider{}, Config{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, _, err := o.runWorker(ctx, delegateArgs{Title: "slow", Objective: "wait"}, nil, "", nil)
+	if err == nil {
+		t.Fatal("expected an error from a cancelled context")
 	}
 }
 
-func TestRunChecksAndCompletionGate(t *testing.T) {
+func TestRunChecksRecordsEvidenceWithoutBlockingPlan(t *testing.T) {
 	o, _, _ := newOrch(t, &scriptProvider{fn: func(int, llm.Request) (*llm.Result, error) {
 		return &llm.Result{Content: "ok"}, nil
-	}}, Config{RequireVerification: true})
+	}}, Config{})
 	step := Step{ID: "s", Title: "S", Status: StepInProgress, Checks: []Check{{ID: "file", Command: "test -f ok.txt"}}}
 	if _, err := o.updatePlan("goal", nil, []Step{step}); err != nil {
 		t.Fatal(err)
@@ -406,8 +387,8 @@ func TestRunChecksAndCompletionGate(t *testing.T) {
 		t.Fatalf("runChecks = %q err=%v", out, err)
 	}
 	step.Status = StepCompleted
-	if _, err := o.updatePlan("goal", nil, []Step{step}); err == nil || !strings.Contains(err.Error(), "check") {
-		t.Fatalf("completion gate error = %v", err)
+	if _, err := o.updatePlan("goal", nil, []Step{step}); err != nil {
+		t.Fatalf("a pending check must not reject the plan: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(o.lead.Env.Dir, "ok.txt"), []byte("ok"), 0o644); err != nil {
 		t.Fatal(err)
@@ -468,12 +449,10 @@ func TestWriterMergesCheckGatedPatch(t *testing.T) {
 		Tools:    tools.Registry(),
 		Env:      &tools.Env{Dir: repo, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
 		Sess:     sess,
-		MaxSteps: 8,
 	}
 	o, err := Attach(ag, Config{
-		EnableWriters:       true,
-		RequireVerification: true,
-		WorktreeRoot:        t.TempDir(),
+		EnableWriters: true,
+		WorktreeRoot:  t.TempDir(),
 	})
 	if err != nil {
 		t.Fatal(err)

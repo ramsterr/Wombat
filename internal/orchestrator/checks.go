@@ -20,14 +20,14 @@ type runChecksArgs struct {
 func (t *runChecksTool) Name() string  { return "run_checks" }
 func (t *runChecksTool) Class() string { return "verify" }
 func (t *runChecksTool) Description() string {
-	return "Run the ledger checks for one step in the workspace and record pass/fail evidence. Use after edits and before marking a step completed. Checks run with the same sandbox policy as bash."
+	return "Run the ledger checks for one step in the workspace and record pass/fail evidence. Use after edits and before marking a step completed. Checks run with the same permissions as bash."
 }
 func (t *runChecksTool) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"step_id":         map[string]any{"type": "string", "description": "ledger step whose checks should run"},
-			"timeout_seconds": map[string]any{"type": "integer", "description": "default per-check timeout in seconds (default 120)"},
+			"timeout_seconds": map[string]any{"type": "integer", "description": "optional per-check timeout in seconds; omit for no timeout"},
 		},
 		"required": []string{"step_id"},
 	}
@@ -71,15 +71,19 @@ func (o *Orchestrator) runChecks(ctx context.Context, a runChecksArgs) (string, 
 		return "", fmt.Errorf("step %q has no checks; add checks in update_plan first", a.StepID)
 	}
 	defaultTimeout := time.Duration(a.TimeoutSeconds) * time.Second
-	if defaultTimeout <= 0 {
-		defaultTimeout = 120 * time.Second
-	}
 	result := checkRunResult{StepID: a.StepID, Passed: true}
 	updates := make(map[string]Check, len(checks))
 	for _, c := range checks {
 		timeout := defaultTimeout
 		if c.TimeoutSeconds > 0 {
 			timeout = time.Duration(c.TimeoutSeconds) * time.Second
+		}
+		if err := env.Check("bash", c.Command); err != nil {
+			result.Passed = false
+			out := checkOutcome{ID: c.ID, Command: c.Command, Status: CheckFailed, Output: err.Error()}
+			result.Checks = append(result.Checks, out)
+			updates[c.ID] = Check{ID: c.ID, Command: c.Command, TimeoutSeconds: c.TimeoutSeconds, Status: CheckFailed, Output: truncateCheckOutput(err.Error())}
+			continue
 		}
 		run := tools.RunCommand(ctx, &env, c.Command, timeout)
 		status := CheckPassed

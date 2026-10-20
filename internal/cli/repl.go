@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
@@ -16,26 +17,30 @@ import (
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
-	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 )
 
 type renderer struct {
-	cfg       *config.Config
-	sess      *session.Session
-	quiet     bool
-	sp        *spinner
-	textOpen  bool
-	thinkOpen bool
-	windowFn  func() int
-	cumIn     int
-	cumOut    int
-	cumCached int
+	cfg            *config.Config
+	sess           *session.Session
+	quiet          bool
+	sp             *spinner
+	textOpen       bool
+	thinkOpen      bool
+	thinkingNotice bool
+	windowFn       func() int
+	cumIn          int
+	cumOut         int
+	cumCached      int
+
+	mu   sync.Mutex
+	last time.Time
 }
 
 func (r *renderer) hooks() agent.Hooks {
 	return agent.Hooks{
 		OnText: func(s string) {
+			r.touch()
 			if r.thinkOpen {
 				fmt.Fprintln(os.Stderr)
 				r.thinkOpen = false
@@ -48,6 +53,14 @@ func (r *renderer) hooks() agent.Hooks {
 		},
 		OnReasoning: func(s string) {
 			if r.quiet {
+				return
+			}
+			r.touch()
+			if !r.cfg.ShowThinking {
+				if !r.thinkingNotice {
+					fmt.Fprintln(os.Stderr, dim("thinking…"))
+					r.thinkingNotice = true
+				}
 				return
 			}
 			if !r.thinkOpen {
@@ -63,6 +76,7 @@ func (r *renderer) hooks() agent.Hooks {
 			fmt.Fprint(os.Stderr, dim(s))
 		},
 		OnTool: func(name, detail string) {
+			r.touch()
 			if r.quiet {
 				return
 			}
@@ -70,6 +84,7 @@ func (r *renderer) hooks() agent.Hooks {
 			fmt.Fprintf(os.Stderr, "%s %s %s\n", dim("⚒"), bold(name), dim(clipLine(detail, 100)))
 		},
 		OnToolResult: func(name, result string, dur time.Duration) {
+			r.touch()
 			if r.quiet {
 				return
 			}
@@ -84,6 +99,7 @@ func (r *renderer) hooks() agent.Hooks {
 			fmt.Fprintf(os.Stderr, "%s %s %s%s\n", mark, dim(name), dim(dur.Round(time.Millisecond).String()), preview)
 		},
 		OnUsage: func(u llm.Usage, history int) {
+			r.touch()
 			r.cumIn += u.In
 			r.cumOut += u.Out
 			r.cumCached += u.Cached
@@ -106,6 +122,43 @@ func (r *renderer) hooks() agent.Hooks {
 				kind, humanTokens(before), humanTokens(after))))
 		},
 	}
+}
+
+func (r *renderer) touch() {
+	r.mu.Lock()
+	r.last = time.Now()
+	r.mu.Unlock()
+}
+
+// startHeartbeat prints a progress line when the model has produced no
+// output for a while. A long thinking turn is otherwise a blank screen.
+func (r *renderer) startHeartbeat(ctx context.Context, interval time.Duration) func() {
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	start := time.Now()
+	r.touch()
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				r.mu.Lock()
+				idle := time.Since(r.last)
+				r.mu.Unlock()
+				if idle >= interval && !r.quiet {
+					fmt.Fprintf(os.Stderr, "\n%s\n", dim(fmt.Sprintf("· still working (%s elapsed)", time.Since(start).Round(time.Second))))
+				}
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 func (r *renderer) window() int {
@@ -410,40 +463,6 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 			return false, nil, nil, err
 		}
 		return false, na, sess, nil
-	case "/sandbox":
-		current, err := sandboxSettings(cfg)
-		if err != nil {
-			return false, nil, nil, err
-		}
-		if ag != nil && ag.Env != nil && ag.Env.SandboxState != nil {
-			current = ag.Env.SandboxState.Settings()
-		}
-		newSettings, msg, changed, err := sandbox.ApplyCommand(line, current)
-		if err != nil {
-			return false, nil, nil, err
-		}
-		fmt.Println(msg)
-		if !changed {
-			if cmd, ok := commands.Find("/sandbox"); ok && len(cmd.Options) > 0 {
-				fmt.Println(dim("options:"))
-				for _, o := range cmd.Options {
-					fmt.Printf("  %-26s %s\n", o.Value, dim(o.Summary))
-				}
-			}
-		}
-		if !changed {
-			return false, nil, nil, nil
-		}
-		opts.sandbox = newSettings
-		opts.sandboxSet = true
-		if ag != nil && ag.Env != nil && ag.Env.SandboxState != nil {
-			opts.state = ag.Env.SandboxState
-		}
-		na, _, _, err := rebuild(cfg, *opts, sess, p, r)
-		if err != nil {
-			return false, nil, nil, err
-		}
-		return false, na, sess, nil
 	case "/status":
 		current := mode.Create
 		if ag.Env != nil && ag.Env.Mode != "" {
@@ -451,8 +470,8 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 				current = m
 			}
 		}
-		fmt.Printf("provider=%s model=%s session=%s\ncwd=%s\nmode=%s sandbox=%s\n",
-			ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd, current.Label(), agentSandbox(ag))
+		fmt.Printf("provider=%s model=%s session=%s\ncwd=%s\nmode=%s\n",
+			ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd, current.Label())
 	default:
 		return false, nil, nil, fmt.Errorf("unknown command %s — /help", cmd)
 	}

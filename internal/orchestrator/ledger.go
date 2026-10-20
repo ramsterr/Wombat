@@ -12,11 +12,8 @@ import (
 )
 
 const (
-	maxStepsInPlan   = 12
-	maxFacts         = 20
-	maxReportBytes   = 24 * 1024
-	maxChecksPerStep = 12
-	maxCheckOutput   = 4000
+	maxReportBytes = 24 * 1024
+	maxCheckOutput = 4000
 )
 
 type StepStatus string
@@ -79,9 +76,6 @@ type Ledger struct {
 }
 
 func normalizeChecks(checks []Check) []Check {
-	if len(checks) > maxChecksPerStep {
-		checks = checks[:maxChecksPerStep]
-	}
 	for i := range checks {
 		checks[i].ID = strings.TrimSpace(checks[i].ID)
 		checks[i].Command = strings.TrimSpace(checks[i].Command)
@@ -163,9 +157,6 @@ func (l *Ledger) normalize() {
 		out = append(out, s)
 	}
 	l.Steps = out
-	if len(l.Facts) > maxFacts {
-		l.Facts = l.Facts[:maxFacts]
-	}
 }
 
 func (l *Ledger) Save(path string) error {
@@ -204,9 +195,6 @@ func (l *Ledger) Save(path string) error {
 }
 
 func (l *Ledger) Validate() error {
-	if len(l.Steps) > maxStepsInPlan {
-		return fmt.Errorf("too many steps: %d (max %d)", len(l.Steps), maxStepsInPlan)
-	}
 	ids := make(map[string]int, len(l.Steps))
 	for i, s := range l.Steps {
 		if strings.TrimSpace(s.ID) == "" {
@@ -221,9 +209,6 @@ func (l *Ledger) Validate() error {
 		ids[s.ID] = i
 		if !s.Status.Valid() {
 			return fmt.Errorf("step %q: invalid status %q", s.ID, s.Status)
-		}
-		if len(s.Checks) > maxChecksPerStep {
-			return fmt.Errorf("step %q: too many checks: %d (max %d)", s.ID, len(s.Checks), maxChecksPerStep)
 		}
 		checkIDs := make(map[string]bool, len(s.Checks))
 		for j, c := range s.Checks {

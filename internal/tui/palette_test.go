@@ -28,9 +28,9 @@ func TestPaletteMatches(t *testing.T) {
 
 func TestPaletteFilters(t *testing.T) {
 	c := newPaletteChat()
-	c.ta.SetValue("/sand")
+	c.ta.SetValue("/thi")
 	c.updatePalette()
-	if len(c.cmdList) != 1 || c.cmdList[0].insert != "/sandbox" {
+	if len(c.cmdList) != 1 || c.cmdList[0].insert != "/thinking" {
 		t.Fatalf("filtered = %+v", c.cmdList)
 	}
 }
@@ -51,11 +51,11 @@ func TestPaletteCloses(t *testing.T) {
 
 func TestCompleteCommand(t *testing.T) {
 	c := newPaletteChat()
-	c.ta.SetValue("/sand")
+	c.ta.SetValue("/thi")
 	c.updatePalette()
 	c.cmdSel = 0
 	c.completeCommand()
-	if got := c.ta.Value(); got != "/sandbox " {
+	if got := c.ta.Value(); got != "/thinking " {
 		t.Errorf("value = %q", got)
 	}
 	if len(c.cmdList) != 0 {
@@ -83,7 +83,7 @@ func TestPaletteAppearsWhileTyping(t *testing.T) {
 	if len(c.cmdList) == 0 {
 		t.Fatal("the palette closed while typing")
 	}
-	if c.cmdList[0].insert != "/sessions" && c.cmdList[0].insert != "/sandbox" && c.cmdList[0].insert != "/status" && c.cmdList[0].insert != "/setup" && c.cmdList[0].insert != "/sources" {
+	if c.cmdList[0].insert != "/sessions" && c.cmdList[0].insert != "/status" && c.cmdList[0].insert != "/setup" && c.cmdList[0].insert != "/sources" {
 		t.Errorf("filtered list = %+v", c.cmdList)
 	}
 }
@@ -183,13 +183,13 @@ func TestPaletteEnterRunsCommand(t *testing.T) {
 func TestPaletteEnterOffersOptions(t *testing.T) {
 	c := newPaletteChat()
 	c.ta.Focus()
-	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/sandbox")})
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/thinking")})
 	if !c.paletteOpen() {
 		t.Fatal("the palette did not open")
 	}
 	c.key(tea.KeyMsg{Type: tea.KeyEnter})
-	if c.ta.Value() != "/sandbox " {
-		t.Errorf("input = %q, want %q", c.ta.Value(), "/sandbox ")
+	if c.ta.Value() != "/thinking " {
+		t.Errorf("input = %q, want %q", c.ta.Value(), "/thinking ")
 	}
 	if !c.paletteOpen() {
 		t.Fatal("the options did not open")
@@ -198,11 +198,11 @@ func TestPaletteEnterOffersOptions(t *testing.T) {
 	for _, e := range c.cmdList {
 		labels[e.label] = true
 	}
-	if !labels["network on"] || !labels["network off"] {
+	if !labels["on"] || !labels["off"] {
 		t.Errorf("options = %v", labels)
 	}
 	// the option list filters as the argument is typed
-	c.ta.SetValue("/sandbox net")
+	c.ta.SetValue("/thinking o")
 	c.updatePalette()
 	if len(c.cmdList) != 2 {
 		t.Errorf("filtered options = %+v", c.cmdList)

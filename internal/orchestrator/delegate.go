@@ -13,10 +13,8 @@ import (
 )
 
 type delegation struct {
-	args        delegateArgs
-	step        *Step
-	maxSteps    int
-	tokenBudget int
+	args delegateArgs
+	step *Step
 }
 
 type delegationBatch struct {
@@ -89,9 +87,6 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 	if len(args) == 0 {
 		return nil, fmt.Errorf("no delegations requested")
 	}
-	if len(args) > maxFleetTasks {
-		return nil, fmt.Errorf("too many scouts in one fleet: %d (max %d)", len(args), maxFleetTasks)
-	}
 	for i := range args {
 		if err := validateDelegationArgs(args[i]); err != nil {
 			return nil, fmt.Errorf("task %d: %w", i+1, err)
@@ -100,18 +95,11 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if left := o.cfg.MaxDelegations - o.delegations; len(args) > left {
-		return nil, fmt.Errorf("delegation budget exhausted: need %d, only %d remain this turn", len(args), left)
-	}
 	ids := make(map[string]bool, len(args))
 	for _, a := range args {
-		if a.StepID == "" {
-			continue
+		if a.StepID != "" {
+			ids[a.StepID] = true
 		}
-		if ids[a.StepID] {
-			return nil, fmt.Errorf("step %q appears twice in one fleet", a.StepID)
-		}
-		ids[a.StepID] = true
 	}
 
 	batch := &delegationBatch{
@@ -141,71 +129,36 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 			copy := *s
 			stepCopy = &copy
 		}
-		maxSteps := a.MaxSteps
-		if maxSteps <= 0 {
-			maxSteps = o.cfg.WorkerMaxSteps
-		}
-		if maxSteps > maxWorkerStepsCap {
-			maxSteps = maxWorkerStepsCap
-		}
 		batch.items = append(batch.items, delegation{
-			args:     a,
-			step:     stepCopy,
-			maxSteps: maxSteps,
+			args: a,
+			step: stepCopy,
 		})
 	}
 
-	remainingTokens := o.cfg.TurnWorkerTokenBudget - o.workerTokens
-	if remainingTokens <= 0 {
-		return nil, fmt.Errorf("worker token budget exhausted for this turn (%d tokens)", o.cfg.TurnWorkerTokenBudget)
-	}
-	perWorker := remainingTokens / len(args)
-	if perWorker > o.cfg.WorkerTokenBudget {
-		perWorker = o.cfg.WorkerTokenBudget
-	}
-	if perWorker < minWorkerTokenBudget {
-		return nil, fmt.Errorf("not enough worker token budget for %d scouts: %d tokens each (min %d)", len(args), perWorker, minWorkerTokenBudget)
-	}
-	for i := range batch.items {
-		batch.items[i].tokenBudget = perWorker
-	}
-
-	o.delegations += len(args)
 	o.totalDelegations += len(args)
 	return batch, nil
 }
 
 func (o *Orchestrator) runDelegations(ctx context.Context, batch *delegationBatch) *delegationResult {
-	parallel := o.cfg.MaxParallelScouts
-	if parallel < 1 {
-		parallel = 1
-	}
-	if parallel > len(batch.items) {
-		parallel = len(batch.items)
-	}
 	outcomes := make([]delegationOutcome, len(batch.items))
-	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for i := range batch.items {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
+			if err := ctx.Err(); err != nil {
 				outcomes[i] = delegationOutcome{
 					args: batch.items[i].args,
 					report: &WorkerReport{
 						Status:  "failed",
-						Summary: "worker did not start: " + ctx.Err().Error(),
+						Summary: "worker did not start: " + err.Error(),
 					},
-					err: ctx.Err(),
+					err: err,
 				}
 				return
 			}
 			d := batch.items[i]
-			report, usage, workerSession, err := o.runWorker(ctx, d.args, d.step, batch.goal, batch.facts, d.maxSteps, d.tokenBudget)
+			report, usage, workerSession, err := o.runWorker(ctx, d.args, d.step, batch.goal, batch.facts)
 			if report == nil {
 				report = &WorkerReport{Status: "failed", Summary: "worker returned no report"}
 			}
@@ -250,7 +203,6 @@ func (o *Orchestrator) runDelegations(ctx context.Context, batch *delegationBatc
 				s.Updated = time.Now()
 			}
 		}
-		o.workerTokens += out.usage.In + out.usage.Out
 	}
 	o.ledger.Updated = time.Now()
 	saveErr := o.ledger.Save(o.ledgerPath)
@@ -262,7 +214,7 @@ func (o *Orchestrator) runDelegations(ctx context.Context, batch *delegationBatc
 	return result
 }
 
-func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step, goal string, facts []string, maxSteps, tokenBudget int) (*WorkerReport, ReportUsage, string, error) {
+func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step, goal string, facts []string) (*WorkerReport, ReportUsage, string, error) {
 	o.mu.Lock()
 	cfg := o.cfg
 	o.mu.Unlock()
@@ -275,21 +227,7 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 	env.ReadOnly = true
 	env.Permit = nil
 
-	runCtx, cancel := context.WithTimeout(ctx, cfg.WorkerTimeout)
-	defer cancel()
-	budgetCtx, cancelBudget := context.WithCancel(runCtx)
-	defer cancelBudget()
-	budget := &workerTokenBudget{limit: tokenBudget}
 	hooks := workerHooks(o.lead.Hooks, a.Title, &o.hooksMu)
-	parentUsage := hooks.OnUsage
-	hooks.OnUsage = func(u llm.Usage, history int) {
-		if budget.add(u) {
-			cancelBudget()
-		}
-		if parentUsage != nil {
-			parentUsage(u, history)
-		}
-	}
 
 	model := o.lead.Model
 	if o.cfg.ScoutModel != "" {
@@ -301,17 +239,17 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		Tools:         o.workerTools,
 		Env:           &env,
 		Sess:          ws,
-		MaxSteps:      maxSteps,
 		Compact:       o.lead.Compact && o.lead.ContextWindow > 0,
 		ContextWindow: o.lead.ContextWindow,
 		NumCtx:        o.lead.NumCtx,
 		SystemExtra: func() string {
 			return workerSystemPrompt(a, step, goal, facts)
 		},
-		Hooks: hooks,
+		Hooks:     hooks,
+		Reasoning: "off",
 	}
 
-	runErr := worker.Run(budgetCtx, workerBrief(a, goal, facts))
+	runErr := worker.Run(ctx, workerBrief(a, goal, facts))
 	stats := worker.Usage()
 	usage := usageFrom(stats)
 	content := lastAssistantContent(ws)
@@ -320,12 +258,6 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		report = fallbackReport(content)
 	}
 	report.Usage = usage
-	if budget.exceeded {
-		runErr = fmt.Errorf("worker exceeded token budget (%d/%d tokens)", budget.used, budget.limit)
-		report.Status = "failed"
-	} else if runCtx.Err() == context.DeadlineExceeded {
-		runErr = fmt.Errorf("worker timed out after %s", cfg.WorkerTimeout)
-	}
 	if runErr != nil {
 		if report.Status != "completed" {
 			report.Status = "failed"
@@ -335,24 +267,6 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		}
 	}
 	return trimReport(report), usage, ws.Path(), runErr
-}
-
-type workerTokenBudget struct {
-	mu       sync.Mutex
-	limit    int
-	used     int
-	exceeded bool
-}
-
-func (b *workerTokenBudget) add(u llm.Usage) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.used += u.In + u.Out
-	if b.limit > 0 && b.used > b.limit {
-		b.exceeded = true
-		return true
-	}
-	return false
 }
 
 func workerHooks(parent agent.Hooks, title string, mu *sync.Mutex) agent.Hooks {
@@ -417,7 +331,8 @@ func workerSystemPrompt(a delegateArgs, step *Step, goal string, facts []string)
 	b.WriteString("## Delegated worker\n")
 	b.WriteString("You are a read-only research worker for a coding agent. You cannot see the lead conversation. ")
 	b.WriteString("Do not modify files, run mutating commands, ask the user questions, or request more work. ")
-	b.WriteString("Use read/glob/grep to inspect the repository. Stay inside the working directory unless the brief says otherwise. ")
+	b.WriteString("Use read/glob/grep to inspect the repository, and websearch/webfetch to research when the brief needs the network. ")
+	b.WriteString("There is no step, token, or time limit: keep going until the objective is answered. ")
 	b.WriteString("Make reasonable assumptions when context is missing, state them in risks, and prefer evidence over speculation.\n\n")
 	if goal != "" {
 		b.WriteString("Project goal: ")

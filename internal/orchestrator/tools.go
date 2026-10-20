@@ -54,11 +54,11 @@ func (t *updatePlanTool) Schema() map[string]any {
 					"properties": map[string]any{
 						"id":              map[string]any{"type": "string", "description": "short stable id, e.g. unit"},
 						"command":         map[string]any{"type": "string", "description": "exact command that proves the step, e.g. go test ./..."},
-						"timeout_seconds": map[string]any{"type": "integer", "description": "optional per-check timeout (default 120s)"},
+						"timeout_seconds": map[string]any{"type": "integer", "description": "optional per-check timeout; omit for no timeout"},
 					},
 					"required": []string{"id", "command"},
 				},
-				"description": "commands that must pass before this step can be completed (max 12)",
+				"description": "commands that prove this step",
 			},
 		},
 		"required": []string{"id", "title"},
@@ -68,7 +68,7 @@ func (t *updatePlanTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"goal":  map[string]any{"type": "string", "description": "the user-visible goal of this work (omit to keep the current goal)"},
 			"facts": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "durable facts discovered so far: paths, constraints, decisions, test results"},
-			"steps": map[string]any{"type": "array", "items": stepSchema, "description": "ordered task steps (max 12)"},
+			"steps": map[string]any{"type": "array", "items": stepSchema, "description": "ordered task steps"},
 		},
 		"required": []string{"steps"},
 	}
@@ -117,7 +117,6 @@ type delegateArgs struct {
 	Context     string `json:"context"`
 	Role        string `json:"role"`
 	Deliverable string `json:"deliverable"`
-	MaxSteps    int    `json:"max_steps"`
 }
 
 func (t *delegateTool) Name() string  { return "delegate" }
@@ -138,7 +137,6 @@ func (t *delegateTool) Schema() map[string]any {
 			"context":     map[string]any{"type": "string", "description": "everything the worker needs that it cannot infer from the repo: paths, hypotheses, constraints, prior findings"},
 			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer or test-surveyor"},
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including which claims need evidence"},
-			"max_steps":   map[string]any{"type": "integer", "description": "optional worker step budget (default from config, max 100)"},
 		},
 		"required": []string{"title", "objective"},
 	}
@@ -178,7 +176,6 @@ func (t *delegateManyTool) Schema() map[string]any {
 			"context":     map[string]any{"type": "string", "description": "self-contained context the scout cannot infer from the repo"},
 			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer or test-surveyor"},
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including evidence requirements"},
-			"max_steps":   map[string]any{"type": "integer", "description": "optional scout step budget (default from config, max 100)"},
 		},
 		"required": []string{"title", "objective"},
 	}
@@ -189,7 +186,6 @@ func (t *delegateManyTool) Schema() map[string]any {
 				"type":        "array",
 				"description": "independent read-only investigations to run concurrently (2-6)",
 				"minItems":    2,
-				"maxItems":    maxFleetTasks,
 				"items":       taskSchema,
 			},
 		},
