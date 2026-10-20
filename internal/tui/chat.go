@@ -1036,6 +1036,9 @@ func (c *chat) addAttachment(path string) error {
 	c.layout()
 	c.refresh()
 	c.note(fmt.Sprintf("attached %s (%s, %s)", a.Name, a.Kind, llm.HumanSize(a.Size)), false)
+	if a.Kind == "image" && c.modelName != "" && !tokens.SupportsImages(c.modelName) {
+		c.note("this model cannot see images ("+c.modelName+") - the file will be described instead", true)
+	}
 	return nil
 }
 

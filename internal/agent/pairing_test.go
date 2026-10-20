@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -44,14 +45,14 @@ func TestMediaDoesNotBreakToolPairing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pic.png"), tinyPNG, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sess, err := session.Create(t.TempDir(), "mock", "m", "")
+	sess, err := session.Create(t.TempDir(), "mock", "gpt-5", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	prov := &mediaProvider{}
 	a := &Agent{
 		Provider: prov,
-		Model:    "m",
+		Model:    "gpt-5",
 		Tools:    tools.Registry(),
 		Env: &tools.Env{
 			Dir:    dir,
@@ -101,4 +102,45 @@ func TestMediaDoesNotBreakToolPairing(t *testing.T) {
 	}
 	b, _ := json.Marshal(sess.Messages)
 	t.Logf("session: %s", b)
+}
+
+// TestTextOnlyModelIsNotSentImages checks that a model which cannot see
+// images is never sent one: the provider would reject the whole request.
+func TestTextOnlyModelIsNotSentImages(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pic.png"), tinyPNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := session.Create(t.TempDir(), "mock", "deepseek-v4-flash", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &mediaProvider{}
+	a := &Agent{
+		Provider: prov,
+		Model:    "deepseek-v4-flash",
+		Tools:    tools.Registry(),
+		Env: &tools.Env{
+			Dir:    dir,
+			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
+		},
+		Sess: sess,
+	}
+	if err := a.Run(context.Background(), "look at the picture"); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range sess.Messages {
+		if len(m.Attachments) > 0 {
+			t.Fatal("a text-only model must not be sent an image")
+		}
+	}
+	described := false
+	for _, m := range sess.Messages {
+		if m.Role == "user" && strings.Contains(m.Content, "cannot see images") {
+			described = true
+		}
+	}
+	if !described {
+		t.Fatal("the model should be told the file is an image it cannot see")
+	}
 }
