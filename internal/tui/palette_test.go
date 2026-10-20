@@ -167,3 +167,41 @@ func TestPaletteTabCompletesAndEscCloses(t *testing.T) {
 		t.Error("esc should close the palette")
 	}
 }
+
+// TestPaletteWindowFollowsSelection checks the list scrolls so the selected
+// command is always visible, with counters for what is hidden.
+func TestPaletteWindowFollowsSelection(t *testing.T) {
+	c := newPaletteChat()
+	c.h = 30
+	c.ta.Focus()
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	view := c.paletteView()
+	if !strings.Contains(view, "more below") {
+		t.Errorf("expected a counter below:\n%s", view)
+	}
+	if strings.Contains(view, "more above") {
+		t.Errorf("nothing should be hidden above at the start:\n%s", view)
+	}
+
+	for i := 0; i < 10; i++ {
+		c.key(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if c.cmdTop == 0 {
+		t.Fatal("the window did not scroll")
+	}
+	view = c.paletteView()
+	if !strings.Contains(view, "more above") {
+		t.Errorf("expected a counter above:\n%s", view)
+	}
+	// the selected command must be in the visible window
+	if !strings.Contains(view, c.cmdList[c.cmdSel].Name) {
+		t.Errorf("the selection %q is not visible:\n%s", c.cmdList[c.cmdSel].Name, view)
+	}
+	// walking back up scrolls the window back
+	for i := 0; i < 10; i++ {
+		c.key(tea.KeyMsg{Type: tea.KeyUp})
+	}
+	if c.cmdTop != 0 {
+		t.Errorf("the window did not scroll back: cmdTop = %d", c.cmdTop)
+	}
+}

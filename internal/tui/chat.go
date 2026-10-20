@@ -146,9 +146,11 @@ type chat struct {
 	sandboxState *sandbox.State
 	mode         mode.Mode
 
-	// cmdList is the palette of matching slash commands.
+	// cmdList is the palette of matching slash commands. cmdSel is the
+	// highlighted entry and cmdTop is the first visible one.
 	cmdList []commands.Command
 	cmdSel  int
+	cmdTop  int
 
 	vp viewport.Model
 	ta textarea.Model
@@ -471,6 +473,7 @@ func (c *chat) updatePalette() {
 	if c.cmdSel >= len(c.cmdList) {
 		c.cmdSel = 0
 	}
+	c.cmdTop = 0
 }
 
 // paletteOpen reports whether the palette is showing.
@@ -490,6 +493,7 @@ func (c *chat) completeCommand() {
 	c.ta.CursorEnd()
 	c.cmdList = nil
 	c.cmdSel = 0
+	c.cmdTop = 0
 }
 
 // currentSandbox returns the live sandbox settings of the session.
@@ -740,6 +744,7 @@ func (c *chat) submit(text string) tea.Cmd {
 	c.ta.Reset()
 	c.cmdList = nil
 	c.cmdSel = 0
+	c.cmdTop = 0
 	c.layout()
 	if looksLikeCommand(text) {
 		cmd := c.command(text)
@@ -1306,6 +1311,7 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		case "esc":
 			c.cmdList = nil
 			c.cmdSel = 0
+			c.cmdTop = 0
 			c.layout()
 			c.refresh()
 			return nil
@@ -1474,14 +1480,53 @@ func (c *chat) view() string {
 	return strings.Join(parts, "\n")
 }
 
-// paletteView renders the list of slash commands that match the input.
+// paletteLimit is how many entries the palette shows at once.
+func (c *chat) paletteLimit() int {
+	limit := 8
+	if c.h > 0 {
+		if room := (c.h - 12) / 2; room < limit {
+			limit = room
+		}
+	}
+	if limit < 3 {
+		limit = 3
+	}
+	return limit
+}
+
+// paletteView renders the list of slash commands that match the input. The
+// window follows the selection, so the highlighted command is always visible.
 func (c *chat) paletteView() string {
 	if len(c.cmdList) == 0 {
 		return ""
 	}
+	limit := c.paletteLimit()
+	if limit > len(c.cmdList) {
+		limit = len(c.cmdList)
+	}
+	// keep the selection inside the window
+	if c.cmdSel < c.cmdTop {
+		c.cmdTop = c.cmdSel
+	}
+	if c.cmdSel >= c.cmdTop+limit {
+		c.cmdTop = c.cmdSel - limit + 1
+	}
+	if c.cmdTop < 0 {
+		c.cmdTop = 0
+	}
+	if c.cmdTop+limit > len(c.cmdList) {
+		c.cmdTop = len(c.cmdList) - limit
+	}
+
 	var b strings.Builder
-	limit := min(8, len(c.cmdList))
-	for i := 0; i < limit; i++ {
+	if c.cmdTop > 0 {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("  … %d more above", c.cmdTop)) + "\n")
+	}
+	end := c.cmdTop + limit
+	if end > len(c.cmdList) {
+		end = len(c.cmdList)
+	}
+	for i := c.cmdTop; i < end; i++ {
 		cmd := c.cmdList[i]
 		marker := "  "
 		style := styleDim
@@ -1491,8 +1536,8 @@ func (c *chat) paletteView() string {
 		}
 		b.WriteString(marker + style.Render(pad(cmd.Usage(), 30)) + styleDim.Render(cmd.Summary) + "\n")
 	}
-	if len(c.cmdList) > limit {
-		b.WriteString(styleFaint.Render(fmt.Sprintf("  … %d more", len(c.cmdList)-limit)) + "\n")
+	if end < len(c.cmdList) {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("  … %d more below", len(c.cmdList)-end)) + "\n")
 	}
 	b.WriteString(styleFaint.Render("  ↑↓ select · tab complete · esc dismiss"))
 	return strings.TrimRight(b.String(), "\n")
