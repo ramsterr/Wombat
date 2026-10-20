@@ -8,6 +8,21 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Modes**: `chat` (look and explain, change nothing) and `create` (read, write,
+  edit, run anything). Switch with `/mode chat|create`, list with `/modes`. The
+  mode is enforced in the tools, shown in the header, and told to the model.
+- **Command palette**: typing `/` in the chat shows every command, filtered as
+  you type. Arrow keys move, tab completes, esc dismisses. The line REPL
+  suggests the closest matches for an unknown command.
+- `/toolset` lists the tools of the session and how each is gated, `/sources`
+  lists the sites and files the session used, `/history` lists its messages.
+
+### Changed
+
+- The OS sandbox is now **off by default**. The agent asks for every tool call
+  instead of being silently confined; switch the sandbox on with
+  `/sandbox mode workspace-write` when you want the extra layer.
+
 - `/sandbox` in the TUI and the REPL: show the sandbox mode, turn the network
   on or off, and switch between `off`, `read-only`, `workspace-write`, and
   `danger-full-access` without restarting the session.

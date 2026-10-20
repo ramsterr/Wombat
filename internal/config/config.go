@@ -56,6 +56,7 @@ type Config struct {
 	WriterMaxSteps        int                  `json:"writer_max_steps"`
 	WriterTokenBudget     int                  `json:"writer_token_budget"`
 	TurnWriterTokenBudget int                  `json:"turn_writer_token_budget"`
+	Mode                  string               `json:"mode"`
 	Sandbox               string               `json:"sandbox"`
 	SandboxNetwork        bool                 `json:"sandbox_network"`
 	Checkpoints           bool                 `json:"checkpoints"`
@@ -142,7 +143,8 @@ func Defaults() *Config {
 		WriterMaxSteps:        DefaultWriterMaxSteps,
 		WriterTokenBudget:     DefaultWriterTokenBudget,
 		TurnWriterTokenBudget: DefaultTurnWriterTokenBudget,
-		Sandbox:               "workspace-write",
+		Mode:                  "create",
+		Sandbox:               "off",
 		Checkpoints:           true,
 		RequireVerification:   true,
 		Writers:               true,
@@ -216,7 +218,10 @@ func Load() (*Config, error) {
 		c.TurnWriterTokenBudget = DefaultTurnWriterTokenBudget
 	}
 	if strings.TrimSpace(c.Sandbox) == "" {
-		c.Sandbox = "workspace-write"
+		c.Sandbox = "off"
+	}
+	if strings.TrimSpace(c.Mode) == "" {
+		c.Mode = "create"
 	}
 	return c, nil
 }

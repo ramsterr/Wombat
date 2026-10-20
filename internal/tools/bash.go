@@ -41,6 +41,9 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if err := env.checkPolicy("bash", a.Command); err != nil {
 		return "", err
 	}
+	if env.DenyMutate && MayMutate(a.Command) {
+		return "", fmt.Errorf("chat mode: commands that change things are disabled — switch to create mode to run them")
+	}
 	// Capability escalations come first: if the user refuses the network or
 	// a dangerous command, there is no point asking about the command itself.
 	if !env.allowDangerous(a.Command) {

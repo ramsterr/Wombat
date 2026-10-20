@@ -39,6 +39,7 @@ type Agent struct {
 	Trace         *trace.Logger
 
 	SandboxNote string
+	ModeNote    string
 
 	MaxTurnTokens   int
 	MaxTurnCost     float64
@@ -110,6 +111,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		maxSteps = 64
 	}
 	system := buildSystem(a.Env.Dir)
+	if note := strings.TrimSpace(a.ModeNote); note != "" {
+		system += "\n\n" + note
+	}
 	if note := strings.TrimSpace(a.SandboxNote); note != "" {
 		system += "\n\n" + note
 	}

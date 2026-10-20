@@ -57,8 +57,17 @@ func (s Settings) Summary() string {
 // of failing with an opaque network error.
 func (s Settings) Note() string {
 	var b strings.Builder
+	mode := s.Mode
+	if mode == "" {
+		mode = Off
+	}
+	if mode == Off {
+		b.WriteString("Sandbox: off. Commands run with the user's own permissions; every one of them " +
+			"is shown to the user for approval before it runs.")
+		return b.String()
+	}
 	b.WriteString("Sandbox: " + s.Summary() + ".")
-	if !s.Enforced() && s.Mode != "" && s.Mode != Off {
+	if !s.Enforced() {
 		b.WriteString(" This host cannot enforce that mode, so commands run without a sandbox.")
 	}
 	if !s.Network {

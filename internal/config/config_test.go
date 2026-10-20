@@ -22,7 +22,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxParallelScouts != DefaultMaxParallelScouts || cfg.WorkerTokenBudget != DefaultWorkerTokenBudget || cfg.TurnWorkerTokenBudget != DefaultTurnWorkerTokenBudget {
 		t.Fatalf("worker defaults = %+v", cfg)
 	}
-	if cfg.Sandbox != "workspace-write" || !cfg.Checkpoints || !cfg.RequireVerification || !cfg.Writers {
+	if cfg.Sandbox != "off" || !cfg.Checkpoints || !cfg.RequireVerification || !cfg.Writers {
 		t.Fatalf("safety defaults = %+v", cfg)
 	}
 	if cfg.MaxParallelWriters != DefaultMaxParallelWriters || cfg.WriterMaxSteps != DefaultWriterMaxSteps || cfg.WriterTokenBudget != DefaultWriterTokenBudget {

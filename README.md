@@ -22,6 +22,8 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - [Features](#features)
 - [Install](#install)
 - [Updating](#updating)
+- [Modes](#modes)
+- [Slash commands](#slash-commands)
 - [Quickstart](#quickstart)
 - [The TUI](#the-tui)
 - [Commands](#commands)
@@ -46,7 +48,8 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.
 - **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
-- **OS sandbox and checkpoints** — bash runs under an OS sandbox by default (`workspace-write` on macOS/Linux), and file mutations are snapshotted so you can restore a session workspace with `wombat checkpoint restore`.
+- **Two working modes** — `chat` explores and explains without touching anything; `create` writes and edits. Switch with `/mode`.
+- **Ask before you act** — every tool call can ask you first, and the sandbox (an OS-level jail for commands) is opt-in, not enforced. File mutations are snapshotted so you can restore a session workspace with `wombat checkpoint restore`.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
 - **Task ledger, verification, and delegation** — the lead agent keeps a persistent plan, records checks and evidence, runs bounded read-only scouts, and can hand independent coding tasks to writers in isolated git worktrees.
 - **Check-gated parallel writers** — writers own disjoint files, run in worktrees, and merge sequentially only after their offers pass tests; conflicts and failures are kept for inspection.
@@ -198,6 +201,47 @@ wombat resume last     # continue the latest session in the TUI
 ```
 
 On a fresh install the setup wizard runs once, then the chat opens. Configure a key once and it is reused. Everything also works without a TTY: `wombat chat`, `wombat run`, and piped input fall back to a line-based REPL.
+
+## Modes
+
+Two working modes, switchable at any time:
+
+| mode | what the agent may do |
+|---|---|
+| **chat** | look and explain: read, glob, grep, and run inspection commands. It cannot create, edit, or delete anything. |
+| **create** | the full agent: read, write, edit, and run any command you approve. |
+
+```sh
+/mode chat       # explore and explain, change nothing
+/mode create     # read, write, edit, and run any command
+/modes           # list the modes
+```
+
+The mode is shown in the header and told to the model, so it does not try to
+change files in chat mode — it asks you to switch instead. The default comes
+from `wombat config set mode chat|create`.
+
+## Slash commands
+
+Type `/` in the chat and the command list appears as you type — arrow keys to
+move, tab to complete, esc to dismiss. In the line REPL, `/help` prints the
+same list, and an unknown `/command` shows the closest matches.
+
+| command | what it does |
+|---|---|
+| `/mode`, `/modes` | switch or list the working modes |
+| `/sandbox` | sandbox and network control |
+| `/toolset` | the tools this session can use, and how each is gated |
+| `/sources` | the sites and files this session used |
+| `/history` | the messages in this session |
+| `/sessions` | browse past sessions |
+| `/status` | the current settings |
+| `/cost` | token usage and cost |
+| `/model`, `/provider`, `/models` | switch the model or provider |
+| `/attach`, `/paste`, `/detach` | attachments |
+| `/new`, `/compact`, `/clear` | session and context management |
+| `/yolo` | toggle auto-approve |
+| `/setup`, `/help`, `/exit` | the rest |
 
 ## The TUI
 
@@ -388,6 +432,16 @@ sandbox, the dangerous-command list, or the budget limits. Reads are never
 gated: `read`, `glob`, and `grep` always work.
 
 ### You control the sandbox
+
+The sandbox is **off by default** — Wombat asks you for every tool call
+instead of silently constraining the agent. The OS sandbox is an extra layer
+you can switch on when you want it:
+
+```sh
+/sandbox mode workspace-write   # confine commands to the working directory
+/sandbox mode read-only         # commands may not write at all
+/sandbox mode off               # no sandbox (the default)
+```
 
 The sandbox is yours to change, at any time, without restarting.
 

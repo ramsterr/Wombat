@@ -28,6 +28,8 @@ type Env struct {
 	DenyNetwork   bool
 	DenyGit       bool
 	DenyOutside   bool
+	DenyMutate    bool
+	Mode          string
 	Sandbox       sandbox.Policy
 	Checkpoint    Checkpointer
 
@@ -143,6 +145,9 @@ func (e *Env) checkPolicy(kind, detail string) error {
 	}
 	if e.ReadOnly && (kind == "write" || kind == "edit" || kind == "bash") {
 		return fmt.Errorf("read-only mode: %s is disabled", kind)
+	}
+	if e.DenyMutate && (kind == "write" || kind == "edit") {
+		return fmt.Errorf("chat mode: %s is disabled — switch to create mode to change files", kind)
 	}
 	if kind == "bash" {
 		// A dangerous command is always blocked here; the bash tool asks the

@@ -9,8 +9,16 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/tokens"
 )
+
+func boolWord(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
 
 func redactKey(k string) string {
 	if k == "" {
@@ -73,6 +81,15 @@ func cmdDoctor(_ []string) error {
 		}
 		fmt.Printf("  %s %-9s %s%s\n", green("✓"), p.Name, dim(fmt.Sprintf("%d models", len(models))), dim(preview))
 	}
+
+	fmt.Println()
+	fmt.Println(bold("session"))
+	m, err := mode.Parse(cfg.Mode)
+	if err != nil {
+		m = mode.Create
+	}
+	fmt.Println("  mode     " + bold(m.Label()) + dim(" — "+m.Description()))
+	fmt.Println("  sandbox  " + dim(cfg.Sandbox+dim(" (network "+boolWord(cfg.SandboxNetwork)+")")))
 
 	fmt.Println()
 	fmt.Println(bold("updates"))

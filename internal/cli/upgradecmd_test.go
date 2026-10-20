@@ -148,6 +148,7 @@ func TestBuildAgentUsesSandboxOverride(t *testing.T) {
 	cfg := &config.Config{
 		Provider:  "openai",
 		Model:     "test-model",
+		Mode:      "create",
 		Sandbox:   "workspace-write",
 		Providers: map[string]*config.Provider{"openai": {Kind: "openai", BaseURL: "http://127.0.0.1:1/v1"}},
 	}

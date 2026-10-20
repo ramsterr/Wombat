@@ -13,6 +13,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/checkpoint"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
@@ -33,6 +34,11 @@ type runOpts struct {
 	sandbox    sandbox.Settings
 	sandboxSet bool
 	state      *sandbox.State
+
+	// mode overrides the configured mode for this session when modeSet is
+	// true (the /mode command).
+	mode    mode.Mode
+	modeSet bool
 }
 
 func BuildProvider(ctx context.Context, cfg *config.Config, name, modelOverride string) (llm.Provider, string, string, error) {
@@ -110,12 +116,21 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		// approvals granted during the session survive a rebuild.
 		state.Update(func(s *sandbox.Settings) { *s = settings })
 	}
+	sessionMode, err := mode.Parse(cfg.Mode)
+	if err != nil {
+		return nil, err
+	}
+	if opts.modeSet {
+		sessionMode = opts.mode
+	}
 	env := &tools.Env{
 		Dir:           cwd,
 		Permit:        p.Permit,
 		Sandbox:       settings.Policy(cwd),
 		SandboxState:  state,
 		DenyDangerous: true,
+		DenyMutate:    !sessionMode.AllowsWrite(),
+		Mode:          sessionMode.Label(),
 	}
 	if p != nil {
 		env.SandboxAsk = func(kind, command string) tools.SandboxDecision {
@@ -145,6 +160,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		MaxToolCalls:    cfg.MaxToolCalls,
 		Pricing:         agent.Pricing{InputPerMTok: cfg.PriceIn, CachedPerMTok: cfg.PriceCached, OutputPerMTok: cfg.PriceOut},
 		SandboxNote:     settings.Note(),
+		ModeNote:        sessionMode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		ag.Trace = tr

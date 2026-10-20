@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/commands"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 )
@@ -191,6 +193,21 @@ func cmdRepl(args []string, resume bool) error {
 			continue
 		}
 		if looksLikeCommand(line) {
+			if strings.HasPrefix(line, "/") {
+				name := line
+				if i := strings.IndexAny(name, " \t"); i >= 0 {
+					name = name[:i]
+				}
+				if _, ok := commands.Find(name); !ok {
+					if matches := commands.Match(name); len(matches) > 0 {
+						fmt.Println(dim("did you mean:"))
+						for _, m := range matches {
+							fmt.Printf("  %-34s %s\n", m.Usage(), dim(m.Summary))
+						}
+						continue
+					}
+				}
+			}
 			done, newAg, newSess, err := handleCommand(line, cfg, ag, sess, p, r, &opts)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, red(err.Error()))
@@ -277,21 +294,7 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 	case "/exit", "/quit", "/q":
 		return true, nil, nil, nil
 	case "/help":
-		fmt.Print(`commands:
-  /model <name>     switch model
-  /models           list models from the current provider
-  /provider <name>  switch provider (must exist in config)
-  /new              start a fresh session
-  /compact          force context compaction
-  /cost             cumulative token usage
-  /yolo             toggle auto-approve
-  /sandbox          sandbox and network control
-  /status           show current settings
-  /exit             quit
-
-tip: write @path/to/file (or @"path with spaces") to attach an image,
-     video, audio, or document to that message.
-`)
+		fmt.Print(helpText())
 	case "/model":
 		if arg == "" {
 			return false, nil, nil, fmt.Errorf("usage: /model <name>")
@@ -349,6 +352,43 @@ tip: write @path/to/file (or @"path with spaces") to attach an image,
 	case "/yolo":
 		p.auto = !p.auto
 		fmt.Println(dim(fmt.Sprintf("auto-approve: %v", p.auto)))
+	case "/toolset":
+		current := mode.Create
+		if ag != nil && ag.Env != nil && ag.Env.Mode != "" {
+			if m, perr := mode.Parse(ag.Env.Mode); perr == nil {
+				current = m
+			}
+		}
+		fmt.Println(toolsetText(ag, current))
+	case "/sources":
+		fmt.Println(sourcesText(sess))
+	case "/history":
+		fmt.Println(historyText(sess))
+	case "/mode", "/modes":
+		current, err := mode.Parse(cfg.Mode)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		if ag != nil && ag.Env != nil && ag.Env.Mode != "" {
+			if m, perr := mode.Parse(ag.Env.Mode); perr == nil {
+				current = m
+			}
+		}
+		newMode, msg, changed, err := mode.Apply(line, current)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		fmt.Println(msg)
+		if !changed {
+			return false, nil, nil, nil
+		}
+		opts.mode = newMode
+		opts.modeSet = true
+		na, _, _, err := rebuild(cfg, *opts, sess, p, r)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		return false, na, sess, nil
 	case "/sandbox":
 		current, err := sandboxSettings(cfg)
 		if err != nil {

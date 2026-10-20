@@ -22,8 +22,10 @@ import (
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/checkpoint"
 	clipboard "github.com/ramsterr/Wombat/internal/clip"
+	"github.com/ramsterr/Wombat/internal/commands"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
@@ -31,25 +33,6 @@ import (
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
 )
-
-const helpLines = `/help             this list
-/model [name]     switch model (no name: picker)
-/provider [name]  switch provider (no name: picker)
-/models           browse models
-/sessions         browse sessions
-/attach <path>    attach an image, video, audio, or file
-/paste            attach an image from the clipboard (ctrl+v)
-/detach [n|all]   remove pending attachments
-/mouse            toggle mouse: wheel scroll vs text selection
-/new              start a fresh session
-/compact          compact context now
-/cost             token usage
-/status           show settings
-/yolo             toggle auto-approve
-/sandbox          sandbox and network control
-/clear            clear the transcript view
-/setup            reconfigure providers
-/exit             quit`
 
 type entryKind int
 
@@ -161,6 +144,11 @@ type chat struct {
 
 	sandbox      sandbox.Settings
 	sandboxState *sandbox.State
+	mode         mode.Mode
+
+	// cmdList is the palette of matching slash commands.
+	cmdList []commands.Command
+	cmdSel  int
 
 	vp viewport.Model
 	ta textarea.Model
@@ -336,12 +324,21 @@ func (c *chat) rebuild(reset bool) error {
 	if c.sandboxState == nil {
 		c.sandboxState = sandbox.NewState(c.sandbox)
 	}
+	if c.mode == "" {
+		if m, err := mode.Parse(c.cfg.Mode); err == nil {
+			c.mode = m
+		} else {
+			c.mode = mode.Create
+		}
+	}
 	env := &tools.Env{
 		Dir:           cwd,
 		Permit:        c.permit,
 		Sandbox:       c.sandbox.Policy(cwd),
 		SandboxState:  c.sandboxState,
 		DenyDangerous: true,
+		DenyMutate:    !c.mode.AllowsWrite(),
+		Mode:          c.mode.Label(),
 	}
 	env.SandboxAsk = c.askSandbox
 	if c.cfg.Checkpoints {
@@ -370,6 +367,7 @@ func (c *chat) rebuild(reset bool) error {
 		MaxToolCalls:    c.cfg.MaxToolCalls,
 		Pricing:         agent.Pricing{InputPerMTok: c.cfg.PriceIn, CachedPerMTok: c.cfg.PriceCached, OutputPerMTok: c.cfg.PriceOut},
 		SandboxNote:     c.sandbox.Note(),
+		ModeNote:        c.mode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		c.ag.Trace = tr
@@ -455,6 +453,43 @@ func (c *chat) permit(kind, detail string) tools.Decision {
 	case <-time.After(10 * time.Minute):
 		return tools.Decision{}
 	}
+}
+
+// updatePalette refreshes the slash-command palette for the current input.
+func (c *chat) updatePalette() {
+	text := c.ta.Value()
+	if !strings.HasPrefix(text, "/") || strings.Contains(text, "\n") {
+		c.cmdList = nil
+		c.cmdSel = 0
+		return
+	}
+	prefix := text
+	if i := strings.IndexAny(prefix, " \t"); i >= 0 {
+		prefix = prefix[:i]
+	}
+	c.cmdList = commands.Match(prefix)
+	if c.cmdSel >= len(c.cmdList) {
+		c.cmdSel = 0
+	}
+}
+
+// paletteOpen reports whether the palette is showing.
+func (c *chat) paletteOpen() bool { return len(c.cmdList) > 0 }
+
+// completeCommand replaces the input with the selected command.
+func (c *chat) completeCommand() {
+	if len(c.cmdList) == 0 {
+		return
+	}
+	sel := c.cmdList[min(c.cmdSel, len(c.cmdList)-1)]
+	text := c.ta.Value()
+	if i := strings.IndexAny(text, " \t"); i >= 0 {
+		text = text[:i]
+	}
+	c.ta.SetValue(sel.Name + " ")
+	c.ta.CursorEnd()
+	c.cmdList = nil
+	c.cmdSel = 0
 }
 
 // currentSandbox returns the live sandbox settings of the session.
@@ -639,9 +674,10 @@ func (c *chat) welcome() string {
 	b.WriteString("  " + styleAccent.Bold(true).Render("◆ wombat") + "  " + styleDim.Render(c.opt.Version) + "\n\n")
 	b.WriteString("  " + styleTitle.Render("a lightweight coding agent") + "\n\n")
 	b.WriteString("  " + styleDim.Render("provider ") + c.provName + "/" + c.modelName + "\n")
+	b.WriteString("  " + styleDim.Render("mode     ") + c.modeLabel() + styleFaint.Render("  (/mode chat to explore without changing anything)") + "\n")
 	b.WriteString("  " + styleDim.Render("session  ") + c.sessionID() + "\n")
 	b.WriteString("  " + styleDim.Render("dir      ") + clip(cwd, max(10, c.w-12)) + "\n\n")
-	b.WriteString("  " + styleFaint.Render("type a message to begin · /help for commands") + "\n")
+	b.WriteString("  " + styleFaint.Render("type a message to begin · type / for commands") + "\n")
 	return b.String()
 }
 
@@ -877,7 +913,7 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		return exit("quit", "")
 	case "/help":
-		c.notePre(helpLines)
+		c.note(commands.Help(), false)
 	case "/model":
 		if busy() {
 			return nil
@@ -981,11 +1017,33 @@ func (c *chat) command(line string) tea.Cmd {
 		if c.sess != nil {
 			cwd = c.sess.Meta.Cwd
 		}
-		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nauto-approve=%v\nsandbox: %s",
-			c.provName, c.modelName, c.sessionID(), cwd, c.auto, c.currentSandbox().Status()), false)
+		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nmode=%s  auto-approve=%v\nsandbox: %s",
+			c.provName, c.modelName, c.sessionID(), cwd, c.modeLabel(), c.auto, c.currentSandbox().Status()), false)
 	case "/yolo":
 		c.auto = !c.auto
 		c.note(fmt.Sprintf("auto-approve: %v", c.auto), false)
+	case "/mode", "/modes":
+		newMode, msg, changed, err := mode.Apply(line, c.mode)
+		if err != nil {
+			c.note(err.Error(), true)
+			return nil
+		}
+		if !changed {
+			c.note(msg, false)
+			return nil
+		}
+		c.mode = newMode
+		if err := c.rebuild(false); err != nil {
+			c.note("could not switch mode: "+err.Error(), true)
+			return nil
+		}
+		c.note(msg, false)
+	case "/toolset":
+		c.note(c.toolsetView(), false)
+	case "/sources":
+		c.note(c.sourcesView(), false)
+	case "/history":
+		c.note(c.historyView(), false)
 	case "/sandbox":
 		current := c.sandbox
 		if c.sandboxState != nil {
@@ -1280,18 +1338,27 @@ func (c *chat) scrollDown(n int) {
 	}
 }
 
+// modeLabel is the short mode tag shown in the header.
+func (c *chat) modeLabel() string {
+	if c.mode == "" {
+		return "create"
+	}
+	return c.mode.Label()
+}
+
 func (c *chat) header() string {
 	left := " " + styleAccent.Bold(true).Render("◆ wombat")
 	if c.streaming {
 		left += " " + c.sp.View()
 	}
-	right := styleDim.Render(c.provName+"/"+c.modelName) + "  " + styleFaint.Render(c.sessionID())
+	modeTag := styleDim.Render("[" + c.modeLabel() + "]")
+	right := styleDim.Render(c.provName+"/"+c.modelName) + " " + modeTag + "  " + styleFaint.Render(c.sessionID())
 	if c.w <= 0 {
 		return left
 	}
 	gap := c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
-		right = styleDim.Render(clip(c.provName+"/"+c.modelName, 30))
+		right = styleDim.Render(clip(c.provName+"/"+c.modelName, 30)) + " " + modeTag
 		gap = c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	}
 	if gap < 1 {
@@ -1365,8 +1432,45 @@ func (c *chat) view() string {
 	if line := c.pendingView(); line != "" {
 		parts = append(parts, line)
 	}
+	if pal := c.paletteView(); pal != "" {
+		parts = append(parts, pal)
+	}
+	if pal := c.paletteView(); pal != "" {
+		parts = append(parts, pal)
+	}
 	parts = append(parts, box, c.hint())
 	return strings.Join(parts, "\n")
+}
+
+// paletteView renders the list of slash commands that match the input.
+func (c *chat) paletteView() string {
+	if len(c.cmdList) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	limit := min(8, len(c.cmdList))
+	for i := 0; i < limit; i++ {
+		cmd := c.cmdList[i]
+		marker := "  "
+		style := styleDim
+		if i == c.cmdSel {
+			marker = styleKey.Render(" > ")
+			style = lipgloss.NewStyle().Foreground(cAccent)
+		}
+		b.WriteString(marker + style.Render(pad(cmd.Usage(), 30)) + styleDim.Render(cmd.Summary) + "\n")
+	}
+	if len(c.cmdList) > limit {
+		b.WriteString(styleFaint.Render(fmt.Sprintf("  … %d more", len(c.cmdList)-limit)) + "\n")
+	}
+	b.WriteString(styleFaint.Render("  ↑↓ select · tab complete · esc dismiss"))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func pad(s string, n int) string {
+	if len(s) >= n {
+		return s + "  "
+	}
+	return s + strings.Repeat(" ", n-len(s))
 }
 
 func (c *chat) pendingView() string {
