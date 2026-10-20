@@ -14,8 +14,12 @@ type Decision struct {
 }
 
 type Env struct {
-	Dir    string
-	Permit func(kind, detail string) Decision
+	Dir           string
+	Permit        func(kind, detail string) Decision
+	ReadOnly      bool
+	AllowOutside  bool
+	DenyDangerous bool
+	DenyNetwork   bool
 }
 
 type Tool interface {
@@ -30,16 +34,32 @@ func Registry() []Tool {
 	return []Tool{&Bash{}, &Read{}, &Write{}, &Edit{}, &Glob{}, &Grep{}}
 }
 
-func ByName(name string) (Tool, bool) {
-	for _, t := range Registry() {
-		if t.Name() == name {
-			return t, true
-		}
+func (e *Env) Check(kind, detail string) error {
+	if err := e.checkPolicy(kind, detail); err != nil {
+		return err
 	}
-	return nil, false
+	return e.permit(kind, detail)
 }
 
-func (e *Env) Check(kind, detail string) error {
+func (e *Env) checkPolicy(kind, detail string) error {
+	if kind == "read" {
+		return nil
+	}
+	if e.ReadOnly && (kind == "write" || kind == "edit" || kind == "bash") {
+		return fmt.Errorf("read-only mode: %s is disabled", kind)
+	}
+	if kind == "bash" {
+		if e.DenyDangerous && IsDangerousCommand(detail) {
+			return fmt.Errorf("blocked dangerous command: %s", detail)
+		}
+		if e.DenyNetwork && IsNetworkCommand(detail) {
+			return fmt.Errorf("network access is disabled: %s", detail)
+		}
+	}
+	return nil
+}
+
+func (e *Env) permit(kind, detail string) error {
 	if kind == "read" || e.Permit == nil {
 		return nil
 	}

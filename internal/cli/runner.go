@@ -24,6 +24,10 @@ type runOpts struct {
 	quiet    bool
 }
 
+func BuildProvider(ctx context.Context, cfg *config.Config, name, modelOverride string) (llm.Provider, string, string, error) {
+	return buildProvider(ctx, cfg, name, modelOverride)
+}
+
 func buildProvider(ctx context.Context, cfg *config.Config, name, modelOverride string) (llm.Provider, string, string, error) {
 	if name == "" {
 		name = cfg.Provider

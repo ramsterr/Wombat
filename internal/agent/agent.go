@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -31,6 +32,9 @@ type Agent struct {
 	ContextWindow int
 	NumCtx        int
 	Hooks         Hooks
+
+	mu    sync.Mutex
+	usage UsageStats
 }
 
 func (a *Agent) toolDefs() []llm.Tool {
@@ -51,6 +55,7 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 
 func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachments []llm.Attachment) error {
 	defer func() { _ = a.Sess.Flush() }()
+	a.markStarted()
 	if len(a.Sess.Messages) == 0 {
 		if err := a.Sess.Append(llm.Message{Role: "user", Content: startupContext(a.Env.Dir)}); err != nil {
 			return err
@@ -91,6 +96,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		}); err != nil {
 			return err
 		}
+		a.recordUsage(res.Usage)
 		if a.Hooks.OnUsage != nil {
 			a.Hooks.OnUsage(res.Usage, a.historyTokens())
 		}
@@ -139,11 +145,12 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }
 
 func (a *Agent) execTool(ctx context.Context, tc llm.ToolCall) (string, error) {
-	tool, ok := tools.ByName(tc.Name)
-	if !ok {
-		return "", fmt.Errorf("unknown tool %q", tc.Name)
+	for _, tool := range a.Tools {
+		if tool.Name() == tc.Name {
+			return tool.Run(ctx, json.RawMessage(tc.Arguments), a.Env)
+		}
 	}
-	return tool.Run(ctx, json.RawMessage(tc.Arguments), a.Env)
+	return "", fmt.Errorf("unknown tool %q", tc.Name)
 }
 
 func toolDetail(tc llm.ToolCall) string {

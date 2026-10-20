@@ -2,8 +2,10 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -132,6 +134,58 @@ func TestStoreAttachment(t *testing.T) {
 	}
 	if b.Path != a.Path {
 		t.Fatalf("not deduplicated: %s vs %s", a.Path, b.Path)
+	}
+}
+
+func TestConcurrentAppend(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	cwd := t.TempDir()
+	s, err := Create(cwd, "p", "m", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const n = 64
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs <- s.Append(llm.Message{Role: "user", Content: fmt.Sprintf("message-%d", i)})
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("append failed: %v", err)
+		}
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.ID(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reopened.Messages) != n {
+		t.Fatalf("messages = %d, want %d", len(reopened.Messages), n)
+	}
+	if reopened.Meta.Turns != n {
+		t.Fatalf("turns = %d, want %d", reopened.Meta.Turns, n)
+	}
+}
+
+func TestCreateAtUsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	s, err := CreateAt(home, cwd, "p", "m", "isolated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDir := projectDirAt(home, cwd)
+	if filepath.Dir(s.path) != wantDir {
+		t.Fatalf("session path = %s, want under %s", s.path, wantDir)
 	}
 }
 

@@ -101,7 +101,13 @@ func (t *Glob) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	}
 	root := env.Dir
 	if a.Path != "" {
-		root = resolve(env, a.Path)
+		if err := env.CheckPath("read", a.Path); err != nil {
+			return "", err
+		}
+		root, err = env.ResolvePath(a.Path)
+		if err != nil {
+			return "", err
+		}
 	}
 	var matches []string
 	_ = walk(root, func(path string, d fs.DirEntry) error {
@@ -167,7 +173,13 @@ func (t *Grep) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	}
 	root := env.Dir
 	if a.Path != "" {
-		root = resolve(env, a.Path)
+		if err := env.CheckPath("read", a.Path); err != nil {
+			return "", err
+		}
+		root, err = env.ResolvePath(a.Path)
+		if err != nil {
+			return "", err
+		}
 	}
 	const maxMatches = 200
 	const maxFiles = 5000

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/config"
@@ -36,14 +37,19 @@ type record struct {
 }
 
 type Session struct {
+	mu       sync.Mutex
 	Meta     Meta
 	Messages []llm.Message
 	path     string
 }
 
 func projectDir(cwd string) string {
+	return projectDirAt(config.Home(), cwd)
+}
+
+func projectDirAt(home, cwd string) string {
 	h := sha1.Sum([]byte(cwd))
-	return filepath.Join(config.Home(), "sessions", hex.EncodeToString(h[:])[:12])
+	return filepath.Join(home, "sessions", hex.EncodeToString(h[:])[:12])
 }
 
 func newID() string {
@@ -53,6 +59,10 @@ func newID() string {
 }
 
 func Create(cwd, provider, model, title string) (*Session, error) {
+	return CreateAt(config.Home(), cwd, provider, model, title)
+}
+
+func CreateAt(home, cwd, provider, model, title string) (*Session, error) {
 	s := &Session{
 		Meta: Meta{
 			Type:     "meta",
@@ -65,7 +75,7 @@ func Create(cwd, provider, model, title string) (*Session, error) {
 			Title:    title,
 		},
 	}
-	s.path = filepath.Join(projectDir(cwd), s.Meta.ID+".jsonl")
+	s.path = filepath.Join(projectDirAt(home, cwd), s.Meta.ID+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return nil, err
 	}
@@ -152,7 +162,11 @@ func List(cwd string) ([]Meta, error) {
 	return metas, nil
 }
 
-func (s *Session) ID() string { return s.Meta.ID }
+func (s *Session) ID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Meta.ID
+}
 
 // StoreAttachment copies src into the project's attachment store and returns
 // metadata referencing the stored copy. Files are deduplicated by content.
@@ -206,6 +220,8 @@ func safeAttachmentName(name string) string {
 }
 
 func (s *Session) Append(m llm.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Messages = append(s.Messages, m)
 	s.Meta.Updated = time.Now()
 	if m.Role == "user" && !strings.HasPrefix(m.Content, "Today: ") && !strings.HasPrefix(m.Content, "[Conversation summary]") {
@@ -227,12 +243,20 @@ func (s *Session) Append(m llm.Message) error {
 }
 
 func (s *Session) ReplaceMessages(msgs []llm.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Messages = msgs
 	s.Meta.Updated = time.Now()
-	return s.Flush()
+	return s.flushLocked()
 }
 
 func (s *Session) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.flushLocked()
+}
+
+func (s *Session) flushLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}

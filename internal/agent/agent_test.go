@@ -95,6 +95,13 @@ func TestAgentToolLoop(t *testing.T) {
 	if len(*usage) != 2 || (*usage)[0] != 15 || (*usage)[1] != 23 {
 		t.Fatalf("usage = %v", *usage)
 	}
+	stats := a.Usage()
+	if stats.Calls != 2 || stats.In != 30 || stats.Out != 8 || stats.Cached != 4 {
+		t.Fatalf("aggregated usage = %+v", stats)
+	}
+	if stats.Total() != 38 || stats.Duration <= 0 {
+		t.Fatalf("aggregated totals = %+v", stats)
+	}
 
 	msgs := a.Sess.Messages
 	if len(msgs) != 5 {
@@ -205,4 +212,57 @@ func (l *loopProvider) Chat(context.Context, llm.Request, func(string)) (*llm.Re
 	return &llm.Result{
 		ToolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", l.calls), Name: "bash", Arguments: `{"command":"true"}`}},
 	}, nil
+}
+
+type restrictedProvider struct{ calls int }
+
+func (r *restrictedProvider) Name() string { return "restricted" }
+func (r *restrictedProvider) ListModels(context.Context) ([]string, error) {
+	return nil, nil
+}
+func (r *restrictedProvider) Chat(context.Context, llm.Request, func(string)) (*llm.Result, error) {
+	r.calls++
+	if r.calls == 1 {
+		return &llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				ID:        "c1",
+				Name:      "bash",
+				Arguments: `{"command":"touch pwned"}`,
+			}},
+		}, nil
+	}
+	return &llm.Result{Content: "done"}, nil
+}
+
+func TestAgentRejectsUnregisteredTool(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	workdir := t.TempDir()
+	sess, err := session.Create(workdir, "restricted", "m", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &restrictedProvider{}
+	a := &Agent{
+		Provider: prov,
+		Model:    "m",
+		Tools:    []tools.Tool{&tools.Read{}},
+		Env: &tools.Env{
+			Dir:    workdir,
+			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
+		},
+		Sess:     sess,
+		MaxSteps: 4,
+	}
+	if err := a.Run(context.Background(), "do it"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, "pwned")); !os.IsNotExist(err) {
+		t.Fatalf("unregistered bash tool was executed")
+	}
+	if len(a.Sess.Messages) != 5 {
+		t.Fatalf("messages = %d, want 5", len(a.Sess.Messages))
+	}
+	if got := a.Sess.Messages[3].Content; !strings.Contains(got, `unknown tool "bash"`) {
+		t.Fatalf("tool result = %q", got)
+	}
 }

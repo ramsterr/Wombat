@@ -1,0 +1,13 @@
+{
+  "id": "go-average-empty",
+  "name": "Return zero for empty averages",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "calc.go": "package fixture\n\nfunc Total(nums []int) int {\n\ttotal := 0\n\tfor _, n := range nums {\n\t\ttotal += n\n\t}\n\treturn total\n}\n",
+    "stats.go": "package fixture\n\nfunc Average(nums []int) float64 {\n\treturn float64(Total(nums)) / float64(len(nums))\n}\n",
+    "stats_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestAverage(t *testing.T) {\n\tif got := Average([]int{2, 4}); got != 3 {\n\t\tt.Fatalf(\"Average = %v, want 3\", got)\n\t}\n\tif got := Average(nil); got != 0 {\n\t\tt.Fatalf(\"Average(nil) = %v, want 0\", got)\n\t}\n}\n"
+  },
+  "check": ["go test ./..."],
+  "tags": ["go", "bugfix", "multi-file"]
+}

@@ -32,6 +32,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - [Sessions](#sessions)
 - [Configuration](#configuration)
 - [Examples](#examples)
+- [Evals](#evals)
 - [Architecture](#architecture)
 - [Contributing](#contributing)
 
@@ -279,19 +280,33 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 `examples/` groups reference tasks and outputs by genre — design, scraping, browser use, data visualization, and more. See [examples/README.md](examples/README.md) for the full list, including the Nash equilibrium visual, a Billboard chart, and an SVG cat.
 
+## Evals
+
+Phase 0 includes a reproducible eval harness. It runs a task in a fresh workspace, invokes the real agent loop, runs the task's checks, and writes a report with pass rate, tokens, latency, and estimated cost.
+
+```sh
+go run ./cmd/eval -tasks eval/tasks -dry-run      # validate without spending tokens
+go run ./cmd/eval -tasks eval/tasks -out eval/results
+```
+
+Tasks are self-contained JSON fixtures under `eval/tasks/`; see [eval/README.md](eval/README.md) for the schema, pricing flags, and baseline workflow. The suite is intentionally small today; the target is 20–30 tasks covering bug fixes, multi-file changes, test repair, and refactors.
+
 ## Architecture
 
 ```text
 cmd/wombat        entry point
+cmd/eval          eval harness CLI
 internal/cli      REPL, headless run, setup wizard, doctor, clipboard helpers
-internal/agent    agent loop, system prompt, hooks, context compaction
+internal/agent    agent loop, system prompt, hooks, usage, context compaction
+internal/eval     task loader, runner, reports, pricing
 internal/llm      provider adapters (OpenAI SSE, Responses, Anthropic, Ollama, Google)
-internal/tools    read/write/edit/bash/glob/grep
+internal/tools    read/write/edit/bash/glob/grep, permissions, command policy
 internal/tui      Bubble Tea chat UI, sessions, models, usage, doctor
 internal/session  JSONL session persistence and attachment store
 internal/config   config load/save, presets, key resolution
 internal/tokens   token estimation and model context windows
 internal/clip     clipboard image readers
+eval/tasks        self-contained eval fixtures
 examples          genre-grouped tasks and reference outputs
 ```
 

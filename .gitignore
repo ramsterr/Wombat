@@ -2,6 +2,7 @@
 /wombat-*
 *.test
 .DS_Store
+/eval/results/
 
 .env
 .env.*

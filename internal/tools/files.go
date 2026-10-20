@@ -37,7 +37,13 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if err != nil {
 		return "", fmt.Errorf("bad arguments: %w", err)
 	}
-	path := resolve(env, a.Path)
+	if err := env.CheckPath("read", a.Path); err != nil {
+		return "", err
+	}
+	path, err := env.ResolvePath(a.Path)
+	if err != nil {
+		return "", err
+	}
 	st, err := os.Stat(path)
 	if err != nil {
 		return "", err
@@ -102,10 +108,13 @@ func (t *Write) Run(_ context.Context, raw json.RawMessage, env *Env) (string, e
 	if err != nil {
 		return "", fmt.Errorf("bad arguments: %w", err)
 	}
-	if err := env.Check("write", a.Path); err != nil {
+	if err := env.CheckPath("write", a.Path); err != nil {
 		return "", err
 	}
-	path := resolve(env, a.Path)
+	path, err := env.ResolvePath(a.Path)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", err
 	}
@@ -154,10 +163,13 @@ func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if a.OldString == a.NewString {
 		return "", fmt.Errorf("old_string and new_string are identical")
 	}
-	if err := env.Check("edit", a.Path); err != nil {
+	if err := env.CheckPath("edit", a.Path); err != nil {
 		return "", err
 	}
-	path := resolve(env, a.Path)
+	path, err := env.ResolvePath(a.Path)
+	if err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -188,11 +200,4 @@ func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 		out = w + "\n" + out
 	}
 	return out, nil
-}
-
-func resolve(env *Env, path string) string {
-	if filepath.IsAbs(path) {
-		return path
-	}
-	return filepath.Join(env.Dir, path)
 }
