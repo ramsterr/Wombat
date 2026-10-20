@@ -25,9 +25,12 @@ const toolsDeniedNote = "the user declined this call. Do not claim it was done. 
 	"Continue without it, or tell the user what you need in order to proceed."
 
 type Env struct {
-	Dir          string
-	Permit       func(kind, detail string) Decision
-	ReadOnly     bool
+	Dir      string
+	Permit   func(kind, detail string) Decision
+	ReadOnly bool
+	// NoImages tells read not to attach images: the selected model accepts
+	// text only.
+	NoImages     bool
 	AllowOutside bool
 	DenyNetwork  bool
 	DenyGit      bool

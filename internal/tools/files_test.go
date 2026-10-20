@@ -206,3 +206,21 @@ func TestOutsideWriteIsAllowedAndNotCheckpointed(t *testing.T) {
 		t.Fatalf("an outside path must not be checkpointed: %v", cp.reasons)
 	}
 }
+
+func TestReadImageWithoutVisionDoesNotAttach(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cat.png"), []byte("not a real png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var media []Media
+	env := testEnv(dir)
+	env.NoImages = true
+	env.SetMediaSink(&media)
+	out := run(t, &Read{}, env, `{"path":"cat.png"}`)
+	if !strings.Contains(out, "text only") {
+		t.Fatalf("output = %q", out)
+	}
+	if len(media) != 0 {
+		t.Fatalf("an image was attached to a text-only model: %+v", media)
+	}
+}

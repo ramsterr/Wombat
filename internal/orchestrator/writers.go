@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/worktree"
@@ -238,6 +239,8 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	env.DenyOutside = true
 	env.AllowOutside = false
 	hooks := workerHooks(o.lead.Hooks, r.task.Title, &o.hooksMu)
+	vision := llm.SupportsImages(o.lead.Model)
+	env.NoImages = !vision
 	writer := &agent.Agent{
 		Provider:      o.lead.Provider,
 		Model:         o.lead.Model,
@@ -252,6 +255,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		},
 		Hooks:     hooks,
 		Reasoning: "off",
+		NoVision:  !vision,
 	}
 	runErr := writer.Run(ctx, writerBriefWriter(r.task, goal, facts))
 	stats := writer.Usage()

@@ -100,11 +100,13 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	if opts.modeSet {
 		sessionMode = opts.mode
 	}
+	vision := llm.SupportsImages(model)
 	env := &tools.Env{
 		Dir:        cwd,
 		Permit:     p.Permit,
 		DenyMutate: !sessionMode.AllowsWrite(),
 		Mode:       sessionMode.Label(),
+		NoImages:   !vision,
 	}
 	if p != nil {
 		env.AskUser = func(q tools.Question) (string, error) {
@@ -128,6 +130,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		ContextWindow: tokens.Window(model),
 		NumCtx:        pc.NumCtx,
 		Reasoning:     cfg.Reasoning,
+		NoVision:      !vision,
 		ModeNote:      sessionMode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {

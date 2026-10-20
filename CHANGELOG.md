@@ -30,6 +30,11 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- Text-only models (Beam, LongCat) no longer fail with `Beam supports text
+  input only` when the conversation contains an image. `read` returns image
+  metadata without attaching it, existing image attachments are replaced with
+  a text note per request, and a provider rejection retries once without the
+  images and switches the turn to text-only mode.
 - Read-only workers now get `websearch` and `webfetch`, so delegated research
   can actually reach the network.
 - Thinking-mode providers no longer reject a worker after several tool turns:

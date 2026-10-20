@@ -43,6 +43,9 @@ func (t *Read) readImage(env *Env, path, mime string) (string, error) {
 	if st.Size() > maxImageBytes {
 		return "", fmt.Errorf("image too large (%d bytes, max %d)", st.Size(), maxImageBytes)
 	}
+	if env.NoImages {
+		return fmt.Sprintf("image: %s (%s, %d bytes). The current model accepts text only, so the image was not attached. Inspect it with bash or Python, or switch to a vision-capable model.", path, mime, st.Size()), nil
+	}
 	env.AddMedia(Media{Path: path, MIME: mime, Name: filepath.Base(path)})
 	return fmt.Sprintf("image: %s (%s, %d bytes). It is attached to this message for you to look at.", path, mime, st.Size()), nil
 }

@@ -43,6 +43,10 @@ type Agent struct {
 	// Reasoning asks the provider to think less or more: off, low, medium,
 	// high, or "" for the provider default.
 	Reasoning string
+	// NoVision drops image/video/audio attachments before each request. It is
+	// set for text-only models, and after a provider says it cannot see
+	// images.
+	NoVision bool
 
 	mu    sync.Mutex
 	usage UsageStats
@@ -120,16 +124,32 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		}
 		a.Trace.Emit("model_start", map[string]any{"step": step + 1})
 		defs := a.toolDefs()
-		res, err := a.Provider.Chat(ctx, llm.Request{
+		messages := llm.NormalizeToolCalls(llm.TrimStaleReasoning(a.Sess.Messages))
+		if a.NoVision {
+			messages = llm.TextOnlyMessages(messages)
+		}
+		req := llm.Request{
 			Model:       a.Model,
 			System:      system,
-			Messages:    llm.NormalizeToolCalls(llm.TrimStaleReasoning(a.Sess.Messages)),
+			Messages:    messages,
 			Tools:       defs,
 			NumCtx:      a.NumCtx,
 			Reasoning:   a.Reasoning,
 			SessionID:   a.Sess.ID(),
 			OnReasoning: a.Hooks.OnReasoning,
-		}, a.Hooks.OnText)
+		}
+		res, err := a.Provider.Chat(ctx, req, a.Hooks.OnText)
+		if err != nil && !a.NoVision && llm.IsImageUnsupported(err) {
+			// The model is text-only even though its name did not say so.
+			// Retry once without the image attachments and remember it.
+			a.NoVision = true
+			if a.Env != nil {
+				a.Env.NoImages = true
+			}
+			a.Trace.Emit("vision_disabled", map[string]any{"error": tools.Truncate(err.Error(), 0, 0, 500)})
+			req.Messages = llm.TextOnlyMessages(messages)
+			res, err = a.Provider.Chat(ctx, req, a.Hooks.OnText)
+		}
 		if err != nil {
 			return err
 		}
@@ -312,6 +332,9 @@ func (a *Agent) spillDir() string {
 // appendMedia attaches files a tool produced to a user message, so the model
 // receives them as images the way a pasted image arrives.
 func (a *Agent) appendMedia(media []tools.Media) error {
+	if a.NoVision || len(media) == 0 {
+		return nil
+	}
 	names := make([]string, 0, len(media))
 	attachments := make([]llm.Attachment, 0, len(media))
 	for _, m := range media {

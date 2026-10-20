@@ -346,11 +346,13 @@ func (c *chat) rebuild(reset bool) error {
 			c.mode = mode.Create
 		}
 	}
+	vision := llm.SupportsImages(c.modelName)
 	env := &tools.Env{
 		Dir:        cwd,
 		Permit:     c.permit,
 		DenyMutate: !c.mode.AllowsWrite(),
 		Mode:       c.mode.Label(),
+		NoImages:   !vision,
 	}
 	env.AskUser = c.askUser
 	if c.cfg.Checkpoints {
@@ -373,6 +375,7 @@ func (c *chat) rebuild(reset bool) error {
 		ContextWindow: tokens.Window(c.modelName),
 		NumCtx:        pc.NumCtx,
 		Reasoning:     c.cfg.Reasoning,
+		NoVision:      !vision,
 		ModeNote:      c.mode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {

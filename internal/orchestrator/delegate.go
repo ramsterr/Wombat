@@ -233,6 +233,8 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 	if o.cfg.ScoutModel != "" {
 		model = o.cfg.ScoutModel
 	}
+	vision := llm.SupportsImages(model)
+	env.NoImages = !vision
 	worker := &agent.Agent{
 		Provider:      o.lead.Provider,
 		Model:         model,
@@ -247,6 +249,7 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		},
 		Hooks:     hooks,
 		Reasoning: "off",
+		NoVision:  !vision,
 	}
 
 	runErr := worker.Run(ctx, workerBrief(a, goal, facts))
