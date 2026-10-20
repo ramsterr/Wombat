@@ -49,6 +49,7 @@ type Config struct {
 	Mode                  string               `json:"mode"`
 	Reasoning             string               `json:"reasoning,omitempty"`
 	ShowThinking          bool                 `json:"show_thinking"`
+	ParallelAgents        bool                 `json:"parallel_agents"`
 	ScoutModel            string               `json:"scout_model,omitempty"`
 	Sandbox               string               `json:"sandbox"`
 	SandboxNetwork        bool                 `json:"sandbox_network"`
@@ -93,6 +94,17 @@ func PresetByName(name string) (Preset, bool) {
 	return Preset{}, false
 }
 
+// TmpDir is the scratch directory for a session. It lives outside the
+// project so scratch files never pollute the repository and never end up in
+// a checkpoint.
+func TmpDir(sessionID string) string {
+	dir := filepath.Join(Home(), "tmp")
+	if sessionID != "" {
+		dir = filepath.Join(dir, sessionID)
+	}
+	return dir
+}
+
 func Home() string {
 	if h := os.Getenv("WOMBAT_HOME"); h != "" {
 		return h
@@ -134,6 +146,7 @@ func Defaults() *Config {
 		WriterTokenBudget:     DefaultWriterTokenBudget,
 		TurnWriterTokenBudget: DefaultTurnWriterTokenBudget,
 		Mode:                  "create",
+		ParallelAgents:        true,
 		Sandbox:               "off",
 		Checkpoints:           true,
 		RequireVerification:   true,

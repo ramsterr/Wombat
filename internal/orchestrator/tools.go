@@ -123,7 +123,10 @@ type delegateArgs struct {
 func (t *delegateTool) Name() string  { return "delegate" }
 func (t *delegateTool) Class() string { return "delegate" }
 func (t *delegateTool) Description() string {
-	return "Delegate one self-contained, read-only investigation to a fresh worker with its own context. Use only when exploration would flood the lead context; use delegate_many for several independent scouts, and do the work directly when it is small or requires edits. Workers cannot edit files, run mutating commands, or delegate. Returns a structured JSON report with evidence and usage."
+	return "Delegate one self-contained, read-only investigation to a fresh worker with its own context. " +
+		"Use when exploration would flood your context. For two or more independent angles, use delegate_many - that is " +
+		"the default for multi-step work. Do the work directly when it is small or requires edits. " +
+		"Workers cannot edit files, run mutating commands, or delegate. Returns a structured JSON report with evidence and usage."
 }
 func (t *delegateTool) Schema() map[string]any {
 	return map[string]any{
@@ -158,7 +161,12 @@ type delegateManyArgs struct {
 func (t *delegateManyTool) Name() string  { return "delegate_many" }
 func (t *delegateManyTool) Class() string { return "delegate" }
 func (t *delegateManyTool) Description() string {
-	return "Run two to five independent, read-only scouting tasks concurrently, each with its own context and session. Prefer this for research, comparison, or any task with more than two steps: parallel scouts are faster and keep the lead context small. Give each one a distinct angle. Do not use it for dependent steps, edits, or work you can do directly. Returns one structured JSON report per scout plus total usage; reconcile conflicting reports yourself."
+	return "Run two to five independent, read-only workers concurrently, each with its own context and session. " +
+		"USE THIS BY DEFAULT: for any task with more than two steps, for research, for comparison, or for anything that " +
+		"spans several parts of the codebase, dispatch a fleet of workers with one call instead of exploring one thread at " +
+		"a time. It is faster and keeps your context small. Give each worker a distinct angle and a self-contained brief. " +
+		"Do not use it for dependent steps, edits, or work you can do directly. Returns one structured JSON report per " +
+		"worker plus total usage; reconcile conflicting reports yourself."
 }
 func (t *delegateManyTool) Schema() map[string]any {
 	taskSchema := map[string]any{

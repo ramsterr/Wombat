@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -43,6 +44,9 @@ func RunCommandWithPolicy(ctx context.Context, env *Env, command string, timeout
 		cmd.Dir = env.Dir
 	}
 	cmd.WaitDelay = 2 * time.Second
+	if tmp := os.Getenv("WOMBAT_TMP"); tmp != "" {
+		cmd.Env = append(os.Environ(), "WOMBAT_TMP="+tmp)
+	}
 	prepareCommand(cmd)
 	buf := &cappedBuffer{max: 1024 * 1024}
 	cmd.Stdout = buf

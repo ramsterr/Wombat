@@ -130,7 +130,18 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 		if info.IsDir() {
 			return filepath.WalkDir(abs, func(p string, entry os.DirEntry, err error) error {
 				if err != nil {
-					return err
+					// One unreadable directory (a protected trash, another
+					// user's folder) must not fail the whole snapshot.
+					if p != abs {
+						rel, rerr := filepath.Rel(m.workspace, p)
+						if rerr == nil {
+							manifest.Skipped = append(manifest.Skipped, filepath.ToSlash(rel)+" (unreadable)")
+						}
+						if entry != nil && entry.IsDir() {
+							return filepath.SkipDir
+						}
+					}
+					return nil
 				}
 				if p == abs {
 					return nil
@@ -283,7 +294,11 @@ func (m *Manager) Restore(id string) error {
 	var remove []string
 	err = filepath.WalkDir(m.workspace, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// A directory we cannot list (a protected trash) is left alone.
+			if path != m.workspace && entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if path == m.workspace {
 			return nil
@@ -335,6 +350,12 @@ func (m *Manager) Restore(id string) error {
 func skipDir(name string) bool {
 	switch name {
 	case ".git", ".wombat", "node_modules", "vendor", "dist", "build", "target", ".cache", ".venv", "__pycache__":
+		return true
+	// Directories the operating system hides from ordinary processes.
+	// macOS protects the trash and the per-user Library with TCC: listing
+	// them fails with "Operation not permitted" even though you own them,
+	// and a snapshot of the home directory would die on them.
+	case ".Trash", ".Trashes", "Library", "$RECYCLE.BIN", "System Volume Information":
 		return true
 	}
 	return false

@@ -39,6 +39,8 @@ type Config struct {
 	TurnWorkerTokenBudget int
 	WorkerTimeout         time.Duration
 	WorkerHome            string
+	// ParallelAgents makes the lead fan out workers by default.
+	ParallelAgents bool
 	// ScoutModel is the model the read-only workers use. Empty means the
 	// lead's model. A cheaper model here is the biggest speed and cost
 	// lever, because the workers do the reading.
@@ -241,10 +243,20 @@ func (o *Orchestrator) systemPrompt() string {
 	b.WriteString("### Task ledger\n")
 	b.WriteString(view)
 	b.WriteString("\n\n")
+	if o.cfg.ParallelAgents {
+		if n := o.independentSteps(); n >= 2 {
+			fmt.Fprintf(&b, "Your plan has %d independent steps. Dispatch them as one fleet with delegate_many "+
+				"(one worker per step) instead of doing them one at a time.\n\n", n)
+		}
+	}
 	b.WriteString("### Delegation\n")
-	b.WriteString("For research, comparison, or anything past two steps, fan out a fleet: delegate_many with two to five ")
-	b.WriteString("independent scouts at the same time, each on a different angle, then synthesize. That is faster and ")
-	b.WriteString("costs you far fewer tokens than one thread at a time. Use delegate for a single investigation. ")
+	if o.cfg.ParallelAgents {
+		b.WriteString("Parallel work is the default, not the exception. For anything past two steps - research, ")
+		b.WriteString("comparison, a task spanning several parts of the codebase - dispatch a fleet with delegate_many: ")
+		b.WriteString("two to five independent workers at the same time, each on a different angle, then synthesize. ")
+		b.WriteString("That is faster and costs you far fewer tokens than one thread at a time. ")
+	}
+	b.WriteString("Use delegate for a single investigation. ")
 	b.WriteString("Never put dependent steps in one fleet. Do the work yourself when it is small, needs edits, or you already know where to look. ")
 	fmt.Fprintf(&b, "At most %d delegations per turn and %d scouts at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
 	b.WriteString("Give each worker a complete objective, the context it cannot see from this conversation, and a concrete deliverable. ")
@@ -276,6 +288,25 @@ func (o *Orchestrator) systemPrompt() string {
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// independentSteps counts the ledger steps that do not depend on each other.
+func (o *Orchestrator) independentSteps() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.ledger == nil {
+		return 0
+	}
+	n := 0
+	for _, s := range o.ledger.Steps {
+		if s.Status == StepCompleted || s.Status == StepFailed {
+			continue
+		}
+		if len(s.DependsOn) == 0 {
+			n++
+		}
+	}
+	return n
 }
 
 func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (string, error) {

@@ -41,6 +41,7 @@ type Agent struct {
 
 	SandboxNote string
 	ModeNote    string
+	TmpNote     string
 	// Reasoning asks the provider to think less or more: off, low, medium,
 	// high, or "" for the provider default.
 	Reasoning string
@@ -109,6 +110,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	calls := map[string]int{}
 	system := buildSystem(a.Env.Dir)
 	if note := strings.TrimSpace(a.ModeNote); note != "" {
+		system += "\n\n" + note
+	}
+	if note := strings.TrimSpace(a.TmpNote); note != "" {
 		system += "\n\n" + note
 	}
 	if note := strings.TrimSpace(a.SandboxNote); note != "" {

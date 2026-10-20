@@ -511,6 +511,13 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func TestParallelAgentsCanBeTurnedOff(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{Goal: "g"}, cfg: Config{ParallelAgents: false}}
+	if strings.Contains(o.systemPrompt(), "Parallel work is the default") {
+		t.Error("the parallel directive should be off when parallel_agents is false")
+	}
+}
+
 func TestOrchestrationPromptStaysShort(t *testing.T) {
 	o := &Orchestrator{ledger: &Ledger{Goal: "g"}}
 	if n := len(o.systemPrompt()); n > 2200 {
@@ -519,11 +526,12 @@ func TestOrchestrationPromptStaysShort(t *testing.T) {
 }
 
 func TestOrchestrationPromptPushesParallelScouts(t *testing.T) {
-	o := &Orchestrator{ledger: &Ledger{Goal: "g"}}
+	o := &Orchestrator{ledger: &Ledger{Goal: "g"}, cfg: Config{ParallelAgents: true}}
 	p := o.systemPrompt()
 	for _, want := range []string{
 		"delegate_many",
 		"two to five",
+		"Parallel work is the default",
 		"at the same time",
 		"faster",
 		"fewer tokens",
@@ -531,5 +539,30 @@ func TestOrchestrationPromptPushesParallelScouts(t *testing.T) {
 		if !strings.Contains(p, want) {
 			t.Errorf("the orchestration prompt is missing %q", want)
 		}
+	}
+}
+
+func TestPlanWithIndependentStepsNudgesAFleet(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{Goal: "g"}, cfg: Config{ParallelAgents: true}}
+	if _, err := o.updatePlan("research", nil, []Step{
+		{ID: "a", Title: "A", Status: StepPending},
+		{ID: "b", Title: "B", Status: StepPending},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p := o.systemPrompt()
+	if !strings.Contains(p, "independent steps") {
+		t.Errorf("the prompt should point at the independent steps:\n%s", p)
+	}
+	// dependent steps do not count
+	o2 := &Orchestrator{ledger: &Ledger{Goal: "g"}, cfg: Config{ParallelAgents: true}}
+	if _, err := o2.updatePlan("research", nil, []Step{
+		{ID: "a", Title: "A", Status: StepPending},
+		{ID: "b", Title: "B", Status: StepPending, DependsOn: []string{"a"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(o2.systemPrompt(), "independent steps") {
+		t.Error("dependent steps should not trigger the fleet nudge")
 	}
 }

@@ -436,8 +436,14 @@ harnesses do it:
   turn.
 - **A script beats a pile of reads.** The prompt asks the agent to compute
   answers with one command rather than reading twenty files into its context.
-- **Parallel scouts.** A research task is one `delegate_many` call with two to
-  five scouts, each in its own context, so the lead's context stays small.
+- **Parallel scouts, by default.** For anything past two steps the agent
+  dispatches a fleet of two to five workers in one `delegate_many` call, each
+  in its own context, so the lead's context stays small. When your plan has
+  independent steps, the prompt points that out. Turn it off with
+  `wombat config set parallel_agents false`.
+- **A scratch directory.** Each session gets `~/.wombat/tmp/<session>` and
+  `$WOMBAT_TMP` points there, so temporary files never land in the project or
+  in a checkpoint.
 - **Web tools.** `websearch` and `webfetch` are first-class tools, so research
   does not need a shell round-trip or a permission prompt for every `curl`.
   The read-only workers get them too.
@@ -473,6 +479,15 @@ skip. The answer comes back to the model, which then acts on it.
 The prompt also tells the agent to **hand the work back when it is done** rather
 than keep refining on its own: another round of its own guesses is slower and
 usually worse than one question.
+
+## When the workspace is your home directory
+
+Checkpoints walk the working directory. If your workspace is `~`, that walk
+meets directories macOS hides from ordinary processes (`.Trash`, `Library`),
+which used to fail the whole snapshot and block the command. Now those
+directories are skipped, and an unreadable directory is recorded as skipped
+instead of failing the snapshot. Point Wombat at a project directory rather
+than your home directory when you can.
 
 ## Showing or hiding the thinking
 

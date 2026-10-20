@@ -89,3 +89,17 @@ func contains(haystack, needle string) bool {
 		return false
 	})()
 }
+
+func TestQuestionEnterTakesTheHighlightedOption(t *testing.T) {
+	c, reply := newQuestionChat()
+	c.questionSel = 1
+	c.key(tea.KeyMsg{Type: tea.KeyEnter})
+	select {
+	case answer := <-reply:
+		if answer != "Minimal" {
+			t.Errorf("answer = %q, want Minimal", answer)
+		}
+	default:
+		t.Fatal("no answer was delivered")
+	}
+}

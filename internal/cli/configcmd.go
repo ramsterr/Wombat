@@ -21,7 +21,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, scout_model, reasoning, show_thinking, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, parallel_agents, scout_model, reasoning, show_thinking, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -44,6 +44,12 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg.Orchestrator = v
+	case key == "parallel_agents":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.ParallelAgents = v
 	case key == "scout_model":
 		cfg.ScoutModel = val
 	case key == "show_thinking":

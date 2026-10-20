@@ -8,6 +8,25 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **A scratch directory per session** (`~/.wombat/tmp/<session>`, also in
+  `$WOMBAT_TMP`), so temporary files stay out of the project and out of the
+  checkpoints.
+- **Parallel workers are the default.** The prompt, the tool descriptions, and
+  the plan all push the agent to dispatch a fleet of two to five workers for
+  anything past two steps. `wombat config set parallel_agents false` turns it
+  off.
+
+### Fixed
+
+- A checkpoint no longer dies on a directory it cannot read. The macOS trash
+  (`~/.Trash`) and `~/Library` are hidden by the operating system, so a
+  snapshot of the home directory failed and blocked every command. They are
+  skipped now, and an unreadable directory is recorded as skipped rather than
+  failing the snapshot or the restore.
+- Pressing Enter in the question prompt now takes the highlighted option.
+
+### Added
+
 - **A `question` tool**: when the output depends on a choice only the user can
   make, the agent asks - with two or three concrete options, and the user can
   type their own answer - instead of guessing. The prompt also tells the agent

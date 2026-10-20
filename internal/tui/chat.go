@@ -403,6 +403,7 @@ func (c *chat) rebuild(reset bool) error {
 			MaxParallelScouts:     c.cfg.MaxParallelScouts,
 			WorkerMaxSteps:        c.cfg.WorkerMaxSteps,
 			ScoutModel:            c.cfg.ScoutModel,
+			ParallelAgents:        c.cfg.ParallelAgents,
 			WorkerTokenBudget:     c.cfg.WorkerTokenBudget,
 			TurnWorkerTokenBudget: c.cfg.TurnWorkerTokenBudget,
 			MaxParallelWriters:    c.cfg.MaxParallelWriters,
@@ -675,6 +676,12 @@ func (c *chat) questionKey(msg tea.KeyMsg) tea.Cmd {
 		return cmd
 	}
 	switch msg.String() {
+	case "enter":
+		// Enter takes the highlighted option.
+		if c.questionSel < len(c.question.Options) {
+			c.sendQuestion(c.question.Options[c.questionSel].Label)
+		}
+		return nil
 	case "up", "ctrl+p":
 		if c.questionSel > 0 {
 			c.questionSel--
