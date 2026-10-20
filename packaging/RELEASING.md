@@ -9,12 +9,15 @@ Wombat publishes binaries as GitHub releases. Tags drive everything: pushing
 1. **Repository settings** — nothing is required for the release itself. The
    workflow uses the automatic `GITHUB_TOKEN`, which can create releases in
    this repository.
-2. **Optional: Homebrew tap** — create an empty public repository named
-   `homebrew-tap` under your account (`ramsterr/homebrew-tap`) with a `main`
-   branch, then add a repository secret `HOMEBREW_TAP_TOKEN` (a fine-grained
-   PAT with `contents: write` on that tap repository only). The release
-   workflow then rewrites `Formula/wombat.rb` in the tap after every release.
-   Without the secret the tap is simply not updated.
+2. **Optional: Homebrew tap** — create a public repository named
+   `homebrew-wombat` under your account (`ramsterr/homebrew-wombat`). Homebrew
+   only recognises repositories whose name starts with `homebrew-`, so the
+   name matters. Then add a repository secret `HOMEBREW_TAP_TOKEN` (a
+   fine-grained PAT with `contents: write` on that tap repository only). The
+   release workflow rewrites `Formula/wombat.rb` in the tap after every
+   release. Without the secret the tap is simply not updated.
+
+   Users then run `brew tap ramsterr/wombat && brew install wombat`.
 
 ## Cutting a release
 
@@ -61,7 +64,7 @@ and the Homebrew formula: `wombat_<version>_<os>_<arch>.<tar.gz|zip>` plus a
 | install method | update command |
 |---|---|
 | install script / manual | `wombat upgrade` (replaces the binary in place) |
-| Homebrew | `brew upgrade ramsterr/tap/wombat` |
+| Homebrew | `brew upgrade wombat` |
 | `go install` | `go install github.com/ramsterr/Wombat/cmd/wombat@latest` |
 
 `wombat upgrade` detects the method automatically; override it with

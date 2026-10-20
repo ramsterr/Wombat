@@ -66,13 +66,14 @@ jobs:
 
       - name: Update the Homebrew tap
         if: github.event_name == 'push' && env.HOMEBREW_TAP_TOKEN != ''
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           VERSION="${GITHUB_REF_NAME#v}"
           gh release download "v${VERSION}" --pattern checksums.txt --dir . --clobber
-          python3 packaging/homebrew/update-tap.py --tap ramsterr/homebrew-tap --version "$VERSION" --checksums checksums.txt
+          python3 packaging/homebrew/update-tap.py --tap ramsterr/homebrew-wombat --version "$VERSION" --checksums checksums.txt
 
       - name: Publish the rolling install assets
         if: github.event_name == 'push'

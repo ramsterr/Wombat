@@ -8,6 +8,14 @@ All notable changes to Wombat are recorded here. The format follows
 
 Nothing yet.
 
+## [0.2.2] — 2026-10-20
+
+### Added
+
+- A Homebrew tap at `ramsterr/homebrew-wombat`, refreshed automatically after
+  every release. Install with `brew tap ramsterr/wombat && brew install
+  wombat`, update with `brew upgrade wombat`.
+
 ## [0.2.1] — 2026-10-20
 
 ### Fixed
@@ -58,6 +66,7 @@ Reliability, verification, parallel writers, and the release pipeline.
 - Bash runs through a shared command runner with a bounded output buffer.
 - The version string is stamped at build time instead of being hardcoded.
 
-[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.2
 [0.2.1]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.0

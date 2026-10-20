@@ -114,7 +114,8 @@ func detectInstallMethod() string {
 }
 
 func upgradeWithBrew(ctx context.Context, version string) error {
-	formula := "ramsterr/tap/wombat"
+	// The fully qualified name taps the repository on demand.
+	formula := "ramsterr/wombat/wombat"
 	if _, err := exec.LookPath("brew"); err != nil {
 		return fmt.Errorf("homebrew is not installed; install with `brew install %s`", formula)
 	}
