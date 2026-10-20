@@ -31,6 +31,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - [Context management](#context-management)
 - [Sessions](#sessions)
 - [Configuration](#configuration)
+- [Orchestration](#orchestration)
 - [Examples](#examples)
 - [Evals](#evals)
 - [Architecture](#architecture)
@@ -45,6 +46,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
+- **Task ledger and read-only delegation** — the lead agent keeps a persistent plan, records durable facts, and can hand bounded investigations to fresh-context workers with structured evidence reports.
 - **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required. On Windows, shell commands need Git Bash or WSL.
 
 ## Install
@@ -205,7 +207,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat sessions` | list sessions for this directory |
 | `wombat doctor` | config, permissions, and connectivity checks |
 | `wombat config` | show config with API keys redacted |
-| `wombat config set <key> <value>` | set `provider`, `model`, `max_steps`, or a permission |
+| `wombat config set <key> <value>` | set `provider`, `model`, `max_steps`, orchestrator budgets, or a permission |
 | `wombat version` | print the version |
 
 Flags for `run` and `resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`, and for `run` also `--image`, `--video`, `--audio`, and `--file` (repeatable).
@@ -308,7 +310,7 @@ Token usage, cache hits, and compaction events are reported live. Prompt caching
 
 ## Sessions
 
-Sessions are append-only JSONL files under `~/.wombat/sessions/<project-hash>/`, keyed to the working directory. Every run is resumable with `wombat resume` or `/sessions` inside the TUI; attachments live beside the session in `.attachments/`. Deleting a session file removes its history.
+Sessions are append-only JSONL files under `~/.wombat/sessions/<project-hash>/`, keyed to the working directory. Every run is resumable with `wombat resume` or `/sessions` inside the TUI; attachments live beside the session in `.attachments/`. Task ledgers live beside sessions as `<session>.ledger.json`, so a resumed run keeps its plan. Deleting a session file removes its history; delete the ledger too to reset the plan.
 
 ## Configuration
 
@@ -327,11 +329,28 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   },
   "permissions": {"bash": "ask", "write": "ask", "edit": "ask"},
   "max_steps": 64,
+  "orchestrator": true,
+  "max_delegations": 3,
+  "worker_max_steps": 24,
   "mouse": false
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, and `worker_max_steps` caps each worker.
+
+## Orchestration
+
+The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
+
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly.
+
+```sh
+wombat config set orchestrator false        # disable ledger + delegation
+wombat config set max_delegations 2         # per-turn delegation budget
+wombat config set worker_max_steps 16       # per-worker step cap
+```
+
+Worker transcripts are stored under `~/.wombat/workers/` for inspection. Delegation is sequential and read-only in this phase; parallel scouts and writer workers come later.
 
 ## Examples
 
@@ -339,14 +358,15 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 ## Evals
 
-Phase 0 includes a reproducible eval harness. It runs a task in a fresh workspace, invokes the real agent loop, runs the task's checks, and writes a report with pass rate, tokens, latency, and estimated cost.
+The project includes a reproducible eval harness. It runs a task in a fresh workspace, invokes the real agent loop, runs the task's checks, and writes a report with pass rate, tokens, latency, and estimated cost.
 
 ```sh
 go run ./cmd/eval -tasks eval/tasks -dry-run      # validate without spending tokens
 go run ./cmd/eval -tasks eval/tasks -out eval/results
+go run ./cmd/eval -tasks eval/tasks -orchestrator=false   # single-agent comparison
 ```
 
-Tasks are self-contained JSON fixtures under `eval/tasks/`; see [eval/README.md](eval/README.md) for the schema, pricing flags, and baseline workflow. The suite is intentionally small today; the target is 20–30 tasks covering bug fixes, multi-file changes, test repair, and refactors.
+Tasks are self-contained JSON fixtures under `eval/tasks/`; see [eval/README.md](eval/README.md) for the schema, pricing flags, and baseline workflow. Reports include total provider calls, worker delegations, tokens, latency, and estimated cost. The suite is intentionally small today; the target is 20–30 tasks covering bug fixes, multi-file changes, test repair, and refactors.
 
 ## Architecture
 
@@ -355,6 +375,7 @@ cmd/wombat        entry point
 cmd/eval          eval harness CLI
 internal/cli      REPL, headless run, setup wizard, doctor, clipboard helpers
 internal/agent    agent loop, system prompt, hooks, usage, context compaction
+internal/orchestrator  task ledger, update_plan, read-only delegation, worker reports
 internal/eval     task loader, runner, reports, pricing
 internal/llm      provider adapters (OpenAI SSE, Responses, Anthropic, Ollama, Google)
 internal/tools    read/write/edit/bash/glob/grep, permissions, command policy

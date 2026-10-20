@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,35 @@ func (f *fixedProvider) Chat(context.Context, llm.Request, func(string)) (*llm.R
 		}, nil
 	}
 	return &llm.Result{Content: "done", Usage: llm.Usage{In: 5, Out: 1, Cached: 1}}, nil
+}
+
+type orchProvider struct {
+	leadCalls int
+}
+
+func (o *orchProvider) Name() string { return "orch" }
+func (o *orchProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"fake-model"}, nil
+}
+func (o *orchProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	if strings.Contains(req.System, "## Delegated worker") {
+		return &llm.Result{
+			Content: `{"status":"completed","summary":"surveyed the repo","findings":[{"claim":"no files needed","evidence":"empty workspace"}]}`,
+			Usage:   llm.Usage{In: 7, Out: 3},
+		}, nil
+	}
+	o.leadCalls++
+	switch o.leadCalls {
+	case 1:
+		return &llm.Result{
+			ToolCalls: []llm.ToolCall{{ID: "c1", Name: "delegate", Arguments: `{"title":"Survey","objective":"Survey the workspace"}`}},
+			Usage:     llm.Usage{In: 10, Out: 2},
+		}, nil
+	case 2:
+		return &llm.Result{Content: "done", Usage: llm.Usage{In: 20, Out: 1}}, nil
+	default:
+		return nil, fmt.Errorf("unexpected lead call %d", o.leadCalls)
+	}
 }
 
 func testTask() Task {
@@ -83,6 +113,29 @@ func TestRunTaskPasses(t *testing.T) {
 	}
 	if result.Error != "" {
 		t.Fatalf("error = %q", result.Error)
+	}
+}
+
+func TestRunTaskOrchestrator(t *testing.T) {
+	opts := testOptions(&orchProvider{})
+	opts.Orchestrator = true
+	defer os.RemoveAll(opts.Home)
+	task := testTask()
+	task.ID = "orchestrated"
+	task.Check = []string{"true"}
+	result := RunTask(context.Background(), task, opts)
+	if !result.Passed {
+		t.Fatalf("task failed: %+v", result)
+	}
+	if result.Delegations != 1 {
+		t.Fatalf("delegations = %d", result.Delegations)
+	}
+	if result.Steps != 3 || result.Usage.In != 37 || result.Usage.Out != 6 {
+		t.Fatalf("usage = %+v steps=%d", result.Usage, result.Steps)
+	}
+	ledgers, err := filepath.Glob(filepath.Join(opts.Home, "sessions", "*", "*.ledger.json"))
+	if err != nil || len(ledgers) != 1 {
+		t.Fatalf("ledgers = %v err=%v", ledgers, err)
 	}
 }
 

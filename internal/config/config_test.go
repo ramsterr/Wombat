@@ -16,6 +16,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Provider != "openai" || cfg.MaxSteps != 64 {
 		t.Fatalf("defaults = %+v", cfg)
 	}
+	if !cfg.Orchestrator || cfg.MaxDelegations != DefaultMaxDelegations || cfg.WorkerMaxSteps != DefaultWorkerMaxSteps {
+		t.Fatalf("orchestrator defaults = %+v", cfg)
+	}
 	if _, ok := cfg.Providers["ollama"]; !ok {
 		t.Fatalf("ollama preset missing")
 	}
@@ -33,6 +36,9 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	cfg.Model = "llama3"
 	cfg.Providers["ollama"].NumCtx = 16384
 	cfg.Permissions["bash"] = "deny"
+	cfg.Orchestrator = false
+	cfg.MaxDelegations = 7
+	cfg.WorkerMaxSteps = 11
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +63,9 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	}
 	if reloaded.Permission("bash") != "deny" {
 		t.Errorf("permission not persisted")
+	}
+	if reloaded.Orchestrator || reloaded.MaxDelegations != 7 || reloaded.WorkerMaxSteps != 11 {
+		t.Errorf("orchestrator config not persisted: %+v", reloaded)
 	}
 }
 

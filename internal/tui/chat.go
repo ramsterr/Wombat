@@ -23,6 +23,7 @@ import (
 	clipboard "github.com/ramsterr/Wombat/internal/clip"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
@@ -300,6 +301,14 @@ func (c *chat) rebuild(reset bool) error {
 		Compact:       true,
 		ContextWindow: tokens.Window(c.modelName),
 		NumCtx:        pc.NumCtx,
+	}
+	if c.cfg.Orchestrator {
+		if _, err := orchestrator.Attach(c.ag, orchestrator.Config{
+			MaxDelegations: c.cfg.MaxDelegations,
+			WorkerMaxSteps: c.cfg.WorkerMaxSteps,
+		}); err != nil {
+			return err
+		}
 	}
 	c.ag.Hooks = c.hooks()
 	c.window = c.ag.ContextWindow
@@ -944,7 +953,9 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.cumIn += msg.u.In
 		c.cumOut += msg.u.Out
 		c.cumCached += msg.u.Cached
-		c.history = msg.history
+		if msg.history >= 0 {
+			c.history = msg.history
+		}
 		return nil
 	case compactMsg:
 		c.note(fmt.Sprintf("%s compaction: %s → %s tokens", msg.kind, humanN(msg.before), humanN(msg.after)), false)

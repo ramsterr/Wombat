@@ -149,6 +149,31 @@ func TestAgentToolLoop(t *testing.T) {
 	}
 }
 
+func TestAgentSystemExtraRunStartAndUsageStats(t *testing.T) {
+	a, fake, _, _, _ := newTestAgent(t, true)
+	a.SystemExtra = func() string { return "EXTRA_MARKER" }
+	started := 0
+	a.RunStart = func() { started++ }
+	if err := a.Run(context.Background(), "write hello"); err != nil {
+		t.Fatal(err)
+	}
+	if started != 1 {
+		t.Fatalf("RunStart calls = %d", started)
+	}
+	if len(fake.reqs) < 2 {
+		t.Fatalf("provider calls = %d", len(fake.reqs))
+	}
+	if !strings.Contains(fake.reqs[0].System, "EXTRA_MARKER") || !strings.Contains(fake.reqs[1].System, "EXTRA_MARKER") {
+		t.Fatalf("system extra missing from requests")
+	}
+	before := a.Usage()
+	a.AddUsageStats(UsageStats{Calls: 2, In: 9, Cached: 1, Out: 4})
+	after := a.Usage()
+	if after.Calls != before.Calls+2 || after.In != before.In+9 || after.Cached != before.Cached+1 || after.Out != before.Out+4 {
+		t.Fatalf("usage after AddUsageStats = %+v (before %+v)", after, before)
+	}
+}
+
 func TestAgentPermissionDenied(t *testing.T) {
 	a, fake, workdir, _, _ := newTestAgent(t, false)
 	if err := a.Run(context.Background(), "write hello"); err != nil {

@@ -187,6 +187,12 @@ func TestCreateAtUsesProvidedHome(t *testing.T) {
 	if filepath.Dir(s.path) != wantDir {
 		t.Fatalf("session path = %s, want under %s", s.path, wantDir)
 	}
+	if s.Path() != s.path {
+		t.Fatalf("Path() = %q, want %q", s.Path(), s.path)
+	}
+	if _, err := os.Stat(s.Path()); err != nil {
+		t.Fatalf("session file missing: %v", err)
+	}
 }
 
 func TestSessionReasoningRoundtrip(t *testing.T) {

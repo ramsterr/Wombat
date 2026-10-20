@@ -56,6 +56,18 @@ func (a *Agent) recordUsage(u llm.Usage) {
 	a.mu.Unlock()
 }
 
+func (a *Agent) AddUsageStats(u UsageStats) {
+	a.mu.Lock()
+	a.usage.Calls += u.Calls
+	a.usage.In += u.In
+	a.usage.Cached += u.Cached
+	a.usage.Out += u.Out
+	if a.usage.Started.IsZero() {
+		a.usage.Started = time.Now()
+	}
+	a.mu.Unlock()
+}
+
 func (a *Agent) Usage() UsageStats {
 	a.mu.Lock()
 	u := a.usage

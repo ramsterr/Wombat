@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,8 @@ type Agent struct {
 	Compact       bool
 	ContextWindow int
 	NumCtx        int
+	SystemExtra   func() string
+	RunStart      func()
 	Hooks         Hooks
 
 	mu    sync.Mutex
@@ -55,6 +58,9 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 
 func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachments []llm.Attachment) error {
 	defer func() { _ = a.Sess.Flush() }()
+	if a.RunStart != nil {
+		a.RunStart()
+	}
 	a.markStarted()
 	if len(a.Sess.Messages) == 0 {
 		if err := a.Sess.Append(llm.Message{Role: "user", Content: startupContext(a.Env.Dir)}); err != nil {
@@ -71,6 +77,11 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		maxSteps = 64
 	}
 	system := buildSystem(a.Env.Dir)
+	if a.SystemExtra != nil {
+		if extra := strings.TrimSpace(a.SystemExtra()); extra != "" {
+			system += "\n\n" + extra
+		}
+	}
 	for step := 0; step < maxSteps; step++ {
 		if a.Compact {
 			a.maybeCompact(ctx)

@@ -168,6 +168,12 @@ func (s *Session) ID() string {
 	return s.Meta.ID
 }
 
+func (s *Session) Path() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.path
+}
+
 // StoreAttachment copies src into the project's attachment store and returns
 // metadata referencing the stored copy. Files are deduplicated by content.
 func (s *Session) StoreAttachment(src string) (llm.Attachment, error) {

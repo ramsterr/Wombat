@@ -17,14 +17,22 @@ type Provider struct {
 	NumCtx  int      `json:"num_ctx,omitempty"`
 }
 
+const (
+	DefaultMaxDelegations = 3
+	DefaultWorkerMaxSteps = 24
+)
+
 type Config struct {
-	Version     int                  `json:"version"`
-	Provider    string               `json:"provider"`
-	Model       string               `json:"model"`
-	Providers   map[string]*Provider `json:"providers"`
-	Permissions map[string]string    `json:"permissions,omitempty"`
-	MaxSteps    int                  `json:"max_steps,omitempty"`
-	Mouse       bool                 `json:"mouse,omitempty"`
+	Version        int                  `json:"version"`
+	Provider       string               `json:"provider"`
+	Model          string               `json:"model"`
+	Providers      map[string]*Provider `json:"providers"`
+	Permissions    map[string]string    `json:"permissions,omitempty"`
+	MaxSteps       int                  `json:"max_steps,omitempty"`
+	Orchestrator   bool                 `json:"orchestrator"`
+	MaxDelegations int                  `json:"max_delegations"`
+	WorkerMaxSteps int                  `json:"worker_max_steps"`
+	Mouse          bool                 `json:"mouse,omitempty"`
 }
 
 type Preset struct {
@@ -90,7 +98,10 @@ func Defaults() *Config {
 			"write": "ask",
 			"edit":  "ask",
 		},
-		MaxSteps: 64,
+		MaxSteps:       64,
+		Orchestrator:   true,
+		MaxDelegations: DefaultMaxDelegations,
+		WorkerMaxSteps: DefaultWorkerMaxSteps,
 	}
 	for _, p := range Presets {
 		c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}
@@ -123,6 +134,12 @@ func Load() (*Config, error) {
 	}
 	if c.MaxSteps <= 0 {
 		c.MaxSteps = 64
+	}
+	if c.MaxDelegations <= 0 {
+		c.MaxDelegations = DefaultMaxDelegations
+	}
+	if c.WorkerMaxSteps <= 0 {
+		c.WorkerMaxSteps = DefaultWorkerMaxSteps
 	}
 	return c, nil
 }

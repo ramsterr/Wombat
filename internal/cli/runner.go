@@ -12,6 +12,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
@@ -88,7 +89,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Dir:    cwd,
 		Permit: p.Permit,
 	}
-	return &agent.Agent{
+	ag := &agent.Agent{
 		Provider:      prov,
 		Model:         model,
 		Tools:         tools.Registry(),
@@ -98,7 +99,16 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Compact:       true,
 		ContextWindow: tokens.Window(model),
 		NumCtx:        pc.NumCtx,
-	}, nil
+	}
+	if cfg.Orchestrator {
+		if _, err := orchestrator.Attach(ag, orchestrator.Config{
+			MaxDelegations: cfg.MaxDelegations,
+			WorkerMaxSteps: cfg.WorkerMaxSteps,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return ag, nil
 }
 
 func probeEndpoint(ctx context.Context, kind, base string) ([]string, error) {

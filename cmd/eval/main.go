@@ -23,6 +23,7 @@ func main() {
 		providerName   = flag.String("provider", "", "provider override")
 		model          = flag.String("model", "", "model override")
 		maxSteps       = flag.Int("max-steps", 64, "maximum agent steps per task")
+		orchestrator   = flag.Bool("orchestrator", true, "enable lead/worker orchestration")
 		timeout        = flag.Duration("timeout", 10*time.Minute, "per-task agent timeout")
 		commandTimeout = flag.Duration("command-timeout", 2*time.Minute, "per setup/check command timeout")
 		dryRun         = flag.Bool("dry-run", false, "validate tasks and print the plan without calling a model")
@@ -98,6 +99,7 @@ func main() {
 			DenyNetwork:   true,
 		},
 		MaxSteps:       *maxSteps,
+		Orchestrator:   *orchestrator,
 		ContextWindow:  tokens.Window(resolvedModel),
 		Timeout:        *timeout,
 		CommandTimeout: *commandTimeout,

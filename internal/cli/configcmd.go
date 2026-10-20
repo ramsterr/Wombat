@@ -19,7 +19,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, permissions.<bash|write|edit>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, orchestrator, max_delegations, worker_max_steps, permissions.<bash|write|edit>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -36,6 +36,27 @@ func cmdConfig(args []string) error {
 			return fmt.Errorf("max_steps must be a positive integer")
 		}
 		cfg.MaxSteps = n
+	case key == "orchestrator":
+		switch strings.ToLower(val) {
+		case "true", "on", "yes", "1":
+			cfg.Orchestrator = true
+		case "false", "off", "no", "0":
+			cfg.Orchestrator = false
+		default:
+			return fmt.Errorf("orchestrator must be true or false")
+		}
+	case key == "max_delegations":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return fmt.Errorf("max_delegations must be a positive integer")
+		}
+		cfg.MaxDelegations = n
+	case key == "worker_max_steps":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return fmt.Errorf("worker_max_steps must be a positive integer")
+		}
+		cfg.WorkerMaxSteps = n
 	case strings.HasPrefix(key, "permissions."):
 		kind := strings.TrimPrefix(key, "permissions.")
 		if kind != "bash" && kind != "write" && kind != "edit" {

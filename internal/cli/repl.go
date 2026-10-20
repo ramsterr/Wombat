@@ -84,7 +84,7 @@ func (r *renderer) hooks() agent.Hooks {
 			r.cumIn += u.In
 			r.cumOut += u.Out
 			r.cumCached += u.Cached
-			if r.quiet || !colorEnabled {
+			if history < 0 || r.quiet || !colorEnabled {
 				return
 			}
 			cache := ""

@@ -1,6 +1,6 @@
 # Wombat evals
 
-Phase 0 eval harness. It runs a task in a fresh workspace, invokes the real agent loop, runs the task's checks, and writes a reproducible report with pass rate, tokens, latency, and estimated cost.
+Eval harness. It runs a task in a fresh workspace, invokes the real agent loop, runs the task's checks, and writes a reproducible report with pass rate, tokens, latency, delegation count, and estimated cost.
 
 ## Quick start
 
@@ -10,6 +10,9 @@ go run ./cmd/eval -tasks eval/tasks -dry-run
 
 # Run the suite with the configured provider/model.
 go run ./cmd/eval -tasks eval/tasks -out eval/results
+
+# Compare against the single-agent loop.
+go run ./cmd/eval -tasks eval/tasks -orchestrator=false -out eval/results/single-agent
 
 # Explicit provider, model, and pricing (USD per 1M tokens).
 go run ./cmd/eval \
@@ -53,7 +56,7 @@ Run the suite once against the current single-agent harness and keep the report:
 go run ./cmd/eval -tasks eval/tasks -out eval/baseline
 ```
 
-Record the model, provider, date, pass rate, tokens, and cost. Every later harness or delegation change should be compared against this report. The seed suite is intentionally small; grow it toward 20–30 tasks covering bug fixes, multi-file changes, test repair, and refactors before drawing conclusions.
+Record the model, provider, date, pass rate, tokens, cost, and delegation count. Every later harness or delegation change should be compared against this report; use `-orchestrator=false` to isolate the single-agent loop. The seed suite is intentionally small; grow it toward 20–30 tasks covering bug fixes, multi-file changes, test repair, and refactors before drawing conclusions.
 
 ## Budget controls
 
@@ -61,4 +64,5 @@ Record the model, provider, date, pass rate, tokens, and cost. Every later harne
 - Use `-task <substring>` to run one task while iterating.
 - Set a hard per-task timeout and keep the suite small.
 - Pass pricing flags to see cost per solved task; leave them at 0 to report tokens only.
-- The harness denies network commands and dangerous shell commands by default.
+- Orchestration is on by default; use `-orchestrator=false` for the single-agent baseline.
+- The harness denies network commands and dangerous shell commands by default. Workers are read-only and inherit the same workspace.

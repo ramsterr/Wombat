@@ -14,6 +14,7 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
@@ -72,6 +73,7 @@ type Options struct {
 	Home           string
 	KeepWorkdir    bool
 	Pricing        agent.Pricing
+	Orchestrator   bool
 	OnTaskStart    func(Task)
 }
 
@@ -84,21 +86,23 @@ type Result struct {
 	Workdir     string           `json:"workdir,omitempty"`
 	DurationMS  int64            `json:"duration_ms"`
 	Steps       int              `json:"steps"`
+	Delegations int              `json:"delegations,omitempty"`
 	Usage       agent.UsageStats `json:"usage"`
 	CostUSD     float64          `json:"cost_usd"`
 }
 
 type Report struct {
-	Started    time.Time        `json:"started"`
-	DurationMS int64            `json:"duration_ms"`
-	Model      string           `json:"model"`
-	Tasks      int              `json:"tasks"`
-	Passed     int              `json:"passed"`
-	PassRate   float64          `json:"pass_rate"`
-	Usage      agent.UsageStats `json:"usage"`
-	CostUSD    float64          `json:"cost_usd"`
-	Pricing    agent.Pricing    `json:"pricing"`
-	Results    []Result         `json:"results"`
+	Started     time.Time        `json:"started"`
+	DurationMS  int64            `json:"duration_ms"`
+	Model       string           `json:"model"`
+	Tasks       int              `json:"tasks"`
+	Passed      int              `json:"passed"`
+	PassRate    float64          `json:"pass_rate"`
+	Usage       agent.UsageStats `json:"usage"`
+	Delegations int              `json:"delegations,omitempty"`
+	CostUSD     float64          `json:"cost_usd"`
+	Pricing     agent.Pricing    `json:"pricing"`
+	Results     []Result         `json:"results"`
 }
 
 func LoadTasks(dir string) ([]Task, error) {
@@ -214,6 +218,17 @@ func RunTask(ctx context.Context, task Task, opts Options) Result {
 		ContextWindow: opts.ContextWindow,
 		NumCtx:        opts.NumCtx,
 	}
+	var orch *orchestrator.Orchestrator
+	if opts.Orchestrator {
+		orch, err = orchestrator.Attach(ag, orchestrator.Config{
+			WorkerHome: filepath.Join(home, "workers"),
+		})
+		if err != nil {
+			result.Error = "orchestrator: " + err.Error()
+			result.DurationMS = time.Since(start).Milliseconds()
+			return result
+		}
+	}
 
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -234,6 +249,9 @@ func RunTask(ctx context.Context, task Task, opts Options) Result {
 	result.CheckOutput = clip(checkOut, 8000)
 	result.Usage = ag.Usage()
 	result.Steps = result.Usage.Calls
+	if orch != nil {
+		result.Delegations = orch.Delegations()
+	}
 	result.CostUSD = opts.Pricing.Cost(result.Usage)
 	result.DurationMS = time.Since(start).Milliseconds()
 	switch {
@@ -344,6 +362,7 @@ func Summarize(results []Result, model string, pricing agent.Pricing) Report {
 		report.Usage.Cached += result.Usage.Cached
 		report.Usage.Out += result.Usage.Out
 		report.Usage.Duration += time.Duration(result.DurationMS) * time.Millisecond
+		report.Delegations += result.Delegations
 		report.CostUSD += result.CostUSD
 	}
 	if report.Tasks > 0 {
@@ -378,17 +397,20 @@ func (r Report) Markdown() string {
 	fmt.Fprintf(&b, "- Tasks: %d\n", r.Tasks)
 	fmt.Fprintf(&b, "- Passed: %d (%.1f%%)\n", r.Passed, passRate)
 	fmt.Fprintf(&b, "- Tokens: in %d, cached %d, out %d\n", r.Usage.In, r.Usage.Cached, r.Usage.Out)
+	if r.Delegations > 0 {
+		fmt.Fprintf(&b, "- Delegations: %d\n", r.Delegations)
+	}
 	fmt.Fprintf(&b, "- Estimated cost: $%.4f\n", r.CostUSD)
 	fmt.Fprintf(&b, "- Wall clock: %s\n\n", (time.Duration(r.DurationMS) * time.Millisecond).Round(time.Millisecond))
-	b.WriteString("| Task | Passed | Steps | In | Out | Cost | Duration | Error |\n")
-	b.WriteString("|---|---:|---:|---:|---:|---:|---:|---|\n")
+	b.WriteString("| Task | Passed | Steps | Delegations | In | Out | Cost | Duration | Error |\n")
+	b.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---|\n")
 	for _, result := range r.Results {
 		mark := "no"
 		if result.Passed {
 			mark = "yes"
 		}
-		fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | $%.4f | %s | %s |\n",
-			mdCell(result.TaskID), mark, result.Steps, result.Usage.In, result.Usage.Out,
+		fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | $%.4f | %s | %s |\n",
+			mdCell(result.TaskID), mark, result.Steps, result.Delegations, result.Usage.In, result.Usage.Out,
 			result.CostUSD, (time.Duration(result.DurationMS) * time.Millisecond).Round(time.Millisecond),
 			mdCell(result.Error))
 	}
