@@ -215,8 +215,8 @@ func TestAgentStopsAfterMaxSteps(t *testing.T) {
 	}
 	start := time.Now()
 	err = a.Run(context.Background(), "loop forever")
-	if err == nil || !strings.Contains(err.Error(), "3 steps") {
-		t.Fatalf("expected max-steps error, got %v", err)
+	if err != nil {
+		t.Fatalf("hitting the step limit is not an error, got %v", err)
 	}
 	if time.Since(start) > 5*time.Second {
 		t.Fatalf("loop took too long")
@@ -289,5 +289,32 @@ func TestAgentRejectsUnregisteredTool(t *testing.T) {
 	}
 	if got := a.Sess.Messages[3].Content; !strings.Contains(got, `unknown tool "bash"`) {
 		t.Fatalf("tool result = %q", got)
+	}
+}
+
+// TestStepLimitEndsWithText checks that running out of steps is not an error:
+// the model gets a last word without tools and the turn ends normally.
+func TestStepLimitEndsWithText(t *testing.T) {
+	sess, err := session.Create(t.TempDir(), "fake", "m", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &loopProvider{}
+	a := &Agent{
+		Provider: prov,
+		Model:    "m",
+		Tools:    tools.Registry(),
+		Env: &tools.Env{
+			Dir:    t.TempDir(),
+			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
+		},
+		Sess:     sess,
+		MaxSteps: 3,
+	}
+	if err := a.Run(context.Background(), "loop forever"); err != nil {
+		t.Fatalf("hitting the step limit is not an error: %v", err)
+	}
+	if prov.calls != 3 {
+		t.Fatalf("provider calls = %d, want 3", prov.calls)
 	}
 }

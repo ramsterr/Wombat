@@ -24,6 +24,9 @@ All notable changes to Wombat are recorded here. The format follows
   skipped now, and an unreadable directory is recorded as skipped rather than
   failing the snapshot or the restore.
 - Pressing Enter in the question prompt now takes the highlighted option.
+- Running out of steps is no longer an error. The last step gives the model no
+  tools, so it has to answer in text, and the turn ends normally instead of
+  failing with "stopped after N steps without completing".
 
 ### Added
 

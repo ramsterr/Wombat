@@ -128,11 +128,17 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			a.maybeCompact(ctx)
 		}
 		a.Trace.Emit("model_start", map[string]any{"step": step + 1})
+		// On the last step the model gets no tools, so it has to answer in
+		// text instead of running out of steps mid-thought.
+		defs := a.toolDefs()
+		if step == maxSteps-1 {
+			defs = nil
+		}
 		res, err := a.Provider.Chat(ctx, llm.Request{
 			Model:       a.Model,
 			System:      system,
 			Messages:    llm.TrimStaleReasoning(a.Sess.Messages),
-			Tools:       a.toolDefs(),
+			Tools:       defs,
 			NumCtx:      a.NumCtx,
 			Reasoning:   a.Reasoning,
 			SessionID:   a.Sess.ID(),
@@ -193,7 +199,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 	}
-	return fmt.Errorf("stopped after %d steps without completing", maxSteps)
+	// The step limit is not a failure: the model got its last word in
+	// without tools, so the turn ends normally.
+	return nil
 }
 
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }
