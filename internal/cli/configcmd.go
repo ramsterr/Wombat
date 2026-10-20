@@ -20,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_turn_tokens, max_turn_cost, price_in, price_cached, price_out, max_turn_duration_seconds, max_tool_calls, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_turn_tokens, max_turn_cost, price_in, price_cached, price_out, max_turn_duration_seconds, max_tool_calls, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {

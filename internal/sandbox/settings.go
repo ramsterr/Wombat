@@ -13,6 +13,8 @@ type Settings struct {
 	Mode Mode
 	// Network allows commands to reach the network.
 	Network bool
+	// AllowDangerous lets commands on the dangerous list run.
+	AllowDangerous bool
 }
 
 // Policy turns the settings into a sandbox policy for a workspace. Modes the
@@ -71,6 +73,11 @@ func (s Settings) Note() string {
 // NetworkHint explains how to turn the network on.
 func NetworkHint() string {
 	return "the user can enable it with `/sandbox network on` (or `wombat config set sandbox_network true`)"
+}
+
+// DangerHint explains that a dangerous command was refused.
+func DangerHint() string {
+	return "the user can allow it when asked, or disable the check with `wombat config set permissions.bash allow`"
 }
 
 // Status describes the settings for the user interface.

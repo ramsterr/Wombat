@@ -111,11 +111,11 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		state.Update(func(s *sandbox.Settings) { *s = settings })
 	}
 	env := &tools.Env{
-		Dir:          cwd,
-		Permit:       p.Permit,
-		Sandbox:      settings.Policy(cwd),
-		SandboxState: state,
-		DenyNetwork:  !settings.Network,
+		Dir:           cwd,
+		Permit:        p.Permit,
+		Sandbox:       settings.Policy(cwd),
+		SandboxState:  state,
+		DenyDangerous: true,
 	}
 	if p != nil {
 		env.SandboxAsk = func(kind, command string) tools.SandboxDecision {

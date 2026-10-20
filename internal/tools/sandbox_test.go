@@ -145,3 +145,72 @@ func TestWriteEscalationAfterPermissionError(t *testing.T) {
 	}
 	_ = outside
 }
+
+// TestProductionWiringAsksBeforeRefusing mirrors how the lead agent is
+// actually built: a live sandbox state, the dangerous-command list enabled,
+// and a callback that can ask the user.
+func TestProductionWiringAsksBeforeRefusing(t *testing.T) {
+	if !sandbox.Supported(sandbox.WorkspaceWrite) {
+		t.Skip("the sandbox is not enforced on this host")
+	}
+	state := sandbox.NewState(sandbox.Settings{Mode: sandbox.WorkspaceWrite, Network: false})
+	var asked []string
+	env := &Env{
+		Dir:           t.TempDir(),
+		SandboxState:  state,
+		DenyDangerous: true,
+		SandboxAsk: func(kind, command string) SandboxDecision {
+			asked = append(asked, kind)
+			return SandboxAllowOnce
+		},
+	}
+
+	// A network command reaches the user instead of being refused outright.
+	if _, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"curl --not-a-real-flag"}`), env); err != nil {
+		t.Fatalf("network command: %v", err)
+	}
+	if len(asked) == 0 || asked[0] != SandboxNetwork {
+		t.Fatalf("asked = %v, want a network question", asked)
+	}
+
+	// A dangerous command reaches the user too.
+	asked = nil
+	if _, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"sudo rm -rf / --no-preserve-root"}`), env); err != nil {
+		t.Fatalf("dangerous command: %v", err)
+	}
+	if len(asked) == 0 || asked[0] != SandboxDangerous {
+		t.Fatalf("asked = %v, want a dangerous command question", asked)
+	}
+}
+
+func TestDangerousDeniedStops(t *testing.T) {
+	env := &Env{
+		Dir:           t.TempDir(),
+		DenyDangerous: true,
+		SandboxAsk: func(kind, command string) SandboxDecision {
+			return SandboxDeny
+		},
+	}
+	_, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"sudo rm -rf / --no-preserve-root"}`), env)
+	if err == nil {
+		t.Fatal("expected the dangerous command to be refused")
+	}
+	if !strings.Contains(err.Error(), "blocked dangerous command") {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestPermKindLabels(t *testing.T) {
+	if !PermNetwork.Outside() {
+		t.Error("network is outside the sandbox")
+	}
+	if PermBash.Outside() {
+		t.Error("bash is not outside the sandbox")
+	}
+	if PermKindFor("write") != PermWrite {
+		t.Errorf("PermKindFor(write) = %q", PermKindFor("write"))
+	}
+	if PermKindFor("outside") != PermOutside {
+		t.Errorf("PermKindFor(outside) = %q", PermKindFor("outside"))
+	}
+}

@@ -73,12 +73,14 @@ func isTTY(f *os.File) bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-func dim(s string) string    { return wrap(s, "2") }
-func bold(s string) string   { return wrap(s, "1") }
-func green(s string) string  { return wrap(s, "32") }
-func red(s string) string    { return wrap(s, "31") }
-func yellow(s string) string { return wrap(s, "33") }
-func cyan(s string) string   { return wrap(s, "36") }
+func dim(s string) string     { return wrap(s, "2") }
+func bold(s string) string    { return wrap(s, "1") }
+func green(s string) string   { return wrap(s, "32") }
+func red(s string) string     { return wrap(s, "31") }
+func yellow(s string) string  { return wrap(s, "33") }
+func magenta(s string) string { return wrap(s, "35") }
+func blue(s string) string    { return wrap(s, "34") }
+func cyan(s string) string    { return wrap(s, "36") }
 
 func wrap(s, code string) string {
 	if !colorEnabled {
@@ -111,7 +113,8 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 		case "allow":
 			return tools.Decision{Allow: true}
 		case "deny":
-			fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" is denied by config: "+clipLine(detail, 120)))
+			look := lookFor(tools.PermKindFor(kind))
+			fmt.Fprintln(os.Stderr, look.color(look.symbol)+" [permission] "+kind+" is denied by config: "+clipLine(detail, 120))
 			return tools.Decision{}
 		}
 	}
@@ -122,8 +125,9 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 		fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" requires approval: "+clipLine(detail, 120)+" — denied (non-interactive; rerun with --yolo)"))
 		return tools.Decision{}
 	}
+	look := lookFor(tools.PermKindFor(kind))
 	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s, or type instructions to deny with feedback: ",
-		yellow("?"), "allow "+kind, clipLine(detail, 200),
+		look.color(look.symbol), look.title+" "+kind, clipLine(detail, 200),
 		bold("y")+"es", bold("a")+"lways "+kind, bold("n")+"o")
 	line, err := p.in.ReadString('\n')
 	if err != nil {
@@ -143,18 +147,43 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 	}
 }
 
+// permLook is how a permission request is presented: a symbol, a colour, and
+// a title. Requests that go beyond the sandbox look different from ordinary
+// tool permission.
+type permLook struct {
+	symbol string
+	color  func(string) string
+	title  string
+}
+
+func lookFor(kind tools.PermKind) permLook {
+	switch kind {
+	case tools.PermNetwork, tools.PermSandboxWrite:
+		return permLook{symbol: "▲", color: magenta, title: "sandbox"}
+	case tools.PermDangerous:
+		return permLook{symbol: "!", color: red, title: "dangerous command"}
+	case tools.PermOutside:
+		return permLook{symbol: "?", color: blue, title: "outside the workspace"}
+	}
+	return permLook{symbol: "?", color: yellow, title: "allow"}
+}
+
 // AskSandbox asks the user whether a command blocked by the sandbox may run.
 func (p *Prompter) AskSandbox(kind, command string) tools.SandboxDecision {
 	if !p.tty {
 		fmt.Fprintln(os.Stderr, dim("[sandbox] "+kind+" access is needed: "+clipLine(command, 120)+" — denied (non-interactive)"))
 		return tools.SandboxDeny
 	}
-	what := "network access"
-	if kind == tools.SandboxWrite {
-		what = "write access outside the sandbox"
+	perm := tools.PermKind(kind)
+	switch kind {
+	case tools.SandboxWrite:
+		perm = tools.PermSandboxWrite
+	case tools.SandboxDangerous:
+		perm = tools.PermDangerous
 	}
+	look := lookFor(perm)
 	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s: ",
-		yellow("?"), "the sandbox blocked "+what, clipLine(command, 200),
+		look.color(look.symbol), "the sandbox blocked "+perm.Label(), clipLine(command, 200),
 		bold("y")+"es, once", bold("a")+"lways, this session", bold("n")+"o")
 	line, err := p.in.ReadString('\n')
 	if err != nil {

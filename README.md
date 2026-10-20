@@ -354,6 +354,39 @@ As a second layer, the `write` and `edit` tools append a warning when a secrets-
 
 These are guardrails plus an optional OS sandbox. On macOS, `workspace-write` uses `sandbox-exec`; on Linux it uses `bwrap` when installed. Windows has no sandbox backend yet and falls back to off. Permission prompts remain the application-level gate; `--yolo` and `permissions: allow` bypass them, so review diffs before committing.
 
+### Every permission, and how it looks
+
+Each kind of permission has its own colour and symbol, so you always know
+what you are approving:
+
+| | request | colour | what it means |
+|---|---|---|---|
+| `?` | `bash`, `write`, `edit` | orange | ordinary tool use inside the workspace |
+| `?` | outside the workspace | blue | the command or file leaves your project |
+| `▲` | network access | magenta | the sandbox is blocking the internet |
+| `▲` | write outside the sandbox | magenta | the sandbox blocked a write |
+| `!` | dangerous command | red | `sudo`, `rm -rf /`, `mkfs`, `dd of=/dev/`, `git push --force`, fork bombs, … |
+
+In the TUI the prompt box border and the title use that colour. In the line
+REPL the symbol and text use it.
+
+What can be requested, and how you change it:
+
+| permission | default | how to change it |
+|---|---|---|
+| `bash`, `write`, `edit` | ask | `wombat config set permissions.bash allow\|deny\|ask` (same for `write`, `edit`) |
+| outside the workspace | ask | `wombat config set permissions.outside allow\|deny\|ask` |
+| network | off | `/sandbox network on` · `wombat config set sandbox_network true` |
+| dangerous commands | ask, then refused | approve the prompt, or `permissions.bash allow` |
+| sandbox mode | `workspace-write` | `/sandbox mode …` · `wombat config set sandbox …` |
+| read-only workers | always on | writers and scouts are read-only by construction |
+| git mutations (writers) | always blocked | writers may not touch git state |
+| checkpoints | on | `wombat config set checkpoints false` |
+
+`--yolo` (and `permissions: allow`) skips the prompts but never the OS
+sandbox, the dangerous-command list, or the budget limits. Reads are never
+gated: `read`, `glob`, and `grep` always work.
+
 ### You control the sandbox
 
 The sandbox is yours to change, at any time, without restarting.

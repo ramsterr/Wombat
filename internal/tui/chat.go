@@ -117,8 +117,36 @@ type noteMsg struct {
 
 type permAskMsg struct {
 	kind   string
+	perm   tools.PermKind
 	detail string
 	reply  chan tools.Decision
+}
+
+// permColor returns the colour that marks a permission kind. Requests that
+// go beyond the sandbox get their own colour so they stand out.
+func permColor(kind tools.PermKind) lipgloss.TerminalColor {
+	switch kind {
+	case tools.PermNetwork, tools.PermSandboxWrite:
+		return cSandbox
+	case tools.PermOutside:
+		return cOutside
+	case tools.PermDangerous:
+		return cRed
+	}
+	return cWarn
+}
+
+// permTitle names the prompt.
+func permTitle(kind tools.PermKind) string {
+	switch kind {
+	case tools.PermNetwork, tools.PermSandboxWrite:
+		return "sandbox"
+	case tools.PermDangerous:
+		return "dangerous"
+	case tools.PermOutside:
+		return "outside workspace"
+	}
+	return "permission"
 }
 
 type chat struct {
@@ -309,11 +337,11 @@ func (c *chat) rebuild(reset bool) error {
 		c.sandboxState = sandbox.NewState(c.sandbox)
 	}
 	env := &tools.Env{
-		Dir:          cwd,
-		Permit:       c.permit,
-		Sandbox:      c.sandbox.Policy(cwd),
-		SandboxState: c.sandboxState,
-		DenyNetwork:  !c.sandbox.Network,
+		Dir:           cwd,
+		Permit:        c.permit,
+		Sandbox:       c.sandbox.Policy(cwd),
+		SandboxState:  c.sandboxState,
+		DenyDangerous: true,
 	}
 	env.SandboxAsk = c.askSandbox
 	if c.cfg.Checkpoints {
@@ -420,7 +448,7 @@ func (c *chat) permit(kind, detail string) tools.Decision {
 	if c.send == nil {
 		return tools.Decision{}
 	}
-	c.emit(permAskMsg{kind: kind, detail: detail, reply: reply})
+	c.emit(permAskMsg{kind: kind, perm: tools.PermKindFor(kind), detail: detail, reply: reply})
 	select {
 	case d := <-reply:
 		return d
@@ -442,13 +470,17 @@ func (c *chat) askSandbox(kind, command string) tools.SandboxDecision {
 	if c.send == nil {
 		return tools.SandboxDeny
 	}
-	what := "network access"
-	if kind == tools.SandboxWrite {
-		what = "write access outside the sandbox"
+	perm := tools.PermKind(kind)
+	switch kind {
+	case tools.SandboxWrite:
+		perm = tools.PermSandboxWrite
+	case tools.SandboxDangerous:
+		perm = tools.PermDangerous
 	}
 	reply := make(chan tools.Decision, 1)
 	c.emit(permAskMsg{
-		kind:   "sandbox: " + what,
+		kind:   perm.Label(),
+		perm:   perm,
 		detail: "the sandbox blocked this command — " + command,
 		reply:  reply,
 	})
@@ -1274,7 +1306,7 @@ func (c *chat) hint() string {
 	case c.perm != nil && c.permFeedback:
 		left = styleDim.Render("enter send feedback · esc back")
 	case c.perm != nil:
-		left = styleWarn.Render("waiting for permission")
+		left = lipgloss.NewStyle().Foreground(permColor(c.perm.perm)).Render("waiting for " + c.perm.kind)
 	case c.interrupting:
 		left = styleWarn.Render("interrupting…")
 	case c.streaming:
@@ -1295,7 +1327,9 @@ func (c *chat) hint() string {
 
 func (c *chat) permView() string {
 	p := c.perm
-	title := styleWarn.Bold(true).Render("permission") + "  " + styleTitle.Render(p.kind)
+	color := permColor(p.perm)
+	title := lipgloss.NewStyle().Bold(true).Foreground(color).Render(permTitle(p.perm)) +
+		"  " + styleTitle.Render(p.kind)
 	detail := styleDim.Render(clip(oneline(p.detail), max(10, c.w-16)))
 	if c.permFeedback {
 		return title + "\n" + detail + "\n" + c.permInput.View()
@@ -1304,6 +1338,12 @@ func (c *chat) permView() string {
 		styleKey.Render(" a ") + " always " + p.kind + "   " +
 		styleKey.Render(" n ") + " deny   " +
 		styleKey.Render(" f ") + " feedback"
+	if p.perm.Outside() {
+		keys = styleKey.Render(" y ") + " allow once   " +
+			styleKey.Render(" a ") + " allow for the session   " +
+			styleKey.Render(" n ") + " deny   " +
+			styleKey.Render(" f ") + " feedback"
+	}
 	return title + "\n" + detail + "\n" + keys
 }
 
@@ -1313,7 +1353,7 @@ func (c *chat) view() string {
 	}
 	var box string
 	if c.perm != nil {
-		box = styleInputIdle.BorderForeground(cWarn).Width(c.w - 4).Render(c.permView())
+		box = styleInputIdle.BorderForeground(permColor(c.perm.perm)).Width(c.w - 4).Render(c.permView())
 	} else {
 		style := styleInputIdle
 		if !c.streaming {

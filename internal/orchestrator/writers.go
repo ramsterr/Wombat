@@ -307,11 +307,13 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	env.DenyGit = true
 	env.DenyOutside = true
 	env.AllowOutside = false
-	env.Sandbox = sandbox.Policy{
-		Mode:         sandbox.Resolve(writerSandboxMode(o.lead.Env.Sandbox.Mode)),
-		Workspace:    wt.Path,
-		AllowNetwork: o.lead.Env.Sandbox.AllowNetwork,
-	}
+	// Writers never ask the user anything and never reach the network.
+	env.SandboxAsk = nil
+	env.SandboxState = sandbox.NewState(sandbox.Settings{
+		Mode:    writerSandboxMode(o.lead.Env.Sandbox.Mode),
+		Network: false,
+	})
+	env.Sandbox = env.SandboxState.Policy(wt.Path)
 	runCtx, cancel := context.WithTimeout(ctx, cfg.WriterTimeout)
 	defer cancel()
 	budgetCtx, cancelBudget := context.WithCancel(runCtx)

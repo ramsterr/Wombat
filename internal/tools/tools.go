@@ -54,8 +54,9 @@ const (
 
 // Sandbox escalation kinds.
 const (
-	SandboxNetwork = "network"
-	SandboxWrite   = "write"
+	SandboxNetwork   = "network"
+	SandboxWrite     = "write"
+	SandboxDangerous = "dangerous"
 )
 
 // sandboxPolicy returns the policy in force for this environment.
@@ -75,6 +76,28 @@ func (e *Env) askSandbox(kind, command string) SandboxDecision {
 		return SandboxDeny
 	}
 	return e.SandboxAsk(kind, command)
+}
+
+// allowDangerous asks the user about a command on the dangerous list. It
+// returns true when the command may run.
+func (e *Env) allowDangerous(command string) bool {
+	if e == nil || !IsDangerousCommand(command) {
+		return true
+	}
+	if e.SandboxState != nil && e.SandboxState.Settings().AllowDangerous {
+		return true
+	}
+	if e.SandboxAsk == nil {
+		return false
+	}
+	switch e.askSandbox(SandboxDangerous, command) {
+	case SandboxAllowOnce:
+		return true
+	case SandboxAllowSession:
+		e.widenSandbox(func(s *sandbox.Settings) { s.AllowDangerous = true })
+		return true
+	}
+	return false
 }
 
 // widenSandbox changes the session sandbox settings.
@@ -122,14 +145,18 @@ func (e *Env) checkPolicy(kind, detail string) error {
 		return fmt.Errorf("read-only mode: %s is disabled", kind)
 	}
 	if kind == "bash" {
-		if e.DenyDangerous && IsDangerousCommand(detail) {
+		// A dangerous command is always blocked here; the bash tool asks the
+		// user first when it can, and falls back to refusing.
+		if e.DenyDangerous && IsDangerousCommand(detail) && e.SandboxAsk == nil {
 			return fmt.Errorf("blocked dangerous command: %s", detail)
 		}
-		if e.DenyNetwork && IsNetworkCommand(detail) {
-			return describeNetworkBlock(detail, e)
-		}
-		if e.Sandbox.Enabled() && !e.Sandbox.AllowNetwork && IsNetworkCommand(detail) {
-			return describeNetworkBlock(detail, e)
+		// The network is blocked by the sandbox. When the user can be asked,
+		// the bash tool handles the escalation, so do not refuse here.
+		if e.SandboxAsk == nil {
+			policy := e.sandboxPolicy()
+			if (e.DenyNetwork || (policy.Enabled() && !policy.AllowNetwork)) && IsNetworkCommand(detail) {
+				return describeNetworkBlock(detail, e)
+			}
 		}
 		if e.DenyGit && IsGitMutatingCommand(detail) {
 			return fmt.Errorf("git mutations are disabled for this worker: %s", detail)

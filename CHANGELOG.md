@@ -23,6 +23,16 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- The network and dangerous-command prompts now actually reach the user. The
+  static checks used to refuse the command before the escalation could ask,
+  and a session approval did not persist.
+- The dangerous-command list (`sudo`, `rm -rf /`, `mkfs`, `dd of=/dev/`,
+  `git push --force`, fork bombs, …) is enforced for the lead agent again;
+  it was implemented but never enabled outside the eval harness.
+- Writers get their own sandbox settings instead of inheriting the lead's,
+  so a read-only lead no longer produces read-only writers.
+- `wombat config set permissions.outside allow|deny|ask` is accepted.
+
 - The Homebrew tap update authenticates with an authorization header and
   reports what is wrong when the token cannot reach the tap repository.
 

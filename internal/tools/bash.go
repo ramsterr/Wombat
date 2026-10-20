@@ -38,7 +38,20 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if strings.TrimSpace(a.Command) == "" {
 		return "", errors.New("empty command")
 	}
-	if err := env.Check("bash", a.Command); err != nil {
+	if err := env.checkPolicy("bash", a.Command); err != nil {
+		return "", err
+	}
+	// Capability escalations come first: if the user refuses the network or
+	// a dangerous command, there is no point asking about the command itself.
+	if !env.allowDangerous(a.Command) {
+		return "", fmt.Errorf("blocked dangerous command: %s\n  %s", a.Command, sandbox.DangerHint())
+	}
+	policy := env.sandboxPolicy()
+	policy, ok := env.escalateNetwork(ctx, policy, a.Command)
+	if !ok {
+		return "", fmt.Errorf("network access is blocked by the sandbox: %s\n  %s", a.Command, sandbox.NetworkHint())
+	}
+	if err := env.permit("bash", a.Command); err != nil {
 		return "", err
 	}
 	if MayMutate(a.Command) {
@@ -49,12 +62,6 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	timeout := time.Duration(a.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 120 * time.Second
-	}
-
-	policy := env.sandboxPolicy()
-	policy, ok := env.escalateNetwork(ctx, policy, a.Command)
-	if !ok {
-		return "", fmt.Errorf("network access is blocked by the sandbox: %s\n  %s", a.Command, sandbox.NetworkHint())
 	}
 
 	result := RunCommandWithPolicy(ctx, env, a.Command, timeout, policy)
