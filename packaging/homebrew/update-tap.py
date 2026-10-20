@@ -105,7 +105,7 @@ def main() -> int:
 
     token = os.environ.get("HOMEBREW_TAP_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
-        raise SystemExit("HOMEBREW_TAP_TOKEN is not set")
+        raise SystemExit("HOMEBREW_TAP_TOKEN is not set in this repository")
 
     sums = required_sums(parse_checksums(args.checksums), args.version)
     formula = TEMPLATE.format(version=args.version, **sums)
@@ -127,6 +127,15 @@ def main() -> int:
     }
     if sha:
         payload["sha"] = sha
+        try:
+            current = api("GET", path + "?ref=main", token)
+            import base64 as _b64
+
+            if _b64.b64decode(current.get("content", "")).decode() == formula:
+                print(f"{args.tap}/{FORMULA_PATH} is already at {args.version}")
+                return 0
+        except Exception:  # noqa: BLE001 - fall through and write the formula
+            pass
     api("PUT", path, token, payload)
     print(f"updated {args.tap}/{FORMULA_PATH} to {args.version}")
     return 0

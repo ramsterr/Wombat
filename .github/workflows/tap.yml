@@ -1,0 +1,44 @@
+name: Homebrew tap
+
+# Refreshes the Homebrew formula without cutting a new release.
+# Run it from the Actions tab: "Run workflow".
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (default: the latest release)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  tap:
+    runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update the formula
+        run: |
+          set -e
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is not set in this repository"
+            exit 1
+          fi
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(gh release view --json tagName --jq .tagName | sed 's/^v//')"
+          fi
+          echo "updating the tap to ${VERSION}"
+          gh release download "v${VERSION}" --pattern checksums.txt --dir . --clobber
+          python3 packaging/homebrew/update-tap.py --tap ramsterr/homebrew-wombat --version "$VERSION" --checksums checksums.txt
