@@ -23,7 +23,7 @@ func cmdHome(sessionID string) error {
 		}
 		cwd, _ := os.Getwd()
 		action, err := tui.Run(tui.Options{
-			Version:   Version,
+			Version:   VersionString(),
 			Cwd:       cwd,
 			Cfg:       cfg,
 			SessionID: sessionID,

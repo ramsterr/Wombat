@@ -176,7 +176,7 @@ func cmdRepl(args []string, resume bool) error {
 	ag.Hooks = r.hooks()
 	r.windowFn = func() int { return ag.ContextWindow }
 
-	fmt.Printf("%s %s\n", bold("◆ wombat"), dim(Version+" · "+ag.Provider.Name()+"/"+ag.Model+" · session "+sess.ID()))
+	fmt.Printf("%s %s\n", bold("◆ wombat"), dim(VersionString()+" · "+ag.Provider.Name()+"/"+ag.Model+" · session "+sess.ID()))
 	fmt.Println(dim("  /help for commands · ctrl+c interrupts a run · /exit quits"))
 
 	in := bufio.NewReader(os.Stdin)
@@ -416,7 +416,14 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 		}
 		return false, na, sess, nil
 	case "/status":
-		fmt.Printf("provider=%s model=%s session=%s cwd=%s\n", ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd)
+		current := mode.Create
+		if ag.Env != nil && ag.Env.Mode != "" {
+			if m, perr := mode.Parse(ag.Env.Mode); perr == nil {
+				current = m
+			}
+		}
+		fmt.Printf("provider=%s model=%s session=%s\ncwd=%s\nmode=%s sandbox=%s\n",
+			ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd, current.Label(), agentSandbox(ag))
 	default:
 		return false, nil, nil, fmt.Errorf("unknown command %s — /help", cmd)
 	}
@@ -428,11 +435,14 @@ func rebuild(cfg *config.Config, opts runOpts, sess *session.Session, p *Prompte
 	if err != nil {
 		return nil, "", "", err
 	}
+	changed := sess.Meta.Model != na.Model || sess.Meta.Provider != na.Provider.Name()
 	if sess.Meta.Model != "" {
 		sess.Meta.Model = na.Model
 	}
 	sess.Meta.Provider = na.Provider.Name()
 	_ = sess.Flush()
-	fmt.Println(dim("now using " + na.Provider.Name() + "/" + na.Model))
+	if changed {
+		fmt.Println(dim("now using " + na.Provider.Name() + "/" + na.Model))
+	}
 	return na, na.Provider.Name(), na.Model, nil
 }

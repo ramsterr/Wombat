@@ -70,7 +70,7 @@ func Main() {
 	case "upgrade":
 		err = cmdUpgrade(args)
 	case "version", "--version", "-v":
-		fmt.Println(VersionString())
+		fmt.Println("wombat " + VersionString())
 	case "help", "--help", "-h":
 		help()
 	default:

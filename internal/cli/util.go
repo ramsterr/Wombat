@@ -53,7 +53,7 @@ func init() {
 
 // VersionString is the human readable build description.
 func VersionString() string {
-	v := "wombat " + Version
+	v := Version
 	if Commit != "" && Commit != "none" {
 		short := Commit
 		if len(short) > 7 {

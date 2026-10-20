@@ -1435,9 +1435,6 @@ func (c *chat) view() string {
 	if pal := c.paletteView(); pal != "" {
 		parts = append(parts, pal)
 	}
-	if pal := c.paletteView(); pal != "" {
-		parts = append(parts, pal)
-	}
 	parts = append(parts, box, c.hint())
 	return strings.Join(parts, "\n")
 }
