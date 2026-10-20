@@ -18,21 +18,27 @@ type Provider struct {
 }
 
 const (
-	DefaultMaxDelegations = 3
-	DefaultWorkerMaxSteps = 24
+	DefaultMaxDelegations        = 3
+	DefaultMaxParallelScouts     = 3
+	DefaultWorkerMaxSteps        = 24
+	DefaultWorkerTokenBudget     = 120_000
+	DefaultTurnWorkerTokenBudget = 240_000
 )
 
 type Config struct {
-	Version        int                  `json:"version"`
-	Provider       string               `json:"provider"`
-	Model          string               `json:"model"`
-	Providers      map[string]*Provider `json:"providers"`
-	Permissions    map[string]string    `json:"permissions,omitempty"`
-	MaxSteps       int                  `json:"max_steps,omitempty"`
-	Orchestrator   bool                 `json:"orchestrator"`
-	MaxDelegations int                  `json:"max_delegations"`
-	WorkerMaxSteps int                  `json:"worker_max_steps"`
-	Mouse          bool                 `json:"mouse,omitempty"`
+	Version               int                  `json:"version"`
+	Provider              string               `json:"provider"`
+	Model                 string               `json:"model"`
+	Providers             map[string]*Provider `json:"providers"`
+	Permissions           map[string]string    `json:"permissions,omitempty"`
+	MaxSteps              int                  `json:"max_steps,omitempty"`
+	Orchestrator          bool                 `json:"orchestrator"`
+	MaxDelegations        int                  `json:"max_delegations"`
+	MaxParallelScouts     int                  `json:"max_parallel_scouts"`
+	WorkerMaxSteps        int                  `json:"worker_max_steps"`
+	WorkerTokenBudget     int                  `json:"worker_token_budget"`
+	TurnWorkerTokenBudget int                  `json:"turn_worker_token_budget"`
+	Mouse                 bool                 `json:"mouse,omitempty"`
 }
 
 type Preset struct {
@@ -98,10 +104,13 @@ func Defaults() *Config {
 			"write": "ask",
 			"edit":  "ask",
 		},
-		MaxSteps:       64,
-		Orchestrator:   true,
-		MaxDelegations: DefaultMaxDelegations,
-		WorkerMaxSteps: DefaultWorkerMaxSteps,
+		MaxSteps:              64,
+		Orchestrator:          true,
+		MaxDelegations:        DefaultMaxDelegations,
+		MaxParallelScouts:     DefaultMaxParallelScouts,
+		WorkerMaxSteps:        DefaultWorkerMaxSteps,
+		WorkerTokenBudget:     DefaultWorkerTokenBudget,
+		TurnWorkerTokenBudget: DefaultTurnWorkerTokenBudget,
 	}
 	for _, p := range Presets {
 		c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}
@@ -140,6 +149,15 @@ func Load() (*Config, error) {
 	}
 	if c.WorkerMaxSteps <= 0 {
 		c.WorkerMaxSteps = DefaultWorkerMaxSteps
+	}
+	if c.MaxParallelScouts <= 0 {
+		c.MaxParallelScouts = DefaultMaxParallelScouts
+	}
+	if c.WorkerTokenBudget <= 0 {
+		c.WorkerTokenBudget = DefaultWorkerTokenBudget
+	}
+	if c.TurnWorkerTokenBudget <= 0 {
+		c.TurnWorkerTokenBudget = DefaultTurnWorkerTokenBudget
 	}
 	return c, nil
 }

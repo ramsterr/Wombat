@@ -46,7 +46,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
-- **Task ledger and read-only delegation** — the lead agent keeps a persistent plan, records durable facts, and can hand bounded investigations to fresh-context workers with structured evidence reports.
+- **Task ledger and read-only delegation** — the lead agent keeps a persistent plan, records durable facts, and can run bounded investigations itself or fan out up to six parallel read-only scouts with structured evidence reports.
 - **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required. On Windows, shell commands need Git Bash or WSL.
 
 ## Install
@@ -331,26 +331,32 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   "max_steps": 64,
   "orchestrator": true,
   "max_delegations": 3,
+  "max_parallel_scouts": 3,
   "worker_max_steps": 24,
+  "worker_token_budget": 120000,
+  "turn_worker_token_budget": 240000,
   "mouse": false
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, and `worker_max_steps` caps each worker.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, `max_parallel_scouts` caps concurrent scouts, and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops.
 
 ## Orchestration
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to six independent scouts concurrently, in waves bounded by `max_parallel_scouts`. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
 
 ```sh
 wombat config set orchestrator false        # disable ledger + delegation
 wombat config set max_delegations 2         # per-turn delegation budget
+wombat config set max_parallel_scouts 2     # concurrent scouts per wave
 wombat config set worker_max_steps 16       # per-worker step cap
+wombat config set worker_token_budget 80000 # per-worker token cap
+wombat config set turn_worker_token_budget 160000 # all workers per turn
 ```
 
-Worker transcripts are stored under `~/.wombat/workers/` for inspection. Delegation is sequential and read-only in this phase; parallel scouts and writer workers come later.
+Worker transcripts are stored under `~/.wombat/workers/` for inspection. Workers are read-only; the lead remains the only writer.
 
 ## Examples
 

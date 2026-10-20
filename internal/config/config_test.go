@@ -19,6 +19,9 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.Orchestrator || cfg.MaxDelegations != DefaultMaxDelegations || cfg.WorkerMaxSteps != DefaultWorkerMaxSteps {
 		t.Fatalf("orchestrator defaults = %+v", cfg)
 	}
+	if cfg.MaxParallelScouts != DefaultMaxParallelScouts || cfg.WorkerTokenBudget != DefaultWorkerTokenBudget || cfg.TurnWorkerTokenBudget != DefaultTurnWorkerTokenBudget {
+		t.Fatalf("worker defaults = %+v", cfg)
+	}
 	if _, ok := cfg.Providers["ollama"]; !ok {
 		t.Fatalf("ollama preset missing")
 	}
@@ -38,7 +41,10 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	cfg.Permissions["bash"] = "deny"
 	cfg.Orchestrator = false
 	cfg.MaxDelegations = 7
+	cfg.MaxParallelScouts = 2
 	cfg.WorkerMaxSteps = 11
+	cfg.WorkerTokenBudget = 50000
+	cfg.TurnWorkerTokenBudget = 90000
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +72,9 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	}
 	if reloaded.Orchestrator || reloaded.MaxDelegations != 7 || reloaded.WorkerMaxSteps != 11 {
 		t.Errorf("orchestrator config not persisted: %+v", reloaded)
+	}
+	if reloaded.MaxParallelScouts != 2 || reloaded.WorkerTokenBudget != 50000 || reloaded.TurnWorkerTokenBudget != 90000 {
+		t.Errorf("worker config not persisted: %+v", reloaded)
 	}
 }
 

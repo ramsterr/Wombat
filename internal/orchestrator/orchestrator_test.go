@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 )
 
 type scriptProvider struct {
+	mu          sync.Mutex
 	leadCalls   int
 	workerCalls int
 	fn          func(call int, req llm.Request) (*llm.Result, error)
@@ -27,12 +29,17 @@ func (p *scriptProvider) ListModels(context.Context) ([]string, error) {
 	return []string{"script-model"}, nil
 }
 func (p *scriptProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	p.mu.Lock()
+	var call int
 	if strings.Contains(req.System, "## Delegated worker") {
 		p.workerCalls++
-		return p.fn(p.workerCalls, req)
+		call = p.workerCalls
+	} else {
+		p.leadCalls++
+		call = p.leadCalls
 	}
-	p.leadCalls++
-	return p.fn(p.leadCalls, req)
+	p.mu.Unlock()
+	return p.fn(call, req)
 }
 
 func newOrch(t *testing.T, provider llm.Provider, cfg Config) (*Orchestrator, *agent.Agent, string) {
@@ -69,6 +76,13 @@ func TestLedgerValidate(t *testing.T) {
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid ledger rejected: %v", err)
 	}
+	parallel := &Ledger{Steps: []Step{
+		{ID: "a", Title: "A", Status: StepInProgress},
+		{ID: "b", Title: "B", Status: StepInProgress},
+	}}
+	if err := parallel.Validate(); err != nil {
+		t.Fatalf("parallel in_progress steps rejected: %v", err)
+	}
 	cases := []struct {
 		name string
 		l    *Ledger
@@ -80,10 +94,6 @@ func TestLedgerValidate(t *testing.T) {
 			{ID: "a", Title: "A", Status: StepPending, DependsOn: []string{"b"}},
 			{ID: "b", Title: "B", Status: StepPending, DependsOn: []string{"a"}},
 		}}, "cycle"},
-		{"two active", &Ledger{Steps: []Step{
-			{ID: "a", Title: "A", Status: StepInProgress},
-			{ID: "b", Title: "B", Status: StepInProgress},
-		}}, "at most one"},
 		{"missing title", &Ledger{Steps: []Step{{ID: "a", Status: StepPending}}}, "title"},
 		{"bad status", &Ledger{Steps: []Step{{ID: "a", Title: "A", Status: "nope"}}}, "invalid status"},
 	}
@@ -328,7 +338,7 @@ func TestWorkerHooks(t *testing.T) {
 		OnUsage: func(_ llm.Usage, history int) { usageHistory = history },
 		OnTool:  func(name, detail string) { toolName, toolDetail = name, detail },
 	}
-	h := workerHooks(parent, "Survey")
+	h := workerHooks(parent, "Survey", nil)
 	h.OnUsage(llm.Usage{In: 3}, 99)
 	if usageHistory != -1 {
 		t.Fatalf("worker usage history = %d, want -1", usageHistory)
@@ -371,7 +381,7 @@ func (b *blockedProvider) Chat(ctx context.Context, _ llm.Request, _ func(string
 func TestDelegationTimeout(t *testing.T) {
 	o, _, _ := newOrch(t, &blockedProvider{}, Config{MaxDelegations: 1, WorkerTimeout: 20 * time.Millisecond})
 	start := time.Now()
-	_, usage, _, err := o.runWorker(context.Background(), delegateArgs{Title: "slow", Objective: "wait"}, nil, "", nil, 2)
+	_, usage, _, err := o.runWorker(context.Background(), delegateArgs{Title: "slow", Objective: "wait"}, nil, "", nil, 2, 100000)
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("timeout error = %v", err)
 	}

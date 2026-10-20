@@ -28,7 +28,7 @@ type planStep struct {
 func (t *updatePlanTool) Name() string  { return "update_plan" }
 func (t *updatePlanTool) Class() string { return "plan" }
 func (t *updatePlanTool) Description() string {
-	return "Create or replace the task ledger: the goal, durable facts, and ordered steps. Use for multi-step work, before delegating, and whenever the plan materially changes. Keep exactly one step in_progress while working. Steps are ordered but dependencies are explicit."
+	return "Create or replace the task ledger: the goal, durable facts, and ordered steps. Use for multi-step work, before delegating, and whenever the plan materially changes. Keep sequential work focused on one in_progress step; a parallel scout fleet may have several. Steps are ordered but dependencies are explicit."
 }
 func (t *updatePlanTool) Schema() map[string]any {
 	stepSchema := map[string]any{
@@ -91,7 +91,7 @@ type delegateArgs struct {
 func (t *delegateTool) Name() string  { return "delegate" }
 func (t *delegateTool) Class() string { return "delegate" }
 func (t *delegateTool) Description() string {
-	return "Delegate one self-contained, read-only investigation to a fresh worker with its own context. Use only when exploration would flood the lead context; do the work directly when it is small or requires edits. Workers cannot edit files, run mutating commands, or delegate. Returns a structured JSON report with evidence and usage."
+	return "Delegate one self-contained, read-only investigation to a fresh worker with its own context. Use only when exploration would flood the lead context; use delegate_many for several independent scouts, and do the work directly when it is small or requires edits. Workers cannot edit files, run mutating commands, or delegate. Returns a structured JSON report with evidence and usage."
 }
 func (t *delegateTool) Schema() map[string]any {
 	return map[string]any{
@@ -117,6 +117,54 @@ func (t *delegateTool) Run(ctx context.Context, raw json.RawMessage, _ *tools.En
 	return t.o.delegate(ctx, a)
 }
 
+type delegateManyTool struct{ o *Orchestrator }
+
+type delegateManyArgs struct {
+	Tasks []delegateArgs `json:"tasks"`
+}
+
+func (t *delegateManyTool) Name() string  { return "delegate_many" }
+func (t *delegateManyTool) Class() string { return "delegate" }
+func (t *delegateManyTool) Description() string {
+	return "Run two to six independent, read-only scouting tasks concurrently, each with its own context and session. Use only for independent questions that would flood the lead context; do not use for dependent steps, edits, or work you can do directly. Returns one structured JSON report per scout plus total usage; reconcile conflicting reports yourself."
+}
+func (t *delegateManyTool) Schema() map[string]any {
+	taskSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"step_id":     map[string]any{"type": "string", "description": "ledger step this scout belongs to (recommended; must exist and be unique in the fleet)"},
+			"title":       map[string]any{"type": "string", "description": "short scout title"},
+			"objective":   map[string]any{"type": "string", "description": "the concrete question this scout must answer"},
+			"context":     map[string]any{"type": "string", "description": "self-contained context the scout cannot infer from the repo"},
+			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer or test-surveyor"},
+			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including evidence requirements"},
+			"max_steps":   map[string]any{"type": "integer", "description": "optional scout step budget (default from config, max 100)"},
+		},
+		"required": []string{"title", "objective"},
+	}
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"tasks": map[string]any{
+				"type":        "array",
+				"description": "independent read-only investigations to run concurrently (2-6)",
+				"minItems":    2,
+				"maxItems":    maxFleetTasks,
+				"items":       taskSchema,
+			},
+		},
+		"required": []string{"tasks"},
+	}
+}
+
+func (t *delegateManyTool) Run(ctx context.Context, raw json.RawMessage, _ *tools.Env) (string, error) {
+	var a delegateManyArgs
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return "", fmt.Errorf("bad arguments: %w", err)
+	}
+	return t.o.delegateMany(ctx, a.Tasks)
+}
+
 func jsonMarshalIndent(v any) (string, error) {
 	raw, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -131,5 +179,21 @@ type delegateResult struct {
 	Usage         ReportUsage   `json:"usage"`
 	WorkerSession string        `json:"worker_session,omitempty"`
 	Ledger        LedgerView    `json:"ledger"`
+	Warning       string        `json:"warning,omitempty"`
+}
+
+type fleetResult struct {
+	Tasks   []delegateOutcome `json:"tasks"`
+	Usage   ReportUsage       `json:"usage"`
+	Ledger  LedgerView        `json:"ledger"`
+	Warning string            `json:"warning,omitempty"`
+}
+
+type delegateOutcome struct {
+	StepID        string        `json:"step_id,omitempty"`
+	Title         string        `json:"title"`
+	Report        *WorkerReport `json:"report"`
+	Usage         ReportUsage   `json:"usage"`
+	WorkerSession string        `json:"worker_session,omitempty"`
 	Warning       string        `json:"warning,omitempty"`
 }

@@ -1,7 +1,6 @@
 package orchestrator
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -11,30 +10,46 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/config"
-	"github.com/ramsterr/Wombat/internal/llm"
-	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
 
 const (
-	DefaultMaxDelegations = config.DefaultMaxDelegations
-	DefaultWorkerMaxSteps = config.DefaultWorkerMaxSteps
-	DefaultWorkerTimeout  = 5 * time.Minute
+	DefaultMaxDelegations        = config.DefaultMaxDelegations
+	DefaultMaxParallelScouts     = config.DefaultMaxParallelScouts
+	DefaultWorkerMaxSteps        = config.DefaultWorkerMaxSteps
+	DefaultWorkerTokenBudget     = config.DefaultWorkerTokenBudget
+	DefaultTurnWorkerTokenBudget = config.DefaultTurnWorkerTokenBudget
+	DefaultWorkerTimeout         = 5 * time.Minute
+	maxFleetTasks                = 6
+	maxWorkerStepsCap            = 100
+	minWorkerTokenBudget         = 1_000
 )
 
 type Config struct {
-	MaxDelegations int
-	WorkerMaxSteps int
-	WorkerTimeout  time.Duration
-	WorkerHome     string
+	MaxDelegations        int
+	MaxParallelScouts     int
+	WorkerMaxSteps        int
+	WorkerTokenBudget     int
+	TurnWorkerTokenBudget int
+	WorkerTimeout         time.Duration
+	WorkerHome            string
 }
 
 func (c Config) withDefaults() Config {
 	if c.MaxDelegations <= 0 {
 		c.MaxDelegations = DefaultMaxDelegations
 	}
+	if c.MaxParallelScouts <= 0 {
+		c.MaxParallelScouts = DefaultMaxParallelScouts
+	}
 	if c.WorkerMaxSteps <= 0 {
 		c.WorkerMaxSteps = DefaultWorkerMaxSteps
+	}
+	if c.WorkerTokenBudget <= 0 {
+		c.WorkerTokenBudget = DefaultWorkerTokenBudget
+	}
+	if c.TurnWorkerTokenBudget <= 0 {
+		c.TurnWorkerTokenBudget = DefaultTurnWorkerTokenBudget
 	}
 	if c.WorkerTimeout <= 0 {
 		c.WorkerTimeout = DefaultWorkerTimeout
@@ -56,6 +71,8 @@ type Orchestrator struct {
 	loadWarning      string
 	delegations      int
 	totalDelegations int
+	workerTokens     int
+	hooksMu          sync.Mutex
 }
 
 func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
@@ -72,7 +89,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		return nil, errors.New("orchestrator: lead agent has no tool environment")
 	}
 	for _, t := range ag.Tools {
-		if t.Name() == "update_plan" || t.Name() == "delegate" {
+		if t.Name() == "update_plan" || t.Name() == "delegate" || t.Name() == "delegate_many" {
 			return nil, errors.New("orchestrator: lead agent is already attached")
 		}
 	}
@@ -116,13 +133,14 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		}
 		o.beginTurn()
 	}
-	ag.Tools = append(ag.Tools, &updatePlanTool{o: o}, &delegateTool{o: o})
+	ag.Tools = append(ag.Tools, &updatePlanTool{o: o}, &delegateTool{o: o}, &delegateManyTool{o: o})
 	return o, nil
 }
 
 func (o *Orchestrator) beginTurn() {
 	o.mu.Lock()
 	o.delegations = 0
+	o.workerTokens = 0
 	o.mu.Unlock()
 }
 
@@ -160,15 +178,17 @@ func (o *Orchestrator) systemPrompt() string {
 	b.WriteString(view)
 	b.WriteString("\n\n")
 	b.WriteString("### Delegation\n")
-	b.WriteString("Use delegate only for self-contained, read-only investigations whose exploration would otherwise flood your context ")
+	b.WriteString("Use delegate for a single self-contained, read-only investigation whose exploration would otherwise flood your context ")
 	b.WriteString("(for example: map a package, trace a call path, survey tests, compare implementations). ")
+	b.WriteString("Use delegate_many only for two to six genuinely independent scouting tasks that can run concurrently; never put dependent steps in one fleet. ")
 	b.WriteString("Do the work directly when it is small, when it requires edits, or when you already know where to look. ")
-	fmt.Fprintf(&b, "You may delegate at most %d times per user turn, and every delegation must be grounded in the ledger.\n", maxDelegations)
+	fmt.Fprintf(&b, "You may delegate at most %d times per user turn, at most %d scouts at once, and every delegation must be grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
 	b.WriteString("Tie each delegation to a ledger step when one exists, and always give the worker a complete objective, relevant context, and a concrete deliverable because it cannot see this conversation. ")
 	b.WriteString("Workers are read-only: they cannot edit files, run mutating commands, or delegate further. ")
-	b.WriteString("Treat worker reports as evidence, not truth; verify important claims yourself before editing or answering.\n\n")
+	b.WriteString("Each worker has hard caps on steps, tokens, and time; a fleet shares the turn's worker token budget, so keep objectives tight. ")
+	b.WriteString("Treat worker reports as evidence, not truth; reconcile conflicting reports and verify important claims yourself before editing or answering.\n\n")
 	b.WriteString("### Ledger rules\n")
-	b.WriteString("- Keep one step in_progress while you are working on it.\n")
+	b.WriteString("- Keep sequential work focused on one in_progress step; a parallel scout fleet may have several.\n")
 	b.WriteString("- Mark work completed only when the deliverable actually exists.\n")
 	b.WriteString("- Record durable facts (paths, constraints, decisions, test results) in facts.\n")
 	b.WriteString("- If a worker is blocked or fails, revise the plan instead of retrying blindly.\n")
@@ -231,260 +251,5 @@ func (o *Orchestrator) planSummary(saved bool, saveErr error) string {
 	if !saved && saveErr != nil {
 		fmt.Fprintf(&b, "warning: could not persist ledger: %v\n", saveErr)
 	}
-	return strings.TrimSpace(b.String())
-}
-
-func (o *Orchestrator) delegate(ctx context.Context, a delegateArgs) (string, error) {
-	if err := validateDelegationArgs(a); err != nil {
-		return "", err
-	}
-	o.mu.Lock()
-	if o.delegations >= o.cfg.MaxDelegations {
-		o.mu.Unlock()
-		return "", fmt.Errorf("delegation budget exhausted (%d per user turn); continue the work yourself or revise the plan", o.cfg.MaxDelegations)
-	}
-	o.delegations++
-	goal := o.ledger.Goal
-	facts := append([]string(nil), o.ledger.Facts...)
-	var step *Step
-	if a.StepID != "" {
-		if s := o.ledger.Find(a.StepID); s != nil {
-			for _, dep := range s.DependsOn {
-				if d := o.ledger.Find(dep); d == nil || d.Status != StepCompleted {
-					o.delegations--
-					o.mu.Unlock()
-					status := "missing"
-					if d != nil {
-						status = string(d.Status)
-					}
-					return "", fmt.Errorf("step %q depends on %q (%s): finish dependencies before delegating", s.ID, dep, status)
-				}
-			}
-			copy := *s
-			step = &copy
-		} else {
-			o.delegations--
-			o.mu.Unlock()
-			return "", fmt.Errorf("unknown step id %q: call update_plan first or omit step_id", a.StepID)
-		}
-	}
-	o.totalDelegations++
-	maxSteps := a.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = o.cfg.WorkerMaxSteps
-	}
-	o.mu.Unlock()
-
-	report, usage, workerSession, err := o.runWorker(ctx, a, step, goal, facts, maxSteps)
-	if report == nil {
-		report = &WorkerReport{Status: "failed"}
-	}
-	if err != nil && report.Summary == "" {
-		report.Status = "failed"
-		report.Summary = err.Error()
-	}
-	if report.Usage.Calls == 0 && usage.Calls > 0 {
-		report.Usage = usage
-	}
-	o.lead.AddUsageStats(agent.UsageStats{Calls: usage.Calls, In: usage.In, Cached: usage.Cached, Out: usage.Out})
-
-	o.mu.Lock()
-	if a.StepID != "" {
-		if s := o.ledger.Find(a.StepID); s != nil {
-			s.Status = reportStatusToStep(report.Status)
-			s.Report = report
-			s.Updated = time.Now()
-		}
-	}
-	o.ledger.Updated = time.Now()
-	saveErr := o.ledger.Save(o.ledgerPath)
-	view := o.ledger.View()
-	o.mu.Unlock()
-
-	result := delegateResult{
-		StepID:        a.StepID,
-		Report:        report,
-		Usage:         usage,
-		WorkerSession: workerSession,
-		Ledger:        view,
-	}
-	if err != nil {
-		result.Warning = err.Error()
-	}
-	if saveErr != nil {
-		if result.Warning != "" {
-			result.Warning += "; "
-		}
-		result.Warning += "could not persist ledger: " + saveErr.Error()
-	}
-	raw, mErr := jsonMarshalIndent(result)
-	if mErr != nil {
-		return "", mErr
-	}
-	return raw, nil
-}
-
-func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step, goal string, facts []string, maxSteps int) (*WorkerReport, ReportUsage, string, error) {
-	o.mu.Lock()
-	cfg := o.cfg
-	o.mu.Unlock()
-
-	ws, err := session.CreateAt(cfg.WorkerHome, o.lead.Env.Dir, o.lead.Provider.Name(), o.lead.Model, "delegate: "+oneLine(a.Title, 80))
-	if err != nil {
-		return nil, ReportUsage{}, "", fmt.Errorf("create worker session: %w", err)
-	}
-	env := *o.lead.Env
-	env.ReadOnly = true
-	env.Permit = nil
-	worker := &agent.Agent{
-		Provider:      o.lead.Provider,
-		Model:         o.lead.Model,
-		Tools:         o.workerTools,
-		Env:           &env,
-		Sess:          ws,
-		MaxSteps:      maxSteps,
-		Compact:       o.lead.Compact && o.lead.ContextWindow > 0,
-		ContextWindow: o.lead.ContextWindow,
-		NumCtx:        o.lead.NumCtx,
-		SystemExtra: func() string {
-			return workerSystemPrompt(a, step, goal, facts)
-		},
-		Hooks: workerHooks(o.lead.Hooks, a.Title),
-	}
-
-	runCtx, cancel := context.WithTimeout(ctx, cfg.WorkerTimeout)
-	defer cancel()
-	runErr := worker.Run(runCtx, workerBrief(a, goal, facts))
-	stats := worker.Usage()
-	usage := usageFrom(stats)
-	content := lastAssistantContent(ws)
-	report, ok := parseReport(content)
-	if !ok {
-		report = fallbackReport(content)
-	}
-	report.Usage = usage
-	if runErr != nil {
-		if runCtx.Err() == context.DeadlineExceeded {
-			runErr = fmt.Errorf("worker timed out after %s", cfg.WorkerTimeout)
-		}
-		if report.Status != "completed" {
-			report.Status = "failed"
-		}
-		if report.Summary == "" || report.Status == "failed" {
-			report.Summary = "worker stopped: " + runErr.Error()
-		}
-	}
-	return trimReport(report), usage, ws.Path(), runErr
-}
-
-func workerHooks(parent agent.Hooks, title string) agent.Hooks {
-	tag := "worker:" + oneLine(title, 40) + ":"
-	return agent.Hooks{
-		OnTool: func(name, detail string) {
-			if parent.OnTool != nil {
-				parent.OnTool("worker:"+name, tag+" "+detail)
-			}
-		},
-		OnToolResult: func(name, result string, dur time.Duration) {
-			if parent.OnToolResult != nil {
-				parent.OnToolResult("worker:"+name, result, dur)
-			}
-		},
-		OnUsage: func(u llm.Usage, history int) {
-			if parent.OnUsage != nil {
-				parent.OnUsage(u, -1)
-			}
-		},
-		OnCompact: func(kind string, before, after int) {
-			if parent.OnCompact != nil {
-				parent.OnCompact("worker:"+kind, before, after)
-			}
-		},
-	}
-}
-
-func lastAssistantContent(s *session.Session) string {
-	if s == nil {
-		return ""
-	}
-	for i := len(s.Messages) - 1; i >= 0; i-- {
-		m := s.Messages[i]
-		if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" {
-			return m.Content
-		}
-	}
-	return ""
-}
-
-func workerSystemPrompt(a delegateArgs, step *Step, goal string, facts []string) string {
-	var b strings.Builder
-	b.WriteString("## Delegated worker\n")
-	b.WriteString("You are a read-only research worker for a coding agent. You cannot see the lead conversation. ")
-	b.WriteString("Do not modify files, run mutating commands, ask the user questions, or request more work. ")
-	b.WriteString("Use read/glob/grep to inspect the repository. Stay inside the working directory unless the brief says otherwise. ")
-	b.WriteString("Make reasonable assumptions when context is missing, state them in risks, and prefer evidence over speculation.\n\n")
-	if goal != "" {
-		b.WriteString("Project goal: ")
-		b.WriteString(oneLine(goal, 800))
-		b.WriteString("\n")
-	}
-	if len(facts) > 0 {
-		b.WriteString("Known facts:\n")
-		for _, f := range facts {
-			fmt.Fprintf(&b, "- %s\n", oneLine(f, 400))
-		}
-	}
-	if step != nil {
-		fmt.Fprintf(&b, "Ledger step: [%s] %s\n", step.ID, oneLine(step.Title, 200))
-	}
-	b.WriteString("\nReturn only a JSON object as your final answer, with this shape:\n")
-	b.WriteString(`{"status":"completed|partial|blocked|failed","summary":"...","findings":[{"claim":"...","evidence":"...","path":"...","lines":"..."}],"changes":[],"tests":[],"risks":[],"next_steps":[]}`)
-	b.WriteString("\n\nRules for the report:\n")
-	b.WriteString("- summary: what you established, in at most 6 sentences.\n")
-	b.WriteString("- findings: only claims backed by evidence; use path:line references when possible.\n")
-	b.WriteString("- changes: leave empty; you are read-only.\n")
-	b.WriteString("- tests: commands you ran or evidence you inspected, including their outcome.\n")
-	b.WriteString("- status=completed only if you answered the objective; use partial/blocked otherwise.\n")
-	b.WriteString("- Do not include markdown fences or prose outside the JSON object.\n")
-	if a.Deliverable != "" {
-		b.WriteString("\nRequired deliverable: ")
-		b.WriteString(oneLine(a.Deliverable, 1000))
-		b.WriteString("\n")
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func workerBrief(a delegateArgs, goal string, facts []string) string {
-	var b strings.Builder
-	b.WriteString("## Task\n")
-	b.WriteString(a.Objective)
-	b.WriteString("\n")
-	if a.Context != "" {
-		b.WriteString("\n## Context\n")
-		b.WriteString(a.Context)
-		b.WriteString("\n")
-	}
-	if a.Deliverable != "" {
-		b.WriteString("\n## Deliverable\n")
-		b.WriteString(a.Deliverable)
-		b.WriteString("\n")
-	}
-	if a.Role != "" {
-		b.WriteString("\nRole: ")
-		b.WriteString(a.Role)
-		b.WriteString("\n")
-	}
-	if goal != "" {
-		b.WriteString("\nProject goal: ")
-		b.WriteString(oneLine(goal, 800))
-		b.WriteString("\n")
-	}
-	if len(facts) > 0 {
-		b.WriteString("\nKnown facts:\n")
-		for _, f := range facts {
-			fmt.Fprintf(&b, "- %s\n", oneLine(f, 400))
-		}
-	}
-	b.WriteString("\nWork independently, cite evidence, and finish with the JSON report.")
 	return strings.TrimSpace(b.String())
 }

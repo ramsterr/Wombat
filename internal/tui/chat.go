@@ -304,8 +304,11 @@ func (c *chat) rebuild(reset bool) error {
 	}
 	if c.cfg.Orchestrator {
 		if _, err := orchestrator.Attach(c.ag, orchestrator.Config{
-			MaxDelegations: c.cfg.MaxDelegations,
-			WorkerMaxSteps: c.cfg.WorkerMaxSteps,
+			MaxDelegations:        c.cfg.MaxDelegations,
+			MaxParallelScouts:     c.cfg.MaxParallelScouts,
+			WorkerMaxSteps:        c.cfg.WorkerMaxSteps,
+			WorkerTokenBudget:     c.cfg.WorkerTokenBudget,
+			TurnWorkerTokenBudget: c.cfg.TurnWorkerTokenBudget,
 		}); err != nil {
 			return err
 		}

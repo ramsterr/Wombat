@@ -19,7 +19,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, orchestrator, max_delegations, worker_max_steps, permissions.<bash|write|edit>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, orchestrator, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, permissions.<bash|write|edit>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -51,12 +51,30 @@ func cmdConfig(args []string) error {
 			return fmt.Errorf("max_delegations must be a positive integer")
 		}
 		cfg.MaxDelegations = n
+	case key == "max_parallel_scouts":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return fmt.Errorf("max_parallel_scouts must be a positive integer")
+		}
+		cfg.MaxParallelScouts = n
 	case key == "worker_max_steps":
 		n, err := strconv.Atoi(val)
 		if err != nil || n < 1 {
 			return fmt.Errorf("worker_max_steps must be a positive integer")
 		}
 		cfg.WorkerMaxSteps = n
+	case key == "worker_token_budget":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return fmt.Errorf("worker_token_budget must be a positive integer")
+		}
+		cfg.WorkerTokenBudget = n
+	case key == "turn_worker_token_budget":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return fmt.Errorf("turn_worker_token_budget must be a positive integer")
+		}
+		cfg.TurnWorkerTokenBudget = n
 	case strings.HasPrefix(key, "permissions."):
 		kind := strings.TrimPrefix(key, "permissions.")
 		if kind != "bash" && kind != "write" && kind != "edit" {

@@ -65,4 +65,5 @@ Record the model, provider, date, pass rate, tokens, cost, and delegation count.
 - Set a hard per-task timeout and keep the suite small.
 - Pass pricing flags to see cost per solved task; leave them at 0 to report tokens only.
 - Orchestration is on by default; use `-orchestrator=false` for the single-agent baseline.
+- Worker fleets have hard per-worker and per-turn token caps (`worker_token_budget`, `turn_worker_token_budget`); lower them when measuring orchestration overhead.
 - The harness denies network commands and dangerous shell commands by default. Workers are read-only and inherit the same workspace.

@@ -102,8 +102,11 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	}
 	if cfg.Orchestrator {
 		if _, err := orchestrator.Attach(ag, orchestrator.Config{
-			MaxDelegations: cfg.MaxDelegations,
-			WorkerMaxSteps: cfg.WorkerMaxSteps,
+			MaxDelegations:        cfg.MaxDelegations,
+			MaxParallelScouts:     cfg.MaxParallelScouts,
+			WorkerMaxSteps:        cfg.WorkerMaxSteps,
+			WorkerTokenBudget:     cfg.WorkerTokenBudget,
+			TurnWorkerTokenBudget: cfg.TurnWorkerTokenBudget,
 		}); err != nil {
 			return nil, err
 		}

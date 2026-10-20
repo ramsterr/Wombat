@@ -146,7 +146,6 @@ func (l *Ledger) Validate() error {
 		return fmt.Errorf("too many steps: %d (max %d)", len(l.Steps), maxStepsInPlan)
 	}
 	ids := make(map[string]int, len(l.Steps))
-	inProgress := 0
 	for i, s := range l.Steps {
 		if strings.TrimSpace(s.ID) == "" {
 			return fmt.Errorf("step %d: id is required", i+1)
@@ -161,12 +160,6 @@ func (l *Ledger) Validate() error {
 		if !s.Status.Valid() {
 			return fmt.Errorf("step %q: invalid status %q", s.ID, s.Status)
 		}
-		if s.Status == StepInProgress {
-			inProgress++
-		}
-	}
-	if inProgress > 1 {
-		return fmt.Errorf("at most one step may be in_progress (found %d)", inProgress)
 	}
 	for _, s := range l.Steps {
 		for _, dep := range s.DependsOn {
