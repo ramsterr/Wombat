@@ -8,6 +8,9 @@ Eval harness. It runs a task in a fresh workspace, invokes the real agent loop, 
 # Validate the suite without spending tokens.
 go run ./cmd/eval -tasks eval/tasks -dry-run
 
+# Run the suite three times per task (variance / confidence interval).
+go run ./cmd/eval -tasks eval/tasks -repeats 3 -out eval/results
+
 # Run the suite with the configured provider/model.
 go run ./cmd/eval -tasks eval/tasks -out eval/results
 
@@ -47,16 +50,20 @@ Tasks are JSON files in `eval/tasks`. Each task is self-contained:
 - `fixture` is an alternative to `files`: a directory copied into the workspace.
 - `setup` commands run before the agent; `check` commands run after it. The task passes only if the agent and every check command succeed.
 - `timeout_seconds` bounds the agent; `command_timeout_seconds` bounds setup/check commands.
+- Test files (`*_test.go`, `*_test.py`, `*.test.js`, …), `testdata/`, `tests/`, `spec/`, `.github/`, and dependency manifests are snapshotted after setup and restored after the agent runs. This prevents an agent from weakening checks. Set `"allow_test_edits": true` only for a task where editing tests is the point.
 
-## Phase 0 baseline
+## Baseline and comparisons
 
 Run the suite once against the current single-agent harness and keep the report:
 
 ```sh
-go run ./cmd/eval -tasks eval/tasks -out eval/baseline
+go run ./cmd/eval -tasks eval/tasks -orchestrator=false -out eval/baseline/single-agent
+go run ./cmd/eval -tasks eval/tasks -orchestrator=true -out eval/baseline/orchestrated
 ```
 
-Record the model, provider, date, pass rate, tokens, cost, and delegation count. Every later harness or delegation change should be compared against this report; use `-orchestrator=false` to isolate the single-agent loop. The seed suite is intentionally small; grow it toward 20–30 tasks covering bug fixes, multi-file changes, test repair, and refactors before drawing conclusions.
+Record the model, provider, date, pass rate, confidence interval, tokens, cost, and delegation count. Every later harness or delegation change should be compared against these reports. The suite has 20 focused Go fixtures covering bug fixes, edge cases, string/slice handling, and test-gated behavior. Add multi-file and test-repair fixtures as the harness grows.
+
+Reports include a Wilson 95% confidence interval and failure classes (`agent`, `check`, `setup`, `prepare`, `session`, `orchestrator`). Use `-repeats N` for noisy models and compare per-task pass rates, not just the aggregate.
 
 ## Budget controls
 
@@ -67,3 +74,5 @@ Record the model, provider, date, pass rate, tokens, cost, and delegation count.
 - Orchestration is on by default; use `-orchestrator=false` for the single-agent baseline.
 - Worker fleets have hard per-worker and per-turn token caps (`worker_token_budget`, `turn_worker_token_budget`); lower them when measuring orchestration overhead.
 - The harness denies network commands and dangerous shell commands by default. Workers are read-only and inherit the same workspace.
+- Protected files are restored before checks, so a passing report cannot be produced by deleting or weakening tests.
+- Writer tests require a clean git repository; the eval harness currently exercises the lead and read-only scout paths.

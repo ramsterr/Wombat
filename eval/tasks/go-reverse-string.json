@@ -1,0 +1,17 @@
+{
+  "id": "go-reverse-string",
+  "name": "Reverse a string",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Reverse(s string) string {\n\treturn s\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestReverse(t *testing.T) {\n\tif got := Reverse(\"abc\"); got != \"cba\" {\n\t\tt.Fatalf(\"Reverse(abc) = %q, want cba\", got)\n\t}\n\tif got := Reverse(\"\"); got != \"\" {\n\t\tt.Fatalf(\"Reverse(empty) = %q\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

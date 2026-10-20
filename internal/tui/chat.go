@@ -20,13 +20,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/checkpoint"
 	clipboard "github.com/ramsterr/Wombat/internal/clip"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
+	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
+	"github.com/ramsterr/Wombat/internal/trace"
 )
 
 const helpLines = `/help             this list
@@ -291,16 +294,50 @@ func (c *chat) rebuild(reset bool) error {
 	if cwd == "" {
 		cwd = c.opt.Cwd
 	}
+	mode, err := sandbox.Parse(c.cfg.Sandbox)
+	if err != nil {
+		return err
+	}
+	if !sandbox.Supported(mode) {
+		mode = sandbox.Off
+	}
+	env := &tools.Env{
+		Dir:    cwd,
+		Permit: c.permit,
+		Sandbox: sandbox.Policy{
+			Mode:         mode,
+			Workspace:    cwd,
+			AllowNetwork: c.cfg.SandboxNetwork,
+		},
+	}
+	if c.cfg.Checkpoints {
+		cp, err := checkpoint.New(checkpoint.RootForSession(c.sess.Path()), cwd)
+		if err != nil {
+			return err
+		}
+		env.Checkpoint = cp
+	}
+	if c.ag != nil && c.ag.Trace != nil {
+		_ = c.ag.Trace.Close()
+	}
 	c.ag = &agent.Agent{
-		Provider:      prov,
-		Model:         c.modelName,
-		Tools:         tools.Registry(),
-		Env:           &tools.Env{Dir: cwd, Permit: c.permit},
-		Sess:          c.sess,
-		MaxSteps:      c.cfg.MaxSteps,
-		Compact:       true,
-		ContextWindow: tokens.Window(c.modelName),
-		NumCtx:        pc.NumCtx,
+		Provider:        prov,
+		Model:           c.modelName,
+		Tools:           tools.Registry(),
+		Env:             env,
+		Sess:            c.sess,
+		MaxSteps:        c.cfg.MaxSteps,
+		Compact:         true,
+		ContextWindow:   tokens.Window(c.modelName),
+		NumCtx:          pc.NumCtx,
+		MaxTurnTokens:   c.cfg.MaxTurnTokens,
+		MaxTurnCost:     c.cfg.MaxTurnCost,
+		MaxTurnDuration: time.Duration(c.cfg.MaxTurnDuration) * time.Second,
+		MaxToolCalls:    c.cfg.MaxToolCalls,
+		Pricing:         agent.Pricing{InputPerMTok: c.cfg.PriceIn, CachedPerMTok: c.cfg.PriceCached, OutputPerMTok: c.cfg.PriceOut},
+	}
+	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
+		c.ag.Trace = tr
 	}
 	if c.cfg.Orchestrator {
 		if _, err := orchestrator.Attach(c.ag, orchestrator.Config{
@@ -309,6 +346,13 @@ func (c *chat) rebuild(reset bool) error {
 			WorkerMaxSteps:        c.cfg.WorkerMaxSteps,
 			WorkerTokenBudget:     c.cfg.WorkerTokenBudget,
 			TurnWorkerTokenBudget: c.cfg.TurnWorkerTokenBudget,
+			MaxParallelWriters:    c.cfg.MaxParallelWriters,
+			WriterMaxSteps:        c.cfg.WriterMaxSteps,
+			WriterTokenBudget:     c.cfg.WriterTokenBudget,
+			TurnWriterTokenBudget: c.cfg.TurnWriterTokenBudget,
+			RequireVerification:   c.cfg.RequireVerification,
+			EnableWriters:         c.cfg.Writers,
+			KeepWorktrees:         c.cfg.KeepWorktrees,
 		}); err != nil {
 			return err
 		}

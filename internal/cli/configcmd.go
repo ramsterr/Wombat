@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/sandbox"
 )
 
 func cmdConfig(args []string) error {
@@ -19,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, orchestrator, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, permissions.<bash|write|edit>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_turn_tokens, max_turn_cost, price_in, price_cached, price_out, max_turn_duration_seconds, max_tool_calls, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -37,13 +38,82 @@ func cmdConfig(args []string) error {
 		}
 		cfg.MaxSteps = n
 	case key == "orchestrator":
-		switch strings.ToLower(val) {
-		case "true", "on", "yes", "1":
-			cfg.Orchestrator = true
-		case "false", "off", "no", "0":
-			cfg.Orchestrator = false
-		default:
-			return fmt.Errorf("orchestrator must be true or false")
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.Orchestrator = v
+	case key == "sandbox":
+		mode, err := sandbox.Parse(val)
+		if err != nil {
+			return err
+		}
+		cfg.Sandbox = string(mode)
+	case key == "sandbox_network":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.SandboxNetwork = v
+	case key == "checkpoints":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.Checkpoints = v
+	case key == "require_verification":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.RequireVerification = v
+	case key == "writers":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.Writers = v
+	case key == "keep_worktrees":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.KeepWorktrees = v
+	case key == "max_turn_tokens", key == "max_tool_calls", key == "max_turn_duration_seconds", key == "max_parallel_writers", key == "writer_max_steps", key == "writer_token_budget", key == "turn_writer_token_budget":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return fmt.Errorf("%s must be a positive integer", key)
+		}
+		switch key {
+		case "max_turn_tokens":
+			cfg.MaxTurnTokens = n
+		case "max_tool_calls":
+			cfg.MaxToolCalls = n
+		case "max_turn_duration_seconds":
+			cfg.MaxTurnDuration = n
+		case "max_parallel_writers":
+			cfg.MaxParallelWriters = n
+		case "writer_max_steps":
+			cfg.WriterMaxSteps = n
+		case "writer_token_budget":
+			cfg.WriterTokenBudget = n
+		case "turn_writer_token_budget":
+			cfg.TurnWriterTokenBudget = n
+		}
+	case key == "max_turn_cost", key == "price_in", key == "price_cached", key == "price_out":
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil || f < 0 {
+			return fmt.Errorf("%s must be a non-negative number", key)
+		}
+		switch key {
+		case "max_turn_cost":
+			cfg.MaxTurnCost = f
+		case "price_in":
+			cfg.PriceIn = f
+		case "price_cached":
+			cfg.PriceCached = f
+		case "price_out":
+			cfg.PriceOut = f
 		}
 	case key == "max_delegations":
 		n, err := strconv.Atoi(val)
@@ -95,6 +165,17 @@ func cmdConfig(args []string) error {
 	}
 	fmt.Println(green("saved: ") + key + " = " + bold(val))
 	return nil
+}
+
+func parseBool(key, val string) (bool, error) {
+	switch strings.ToLower(val) {
+	case "true", "on", "yes", "1":
+		return true, nil
+	case "false", "off", "no", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be true or false", key)
+	}
 }
 
 func printConfig(cfg *config.Config) error {

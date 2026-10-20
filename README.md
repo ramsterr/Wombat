@@ -45,9 +45,11 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.
 - **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
+- **OS sandbox and checkpoints** — bash runs under an OS sandbox by default (`workspace-write` on macOS/Linux), and file mutations are snapshotted so you can restore a session workspace with `wombat checkpoint restore`.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
-- **Task ledger and read-only delegation** — the lead agent keeps a persistent plan, records durable facts, and can run bounded investigations itself or fan out up to six parallel read-only scouts with structured evidence reports.
-- **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required. On Windows, shell commands need Git Bash or WSL.
+- **Task ledger, verification, and delegation** — the lead agent keeps a persistent plan, records checks and evidence, runs bounded read-only scouts, and can hand independent coding tasks to writers in isolated git worktrees.
+- **Check-gated parallel writers** — writers own disjoint files, run in worktrees, and merge sequentially only after their offers pass tests; conflicts and failures are kept for inspection.
+- **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required. On Windows, shell commands need Git Bash or WSL and the OS sandbox falls back to off.
 
 ## Install
 
@@ -207,7 +209,9 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat sessions` | list sessions for this directory |
 | `wombat doctor` | config, permissions, and connectivity checks |
 | `wombat config` | show config with API keys redacted |
-| `wombat config set <key> <value>` | set `provider`, `model`, `max_steps`, orchestrator budgets, or a permission |
+| `wombat config set <key> <value>` | set `provider`, `model`, `max_steps`, sandbox, budgets, writers, or a permission |
+| `wombat checkpoint list` | list snapshots for the latest session |
+| `wombat checkpoint restore <id>` | restore a snapshot (`--yes` for non-interactive use) |
 | `wombat version` | print the version |
 
 Flags for `run` and `resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`, and for `run` also `--image`, `--video`, `--audio`, and `--file` (repeatable).
@@ -277,9 +281,13 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `read` | read | line-numbered, offset/limit, 8 MB cap |
 | `write` | write | creates parent directories |
 | `edit` | edit | exact-string replace; must match uniquely unless `replace_all` |
-| `bash` | bash | 120s timeout, output truncated head and tail |
+| `bash` | bash | 120s timeout, OS sandbox by default, output truncated head and tail |
 | `glob` | read | `**` patterns; skips `.git` and `node_modules` |
 | `grep` | read | pure-Go regular-expression search |
+| `update_plan` | plan | create/replace the ledger, steps, and checks |
+| `run_checks` | verify | run a step's checks and record evidence |
+| `delegate` / `delegate_many` | delegate | read-only investigation workers |
+| `delegate_write` | write | isolated git worktree writers (opt-in in config) |
 
 Permissions are set per class to `ask` (default), `allow`, or `deny`. Read is always allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed.
 
@@ -297,7 +305,7 @@ The system prompt carries safety rules that apply even when the user does not me
 
 As a second layer, the `write` and `edit` tools append a warning when a secrets-like file (`.env`, `.env.*`, `*.pem`, `*.key`, `credentials.*`, …) is written in a git repository but is not ignored. The warning appears in the tool result so the agent can fix `.gitignore` before committing.
 
-These are guardrails, not a sandbox. Permission prompts remain the hard gate; `--yolo` and `permissions: allow` bypass them, so review diffs before committing.
+These are guardrails plus an optional OS sandbox. On macOS, `workspace-write` uses `sandbox-exec`; on Linux it uses `bwrap` when installed. Windows has no sandbox backend yet and falls back to off. Permission prompts remain the application-level gate; `--yolo` and `permissions: allow` bypass them, so review diffs before committing.
 
 ## Context management
 
@@ -310,7 +318,7 @@ Token usage, cache hits, and compaction events are reported live. Prompt caching
 
 ## Sessions
 
-Sessions are append-only JSONL files under `~/.wombat/sessions/<project-hash>/`, keyed to the working directory. Every run is resumable with `wombat resume` or `/sessions` inside the TUI; attachments live beside the session in `.attachments/`. Task ledgers live beside sessions as `<session>.ledger.json`, so a resumed run keeps its plan. Deleting a session file removes its history; delete the ledger too to reset the plan.
+Sessions are append-only JSONL files under `~/.wombat/sessions/<project-hash>/`, keyed to the working directory. Every run is resumable with `wombat resume` or `/sessions` inside the TUI; attachments live beside the session in `.attachments/`. Task ledgers live beside sessions as `<session>.ledger.json`, so a resumed run keeps its plan. Checkpoints live in `<session>.checkpoints/`, and structured run events are written to `<session>.events.jsonl`. Deleting a session file removes its history; delete the ledger and checkpoint directory too to reset the plan and rollback history.
 
 ## Configuration
 
@@ -335,17 +343,37 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   "worker_max_steps": 24,
   "worker_token_budget": 120000,
   "turn_worker_token_budget": 240000,
+  "max_turn_tokens": 1000000,
+  "max_turn_cost": 0,
+  "price_in": 0,
+  "price_cached": 0,
+  "price_out": 0,
+  "max_turn_duration_seconds": 3600,
+  "max_tool_calls": 500,
+  "sandbox": "workspace-write",
+  "sandbox_network": false,
+  "checkpoints": true,
+  "require_verification": true,
+  "writers": true,
+  "max_parallel_writers": 2,
+  "writer_max_steps": 40,
+  "writer_token_budget": 200000,
+  "turn_writer_token_budget": 400000,
   "mouse": false
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, `max_parallel_scouts` caps concurrent scouts, and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, `max_parallel_scouts` caps concurrent scouts, and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops. Lead turns also stop at `max_turn_tokens`, `max_turn_duration_seconds`, and `max_tool_calls` (`max_turn_cost` is optional; set `price_in`, `price_cached`, and `price_out` (USD per 1M tokens) to make it effective). `sandbox` is `off`, `read-only`, `workspace-write`, or `danger-full-access`; checkpoints are on by default. Writers additionally use `max_parallel_writers`, per-writer and per-turn token budgets, and step/timeout caps.
 
 ## Orchestration
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
 `delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to six independent scouts concurrently, in waves bounded by `max_parallel_scouts`. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+
+### Checks, verification, and writers
+
+Steps can declare `checks` in `update_plan`. `run_checks` executes them in the lead workspace, records pass/fail output in the ledger, and the completion gate refuses to mark a step completed while a check is pending or failing. Writers (`delegate_write`) are available in git repositories when `writers` is enabled. Each writer gets a context pack and a temporary worktree, must declare the exact files it owns, runs the step checks, and is committed before merge. Merge is sequential: the patch is applied to the main workspace, checks run again, `git diff --check` runs, and a failing or conflicting patch is reverted while the worktree is kept for inspection. Writers cannot overlap file ownership; use them for independent implementation steps, not dependent edits.
 
 ```sh
 wombat config set orchestrator false        # disable ledger + delegation
@@ -354,9 +382,12 @@ wombat config set max_parallel_scouts 2     # concurrent scouts per wave
 wombat config set worker_max_steps 16       # per-worker step cap
 wombat config set worker_token_budget 80000 # per-worker token cap
 wombat config set turn_worker_token_budget 160000 # all workers per turn
+wombat config set sandbox workspace-write      # off | read-only | workspace-write | danger-full-access
+wombat config set checkpoints false            # disable snapshots
+wombat config set writers false                # disable worktree writers
 ```
 
-Worker transcripts are stored under `~/.wombat/workers/` for inspection. Workers are read-only; the lead remains the only writer.
+Worker and writer transcripts are stored under `~/.wombat/workers/` for inspection. Writers run in `~/.wombat/worktrees/` by default; successful worktrees are removed, failures are kept. The lead remains the default writer and owns merge decisions.
 
 ## Examples
 
@@ -372,19 +403,23 @@ go run ./cmd/eval -tasks eval/tasks -out eval/results
 go run ./cmd/eval -tasks eval/tasks -orchestrator=false   # single-agent comparison
 ```
 
-Tasks are self-contained JSON fixtures under `eval/tasks/`; see [eval/README.md](eval/README.md) for the schema, pricing flags, and baseline workflow. Reports include total provider calls, worker delegations, tokens, latency, and estimated cost. The suite is intentionally small today; the target is 20–30 tasks covering bug fixes, multi-file changes, test repair, and refactors.
+Tasks are self-contained JSON fixtures under `eval/tasks/` (20 tasks today). The runner protects tests, `testdata`, dependency manifests, and CI files from agent edits, runs each task a configurable number of times, and reports a Wilson 95% confidence interval plus failure classes. See [eval/README.md](eval/README.md) for the schema, pricing flags, repeats, and baseline workflow.
 
 ## Architecture
 
 ```text
 cmd/wombat        entry point
 cmd/eval          eval harness CLI
-internal/cli      REPL, headless run, setup wizard, doctor, clipboard helpers
-internal/agent    agent loop, system prompt, hooks, usage, context compaction
-internal/orchestrator  task ledger, update_plan, read-only delegation, worker reports
-internal/eval     task loader, runner, reports, pricing
-internal/llm      provider adapters (OpenAI SSE, Responses, Anthropic, Ollama, Google)
-internal/tools    read/write/edit/bash/glob/grep, permissions, command policy
+internal/cli      REPL, headless run, setup wizard, doctor, checkpoints
+internal/agent    agent loop, system prompt, hooks, budgets, usage, compaction
+internal/orchestrator  ledger, checks, read-only delegation, writers, merge queue
+internal/worktree isolated git worktree manager and patch merge queue
+internal/checkpoint workspace snapshots and scoped restore
+internal/sandbox  macOS sandbox-exec and Linux bwrap policies
+internal/trace    append-only JSONL run events
+internal/eval     task loader, protection, repeats, reports, pricing
+internal/llm      provider adapters, HTTP errors, retry/backoff
+internal/tools    read/write/edit/bash/glob/grep, sandboxed commands, permissions
 internal/tui      Bubble Tea chat UI, sessions, models, usage, doctor
 internal/session  JSONL session persistence and attachment store
 internal/config   config load/save, presets, key resolution

@@ -1,0 +1,17 @@
+{
+  "id": "go-abs",
+  "name": "Absolute value",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Abs(n int) int {\n\treturn n\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestAbs(t *testing.T) {\n\tif got := Abs(-3); got != 3 {\n\t\tt.Fatalf(\"Abs(-3) = %d\", got)\n\t}\n\tif got := Abs(3); got != 3 {\n\t\tt.Fatalf(\"Abs(3) = %d\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

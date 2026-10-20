@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -390,5 +391,122 @@ func TestDelegationTimeout(t *testing.T) {
 	}
 	if usage.Calls != 0 {
 		t.Fatalf("usage = %+v", usage)
+	}
+}
+
+func TestRunChecksAndCompletionGate(t *testing.T) {
+	o, _, _ := newOrch(t, &scriptProvider{fn: func(int, llm.Request) (*llm.Result, error) {
+		return &llm.Result{Content: "ok"}, nil
+	}}, Config{RequireVerification: true})
+	step := Step{ID: "s", Title: "S", Status: StepInProgress, Checks: []Check{{ID: "file", Command: "test -f ok.txt"}}}
+	if _, err := o.updatePlan("goal", nil, []Step{step}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := o.runChecks(context.Background(), runChecksArgs{StepID: "s"}); err != nil || !strings.Contains(out, "failed") {
+		t.Fatalf("runChecks = %q err=%v", out, err)
+	}
+	step.Status = StepCompleted
+	if _, err := o.updatePlan("goal", nil, []Step{step}); err == nil || !strings.Contains(err.Error(), "check") {
+		t.Fatalf("completion gate error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(o.lead.Env.Dir, "ok.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := o.runChecks(context.Background(), runChecksArgs{StepID: "s"}); err != nil || !strings.Contains(out, "passed") {
+		t.Fatalf("runChecks = %q err=%v", out, err)
+	}
+	if _, err := o.updatePlan("goal", nil, []Step{step}); err != nil {
+		t.Fatalf("completed with passing checks: %v", err)
+	}
+}
+
+type writerProvider struct {
+	calls int
+}
+
+func (p *writerProvider) Name() string { return "writer-fake" }
+func (p *writerProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"writer-model"}, nil
+}
+func (p *writerProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	p.calls++
+	if p.calls == 1 {
+		return &llm.Result{
+			ToolCalls: []llm.ToolCall{{ID: "w1", Name: "write", Arguments: `{"path":"b.txt","content":"two"}`}},
+			Usage:     llm.Usage{In: 2, Out: 1},
+		}, nil
+	}
+	return &llm.Result{
+		Content: `{"status":"completed","summary":"created b","changes":[{"path":"b.txt","summary":"created"}]}`,
+		Usage:   llm.Usage{In: 2, Out: 2},
+	}, nil
+}
+
+func TestWriterMergesCheckGatedPatch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.name", "Test")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "a.txt")
+	runGit(t, repo, "commit", "-m", "initial")
+	prov := &writerProvider{}
+	sess, err := session.CreateAt(home, repo, prov.Name(), "writer-model", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := &agent.Agent{
+		Provider: prov,
+		Model:    "writer-model",
+		Tools:    tools.Registry(),
+		Env:      &tools.Env{Dir: repo, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		Sess:     sess,
+		MaxSteps: 8,
+	}
+	o, err := Attach(ag, Config{
+		EnableWriters:       true,
+		RequireVerification: true,
+		WorktreeRoot:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "s", Title: "S", Status: StepInProgress,
+		Checks: []Check{{ID: "file", Command: "test -f b.txt"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegateWrite(context.Background(), delegateWriteArgs{Tasks: []writerTask{{
+		StepID: "s", Title: "Create b", Objective: "create b", Files: []string{"b.txt"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"merged": true`) {
+		t.Fatalf("output = %s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "b.txt"))
+	if err != nil || string(data) != "two" {
+		t.Fatalf("b.txt = %q err=%v", data, err)
+	}
+	if o.ledger.Find("s").Status != StepCompleted {
+		t.Fatalf("step status = %s", o.ledger.Find("s").Status)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
 }

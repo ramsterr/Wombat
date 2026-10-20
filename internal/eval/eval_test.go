@@ -221,7 +221,7 @@ func TestReportMarkdown(t *testing.T) {
 		t.Fatalf("report = %+v", report)
 	}
 	md := report.Markdown()
-	if !strings.Contains(md, "Wombat Eval Report") || !strings.Contains(md, "| b | no |") {
+	if !strings.Contains(md, "Wombat Eval Report") || !strings.Contains(md, "| b | 0 | no |") {
 		t.Fatalf("markdown = %q", md)
 	}
 }

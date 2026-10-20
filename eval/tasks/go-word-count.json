@@ -1,0 +1,17 @@
+{
+  "id": "go-word-count",
+  "name": "Word count",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nimport \"strings\"\n\nfunc WordCount(s string) int {\n\treturn len(strings.Split(s, \" \"))\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestWordCount(t *testing.T) {\n\tif got := WordCount(\"one two  three\"); got != 3 {\n\t\tt.Fatalf(\"WordCount = %d, want 3\", got)\n\t}\n\tif got := WordCount(\"\"); got != 0 {\n\t\tt.Fatalf(\"WordCount(empty) = %d\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

@@ -10,12 +10,15 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/checkpoint"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
+	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
+	"github.com/ramsterr/Wombat/internal/trace"
 )
 
 type runOpts struct {
@@ -85,20 +88,47 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		cwd, _ = os.Getwd()
 		sess.Meta.Cwd = cwd
 	}
+	mode, err := sandbox.Parse(cfg.Sandbox)
+	if err != nil {
+		return nil, err
+	}
+	if !sandbox.Supported(mode) {
+		mode = sandbox.Off
+	}
 	env := &tools.Env{
 		Dir:    cwd,
 		Permit: p.Permit,
+		Sandbox: sandbox.Policy{
+			Mode:         mode,
+			Workspace:    cwd,
+			AllowNetwork: cfg.SandboxNetwork,
+		},
+	}
+	if cfg.Checkpoints {
+		cp, err := checkpoint.New(checkpoint.RootForSession(sess.Path()), cwd)
+		if err != nil {
+			return nil, err
+		}
+		env.Checkpoint = cp
 	}
 	ag := &agent.Agent{
-		Provider:      prov,
-		Model:         model,
-		Tools:         tools.Registry(),
-		Env:           env,
-		Sess:          sess,
-		MaxSteps:      cfg.MaxSteps,
-		Compact:       true,
-		ContextWindow: tokens.Window(model),
-		NumCtx:        pc.NumCtx,
+		Provider:        prov,
+		Model:           model,
+		Tools:           tools.Registry(),
+		Env:             env,
+		Sess:            sess,
+		MaxSteps:        cfg.MaxSteps,
+		Compact:         true,
+		ContextWindow:   tokens.Window(model),
+		NumCtx:          pc.NumCtx,
+		MaxTurnTokens:   cfg.MaxTurnTokens,
+		MaxTurnCost:     cfg.MaxTurnCost,
+		MaxTurnDuration: time.Duration(cfg.MaxTurnDuration) * time.Second,
+		MaxToolCalls:    cfg.MaxToolCalls,
+		Pricing:         agent.Pricing{InputPerMTok: cfg.PriceIn, CachedPerMTok: cfg.PriceCached, OutputPerMTok: cfg.PriceOut},
+	}
+	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
+		ag.Trace = tr
 	}
 	if cfg.Orchestrator {
 		if _, err := orchestrator.Attach(ag, orchestrator.Config{
@@ -107,6 +137,13 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			WorkerMaxSteps:        cfg.WorkerMaxSteps,
 			WorkerTokenBudget:     cfg.WorkerTokenBudget,
 			TurnWorkerTokenBudget: cfg.TurnWorkerTokenBudget,
+			MaxParallelWriters:    cfg.MaxParallelWriters,
+			WriterMaxSteps:        cfg.WriterMaxSteps,
+			WriterTokenBudget:     cfg.WriterTokenBudget,
+			TurnWriterTokenBudget: cfg.TurnWriterTokenBudget,
+			RequireVerification:   cfg.RequireVerification,
+			EnableWriters:         cfg.Writers,
+			KeepWorktrees:         cfg.KeepWorktrees,
 		}); err != nil {
 			return nil, err
 		}

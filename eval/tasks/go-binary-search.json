@@ -1,0 +1,17 @@
+{
+  "id": "go-binary-search",
+  "name": "Binary search",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Search(nums []int, target int) int {\n\tlo, hi := 0, len(nums)\n\tfor lo < hi {\n\t\tmid := (lo + hi) / 2\n\t\tif nums[mid] < target {\n\t\t\tlo = mid + 1\n\t\t} else {\n\t\t\thi = mid\n\t\t}\n\t}\n\tif lo < len(nums) && nums[lo] == target {\n\t\treturn lo\n\t}\n\treturn 0\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestSearch(t *testing.T) {\n\tnums := []int{1, 3, 5, 7}\n\tif got := Search(nums, 5); got != 2 {\n\t\tt.Fatalf(\"Search(5) = %d, want 2\", got)\n\t}\n\tif got := Search(nums, 4); got != -1 {\n\t\tt.Fatalf(\"Search(4) = %d, want -1\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

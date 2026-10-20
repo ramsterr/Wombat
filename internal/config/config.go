@@ -23,6 +23,13 @@ const (
 	DefaultWorkerMaxSteps        = 24
 	DefaultWorkerTokenBudget     = 120_000
 	DefaultTurnWorkerTokenBudget = 240_000
+	DefaultMaxTurnTokens         = 1_000_000
+	DefaultMaxToolCalls          = 500
+	DefaultMaxTurnDuration       = 3600
+	DefaultMaxParallelWriters    = 2
+	DefaultWriterMaxSteps        = 40
+	DefaultWriterTokenBudget     = 200_000
+	DefaultTurnWriterTokenBudget = 400_000
 )
 
 type Config struct {
@@ -38,6 +45,23 @@ type Config struct {
 	WorkerMaxSteps        int                  `json:"worker_max_steps"`
 	WorkerTokenBudget     int                  `json:"worker_token_budget"`
 	TurnWorkerTokenBudget int                  `json:"turn_worker_token_budget"`
+	MaxTurnTokens         int                  `json:"max_turn_tokens"`
+	MaxTurnCost           float64              `json:"max_turn_cost,omitempty"`
+	PriceIn               float64              `json:"price_in,omitempty"`
+	PriceCached           float64              `json:"price_cached,omitempty"`
+	PriceOut              float64              `json:"price_out,omitempty"`
+	MaxTurnDuration       int                  `json:"max_turn_duration_seconds"`
+	MaxToolCalls          int                  `json:"max_tool_calls"`
+	MaxParallelWriters    int                  `json:"max_parallel_writers"`
+	WriterMaxSteps        int                  `json:"writer_max_steps"`
+	WriterTokenBudget     int                  `json:"writer_token_budget"`
+	TurnWriterTokenBudget int                  `json:"turn_writer_token_budget"`
+	Sandbox               string               `json:"sandbox"`
+	SandboxNetwork        bool                 `json:"sandbox_network"`
+	Checkpoints           bool                 `json:"checkpoints"`
+	RequireVerification   bool                 `json:"require_verification"`
+	Writers               bool                 `json:"writers"`
+	KeepWorktrees         bool                 `json:"keep_worktrees,omitempty"`
 	Mouse                 bool                 `json:"mouse,omitempty"`
 }
 
@@ -111,6 +135,17 @@ func Defaults() *Config {
 		WorkerMaxSteps:        DefaultWorkerMaxSteps,
 		WorkerTokenBudget:     DefaultWorkerTokenBudget,
 		TurnWorkerTokenBudget: DefaultTurnWorkerTokenBudget,
+		MaxTurnTokens:         DefaultMaxTurnTokens,
+		MaxTurnDuration:       DefaultMaxTurnDuration,
+		MaxToolCalls:          DefaultMaxToolCalls,
+		MaxParallelWriters:    DefaultMaxParallelWriters,
+		WriterMaxSteps:        DefaultWriterMaxSteps,
+		WriterTokenBudget:     DefaultWriterTokenBudget,
+		TurnWriterTokenBudget: DefaultTurnWriterTokenBudget,
+		Sandbox:               "workspace-write",
+		Checkpoints:           true,
+		RequireVerification:   true,
+		Writers:               true,
 	}
 	for _, p := range Presets {
 		c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}
@@ -158,6 +193,30 @@ func Load() (*Config, error) {
 	}
 	if c.TurnWorkerTokenBudget <= 0 {
 		c.TurnWorkerTokenBudget = DefaultTurnWorkerTokenBudget
+	}
+	if c.MaxTurnTokens <= 0 {
+		c.MaxTurnTokens = DefaultMaxTurnTokens
+	}
+	if c.MaxTurnDuration <= 0 {
+		c.MaxTurnDuration = DefaultMaxTurnDuration
+	}
+	if c.MaxToolCalls <= 0 {
+		c.MaxToolCalls = DefaultMaxToolCalls
+	}
+	if c.MaxParallelWriters <= 0 {
+		c.MaxParallelWriters = DefaultMaxParallelWriters
+	}
+	if c.WriterMaxSteps <= 0 {
+		c.WriterMaxSteps = DefaultWriterMaxSteps
+	}
+	if c.WriterTokenBudget <= 0 {
+		c.WriterTokenBudget = DefaultWriterTokenBudget
+	}
+	if c.TurnWriterTokenBudget <= 0 {
+		c.TurnWriterTokenBudget = DefaultTurnWriterTokenBudget
+	}
+	if strings.TrimSpace(c.Sandbox) == "" {
+		c.Sandbox = "workspace-write"
 	}
 	return c, nil
 }

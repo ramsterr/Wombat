@@ -1,0 +1,17 @@
+{
+  "id": "go-palindrome",
+  "name": "Palindrome check",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc IsPalindrome(s string) bool {\n\treturn s[0] == s[len(s)-1]\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestIsPalindrome(t *testing.T) {\n\tif !IsPalindrome(\"racecar\") {\n\t\tt.Fatal(\"racecar should be a palindrome\")\n\t}\n\tif IsPalindrome(\"abca\") {\n\t\tt.Fatal(\"abca should not be a palindrome\")\n\t}\n\tif !IsPalindrome(\"a\") {\n\t\tt.Fatal(\"a should be a palindrome\")\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

@@ -111,6 +111,9 @@ func (t *Write) Run(_ context.Context, raw json.RawMessage, env *Env) (string, e
 	if err := env.CheckPath("write", a.Path); err != nil {
 		return "", err
 	}
+	if err := env.Snapshot("before write", a.Path); err != nil {
+		return "", err
+	}
 	path, err := env.ResolvePath(a.Path)
 	if err != nil {
 		return "", err
@@ -164,6 +167,9 @@ func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 		return "", fmt.Errorf("old_string and new_string are identical")
 	}
 	if err := env.CheckPath("edit", a.Path); err != nil {
+		return "", err
+	}
+	if err := env.Snapshot("before edit", a.Path); err != nil {
 		return "", err
 	}
 	path, err := env.ResolvePath(a.Path)

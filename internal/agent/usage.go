@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -82,4 +83,38 @@ func (a *Agent) ResetUsage() {
 	a.mu.Lock()
 	a.usage = UsageStats{Started: time.Now()}
 	a.mu.Unlock()
+}
+
+type BudgetError struct {
+	Kind  string
+	Limit string
+}
+
+func (e *BudgetError) Error() string {
+	return fmt.Sprintf("budget exhausted: %s (%s)", e.Kind, e.Limit)
+}
+
+func (a *Agent) checkBudget(start UsageStats, started time.Time, toolCalls int) error {
+	u := a.Usage()
+	delta := UsageStats{
+		In:     u.In - start.In,
+		Cached: u.Cached - start.Cached,
+		Out:    u.Out - start.Out,
+	}
+	if a.MaxTurnTokens > 0 && delta.Total() > a.MaxTurnTokens {
+		return &BudgetError{Kind: "turn token", Limit: fmt.Sprintf("max %d, used %d", a.MaxTurnTokens, delta.Total())}
+	}
+	if a.MaxTurnCost > 0 {
+		cost := a.Pricing.Cost(delta)
+		if cost > a.MaxTurnCost {
+			return &BudgetError{Kind: "turn cost", Limit: fmt.Sprintf("max $%.4f, used $%.4f", a.MaxTurnCost, cost)}
+		}
+	}
+	if a.MaxTurnDuration > 0 && time.Since(started) > a.MaxTurnDuration {
+		return &BudgetError{Kind: "turn duration", Limit: fmt.Sprintf("max %s, used %s", a.MaxTurnDuration, time.Since(started).Round(time.Millisecond))}
+	}
+	if a.MaxToolCalls > 0 && toolCalls > a.MaxToolCalls {
+		return &BudgetError{Kind: "tool calls", Limit: fmt.Sprintf("max %d, used %d", a.MaxToolCalls, toolCalls)}
+	}
+	return nil
 }

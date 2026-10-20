@@ -1,0 +1,17 @@
+{
+  "id": "go-fizzbuzz",
+  "name": "FizzBuzz",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nimport \"strconv\"\n\nfunc FizzBuzz(n int) string {\n\tswitch {\n\tcase n%3 == 0:\n\t\treturn \"Fizz\"\n\tcase n%5 == 0:\n\t\treturn \"Buzz\"\n\tcase n%15 == 0:\n\t\treturn \"FizzBuzz\"\n\t}\n\treturn strconv.Itoa(n)\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestFizzBuzz(t *testing.T) {\n\tcases := map[int]string{15: \"FizzBuzz\", 3: \"Fizz\", 5: \"Buzz\", 7: \"7\"}\n\tfor n, want := range cases {\n\t\tif got := FizzBuzz(n); got != want {\n\t\t\tt.Fatalf(\"FizzBuzz(%d) = %q, want %q\", n, got, want)\n\t\t}\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

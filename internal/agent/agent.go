@@ -11,6 +11,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
+	"github.com/ramsterr/Wombat/internal/trace"
 )
 
 type Hooks struct {
@@ -35,6 +36,13 @@ type Agent struct {
 	SystemExtra   func() string
 	RunStart      func()
 	Hooks         Hooks
+	Trace         *trace.Logger
+
+	MaxTurnTokens   int
+	MaxTurnCost     float64
+	MaxTurnDuration time.Duration
+	MaxToolCalls    int
+	Pricing         Pricing
 
 	mu    sync.Mutex
 	usage UsageStats
@@ -62,6 +70,29 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		a.RunStart()
 	}
 	a.markStarted()
+	if a.MaxTurnDuration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.MaxTurnDuration)
+		defer cancel()
+	}
+	traceStart := time.Now()
+	traceUsage := a.Usage()
+	a.Trace.Emit("run_start", map[string]any{"model": a.Model, "max_steps": a.MaxSteps})
+	defer func() {
+		u := a.Usage()
+		a.Trace.Emit("run_end", map[string]any{
+			"duration_ms": time.Since(traceStart).Milliseconds(),
+			"in":          u.In - traceUsage.In,
+			"cached":      u.Cached - traceUsage.Cached,
+			"out":         u.Out - traceUsage.Out,
+		})
+	}()
+	turnStart := time.Now()
+	turnUsage := a.Usage()
+	toolCalls := 0
+	if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
+		return err
+	}
 	if len(a.Sess.Messages) == 0 {
 		if err := a.Sess.Append(llm.Message{Role: "user", Content: startupContext(a.Env.Dir)}); err != nil {
 			return err
@@ -83,9 +114,13 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		}
 	}
 	for step := 0; step < maxSteps; step++ {
+		if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
+			return err
+		}
 		if a.Compact {
 			a.maybeCompact(ctx)
 		}
+		a.Trace.Emit("model_start", map[string]any{"step": step + 1})
 		res, err := a.Provider.Chat(ctx, llm.Request{
 			Model:       a.Model,
 			System:      system,
@@ -111,13 +146,21 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if a.Hooks.OnUsage != nil {
 			a.Hooks.OnUsage(res.Usage, a.historyTokens())
 		}
+		if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
+			return err
+		}
 		if len(res.ToolCalls) == 0 {
 			return nil
 		}
 		for _, tc := range res.ToolCalls {
+			toolCalls++
+			if err := a.checkBudget(turnUsage, turnStart, toolCalls); err != nil {
+				return err
+			}
 			if a.Hooks.OnTool != nil {
 				a.Hooks.OnTool(tc.Name, toolDetail(tc))
 			}
+			a.Trace.Emit("tool_start", map[string]any{"name": tc.Name, "detail": tools.Truncate(toolDetail(tc), 0, 0, 500)})
 			start := time.Now()
 			var content string
 			if ctx.Err() != nil {
@@ -142,6 +185,10 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}); err != nil {
 				return err
 			}
+			a.Trace.Emit("tool_end", map[string]any{
+				"name": tc.Name, "duration_ms": time.Since(start).Milliseconds(),
+				"result_bytes": len(content),
+			})
 			if a.Hooks.OnToolResult != nil {
 				a.Hooks.OnToolResult(tc.Name, content, time.Since(start))
 			}

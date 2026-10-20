@@ -145,3 +145,49 @@ func TestGlobAndGrep(t *testing.T) {
 		t.Errorf("grep output = %q", grepOut)
 	}
 }
+
+type recordingCheckpointer struct {
+	reasons []string
+	paths   [][]string
+}
+
+func (r *recordingCheckpointer) Snapshot(reason string, paths []string) (string, error) {
+	r.reasons = append(r.reasons, reason)
+	r.paths = append(r.paths, paths)
+	return "snap", nil
+}
+
+func TestMutationsTakeCheckpoints(t *testing.T) {
+	dir := t.TempDir()
+	cp := &recordingCheckpointer{}
+	env := testEnv(dir)
+	env.Checkpoint = cp
+	run(t, &Write{}, env, `{"path":"a.txt","content":"a"}`)
+	run(t, &Edit{}, env, `{"path":"a.txt","old_string":"a","new_string":"b"}`)
+	run(t, &Bash{}, env, `{"command":"echo hi > out.txt"}`)
+	if len(cp.reasons) != 3 {
+		t.Fatalf("checkpoints = %v", cp.reasons)
+	}
+	if len(cp.paths[0]) != 1 || cp.paths[0][0] != "a.txt" {
+		t.Fatalf("write checkpoint paths = %v", cp.paths[0])
+	}
+	before := len(cp.reasons)
+	run(t, &Bash{}, env, `{"command":"ls"}`)
+	if len(cp.reasons) != before {
+		t.Fatalf("read-only bash should not checkpoint: %v", cp.reasons)
+	}
+}
+
+func TestDenyOutsideBlocksWrites(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "x.txt")
+	env := testEnv(dir)
+	env.DenyOutside = true
+	err := runErr(t, &Write{}, env, `{"path":"`+outside+`","content":"nope"}`)
+	if !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("error = %v", err)
+	}
+	if _, statErr := os.Stat(outside); statErr == nil {
+		t.Fatal("file was written outside the workspace")
+	}
+}

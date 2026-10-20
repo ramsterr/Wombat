@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,7 @@ type Task struct {
 	Check                 []string          `json:"check"`
 	TimeoutSeconds        int               `json:"timeout_seconds,omitempty"`
 	CommandTimeoutSeconds int               `json:"command_timeout_seconds,omitempty"`
+	AllowTestEdits        bool              `json:"allow_test_edits,omitempty"`
 	Tags                  []string          `json:"tags,omitempty"`
 
 	sourceDir string
@@ -79,6 +81,7 @@ type Options struct {
 
 type Result struct {
 	TaskID      string           `json:"task_id"`
+	Run         int              `json:"run,omitempty"`
 	Name        string           `json:"name,omitempty"`
 	Passed      bool             `json:"passed"`
 	Error       string           `json:"error,omitempty"`
@@ -92,17 +95,20 @@ type Result struct {
 }
 
 type Report struct {
-	Started     time.Time        `json:"started"`
-	DurationMS  int64            `json:"duration_ms"`
-	Model       string           `json:"model"`
-	Tasks       int              `json:"tasks"`
-	Passed      int              `json:"passed"`
-	PassRate    float64          `json:"pass_rate"`
-	Usage       agent.UsageStats `json:"usage"`
-	Delegations int              `json:"delegations,omitempty"`
-	CostUSD     float64          `json:"cost_usd"`
-	Pricing     agent.Pricing    `json:"pricing"`
-	Results     []Result         `json:"results"`
+	Started      time.Time        `json:"started"`
+	DurationMS   int64            `json:"duration_ms"`
+	Model        string           `json:"model"`
+	Tasks        int              `json:"tasks"`
+	Passed       int              `json:"passed"`
+	PassRate     float64          `json:"pass_rate"`
+	PassRateLow  float64          `json:"pass_rate_low"`
+	PassRateHigh float64          `json:"pass_rate_high"`
+	Failures     map[string]int   `json:"failures,omitempty"`
+	Usage        agent.UsageStats `json:"usage"`
+	Delegations  int              `json:"delegations,omitempty"`
+	CostUSD      float64          `json:"cost_usd"`
+	Pricing      agent.Pricing    `json:"pricing"`
+	Results      []Result         `json:"results"`
 }
 
 func LoadTasks(dir string) ([]Task, error) {
@@ -200,6 +206,18 @@ func RunTask(ctx context.Context, task Task, opts Options) Result {
 		result.DurationMS = time.Since(start).Milliseconds()
 		return result
 	}
+	var pristine string
+	if !task.AllowTestEdits {
+		pristine, err = snapshotProtected(workdir)
+		if err != nil {
+			result.Error = "protect: " + err.Error()
+			result.DurationMS = time.Since(start).Milliseconds()
+			return result
+		}
+		if pristine != "" {
+			defer os.RemoveAll(pristine)
+		}
+	}
 
 	env := opts.Env
 	env.Dir = workdir
@@ -240,6 +258,13 @@ func RunTask(ctx context.Context, task Task, opts Options) Result {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	runErr := ag.Run(runCtx, task.Prompt)
+	if pristine != "" {
+		if restoreErr := restoreProtected(workdir, pristine); restoreErr != nil {
+			if runErr == nil {
+				runErr = fmt.Errorf("restore protected files: %w", restoreErr)
+			}
+		}
+	}
 
 	checkTimeout := commandTimeout
 	if task.CommandTimeoutSeconds > 0 {
@@ -367,6 +392,14 @@ func Summarize(results []Result, model string, pricing agent.Pricing) Report {
 	}
 	if report.Tasks > 0 {
 		report.PassRate = float64(report.Passed) / float64(report.Tasks)
+		report.PassRateLow, report.PassRateHigh = wilson(report.Passed, report.Tasks)
+	}
+	report.Failures = map[string]int{}
+	for _, result := range results {
+		if result.Passed {
+			continue
+		}
+		report.Failures[failureClass(result.Error)]++
 	}
 	report.DurationMS = report.Usage.Duration.Milliseconds()
 	return report
@@ -395,22 +428,30 @@ func (r Report) Markdown() string {
 	fmt.Fprintf(&b, "# Wombat Eval Report\n\n")
 	fmt.Fprintf(&b, "- Model: `%s`\n", r.Model)
 	fmt.Fprintf(&b, "- Tasks: %d\n", r.Tasks)
-	fmt.Fprintf(&b, "- Passed: %d (%.1f%%)\n", r.Passed, passRate)
+	fmt.Fprintf(&b, "- Passed: %d (%.1f%%, 95%% CI %.1f–%.1f%%)\n", r.Passed, passRate, 100*r.PassRateLow, 100*r.PassRateHigh)
 	fmt.Fprintf(&b, "- Tokens: in %d, cached %d, out %d\n", r.Usage.In, r.Usage.Cached, r.Usage.Out)
 	if r.Delegations > 0 {
 		fmt.Fprintf(&b, "- Delegations: %d\n", r.Delegations)
 	}
 	fmt.Fprintf(&b, "- Estimated cost: $%.4f\n", r.CostUSD)
-	fmt.Fprintf(&b, "- Wall clock: %s\n\n", (time.Duration(r.DurationMS) * time.Millisecond).Round(time.Millisecond))
-	b.WriteString("| Task | Passed | Steps | Delegations | In | Out | Cost | Duration | Error |\n")
-	b.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---|\n")
+	fmt.Fprintf(&b, "- Wall clock: %s\n", (time.Duration(r.DurationMS) * time.Millisecond).Round(time.Millisecond))
+	if len(r.Failures) > 0 {
+		var classes []string
+		for class, n := range r.Failures {
+			classes = append(classes, fmt.Sprintf("%s=%d", class, n))
+		}
+		sort.Strings(classes)
+		fmt.Fprintf(&b, "- Failure classes: %s\n", strings.Join(classes, ", "))
+	}
+	b.WriteString("\n| Task | Run | Passed | Steps | Delegations | In | Out | Cost | Duration | Error |\n")
+	b.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|\n")
 	for _, result := range r.Results {
 		mark := "no"
 		if result.Passed {
 			mark = "yes"
 		}
-		fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | $%.4f | %s | %s |\n",
-			mdCell(result.TaskID), mark, result.Steps, result.Delegations, result.Usage.In, result.Usage.Out,
+		fmt.Fprintf(&b, "| %s | %d | %s | %d | %d | %d | %d | $%.4f | %s | %s |\n",
+			mdCell(result.TaskID), result.Run, mark, result.Steps, result.Delegations, result.Usage.In, result.Usage.Out,
 			result.CostUSD, (time.Duration(result.DurationMS) * time.Millisecond).Round(time.Millisecond),
 			mdCell(result.Error))
 	}
@@ -458,4 +499,46 @@ func mdCell(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
 	s = strings.ReplaceAll(s, "\n", " ")
 	return s
+}
+
+func failureClass(err string) string {
+	switch {
+	case strings.HasPrefix(err, "agent:"):
+		return "agent"
+	case strings.HasPrefix(err, "check:"), strings.HasPrefix(err, "restore protected"):
+		return "check"
+	case strings.HasPrefix(err, "setup:"):
+		return "setup"
+	case strings.HasPrefix(err, "prepare:"):
+		return "prepare"
+	case strings.HasPrefix(err, "session:"):
+		return "session"
+	case strings.HasPrefix(err, "orchestrator:"):
+		return "orchestrator"
+	case err == "":
+		return "none"
+	default:
+		return "other"
+	}
+}
+
+func wilson(passed, total int) (float64, float64) {
+	if total <= 0 {
+		return 0, 0
+	}
+	const z = 1.959963984540054
+	n := float64(total)
+	p := float64(passed) / n
+	denom := 1 + z*z/n
+	center := (p + z*z/(2*n)) / denom
+	margin := z * math.Sqrt(p*(1-p)/n+z*z/(4*n*n)) / denom
+	low := center - margin
+	high := center + margin
+	if low < 0 {
+		low = 0
+	}
+	if high > 1 {
+		high = 1
+	}
+	return low, high
 }

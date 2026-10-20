@@ -1,0 +1,17 @@
+{
+  "id": "go-anagram",
+  "name": "Anagram check",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Anagram(a, b string) bool {\n\treturn len(a) == len(b)\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestAnagram(t *testing.T) {\n\tif !Anagram(\"listen\", \"silent\") {\n\t\tt.Fatal(\"listen/silent should be anagrams\")\n\t}\n\tif Anagram(\"abc\", \"abd\") {\n\t\tt.Fatal(\"abc/abd should not be anagrams\")\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

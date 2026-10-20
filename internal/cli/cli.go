@@ -17,6 +17,14 @@ func Main() {
 		cmd = args[0]
 		args = args[1:]
 	}
+	if cmd == "" {
+		for _, a := range args {
+			if a == "-h" || a == "--help" || a == "help" {
+				help()
+				return
+			}
+		}
+	}
 	var err error
 	switch cmd {
 	case "":
@@ -57,6 +65,8 @@ func Main() {
 		err = cmdDoctor(args)
 	case "config":
 		err = cmdConfig(args)
+	case "checkpoint":
+		err = cmdCheckpoint(args)
 	case "version", "--version", "-v":
 		fmt.Println("wombat " + Version)
 	case "help", "--help", "-h":
@@ -85,6 +95,8 @@ usage:
   wombat sessions            list sessions for this directory
   wombat doctor              check configuration and connectivity
   wombat config              show config (redacted); use ` + "`wombat config set`" + `
+  wombat checkpoint list     list session checkpoints
+  wombat checkpoint restore  restore a checkpoint (--yes to confirm)
   wombat version             print version
 
 flags for run/resume:

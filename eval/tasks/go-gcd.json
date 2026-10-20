@@ -1,0 +1,17 @@
+{
+  "id": "go-gcd",
+  "name": "Greatest common divisor",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc GCD(a, b int) int {\n\treturn a\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestGCD(t *testing.T) {\n\tcases := [][3]int{{12, 18, 6}, {17, 5, 1}, {0, 5, 5}}\n\tfor _, c := range cases {\n\t\tif got := GCD(c[0], c[1]); got != c[2] {\n\t\t\tt.Fatalf(\"GCD(%d,%d) = %d, want %d\", c[0], c[1], got, c[2])\n\t\t}\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

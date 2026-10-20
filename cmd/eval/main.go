@@ -29,6 +29,7 @@ func main() {
 		dryRun         = flag.Bool("dry-run", false, "validate tasks and print the plan without calling a model")
 		keep           = flag.Bool("keep", false, "keep each task workdir")
 		filter         = flag.String("task", "", "only run task IDs containing this string")
+		repeats        = flag.Int("repeats", 1, "run each task this many times")
 		priceIn        = flag.Float64("price-in", 0, "USD per 1M input tokens")
 		priceCached    = flag.Float64("price-cached", 0, "USD per 1M cached input tokens")
 		priceOut       = flag.Float64("price-out", 0, "USD per 1M output tokens")
@@ -111,22 +112,29 @@ func main() {
 		},
 	}
 
-	results := make([]eval.Result, 0, len(tasks))
-	for _, task := range tasks {
-		result := eval.RunTask(context.Background(), task, opts)
-		results = append(results, result)
-		status := "FAIL"
-		if result.Passed {
-			status = "PASS"
-		}
-		fmt.Fprintf(os.Stderr, "  %s %s (%d steps, %d in / %d out, %s)\n",
-			status, result.TaskID, result.Steps, result.Usage.In, result.Usage.Out,
-			(time.Duration(result.DurationMS) * time.Millisecond).Round(time.Millisecond))
-		if result.Workdir != "" {
-			fmt.Fprintf(os.Stderr, "  workdir: %s\n", result.Workdir)
-		}
-		if result.Error != "" {
-			fmt.Fprintf(os.Stderr, "  error: %s\n", result.Error)
+	if *repeats < 1 {
+		*repeats = 1
+	}
+	totalRuns := len(tasks) * *repeats
+	results := make([]eval.Result, 0, totalRuns)
+	for run := 0; run < *repeats; run++ {
+		for _, task := range tasks {
+			result := eval.RunTask(context.Background(), task, opts)
+			result.Run = run + 1
+			results = append(results, result)
+			status := "FAIL"
+			if result.Passed {
+				status = "PASS"
+			}
+			fmt.Fprintf(os.Stderr, "  %s %s run %d/%d (%d steps, %d in / %d out, %s)\n",
+				status, result.TaskID, run+1, *repeats, result.Steps, result.Usage.In, result.Usage.Out,
+				(time.Duration(result.DurationMS) * time.Millisecond).Round(time.Millisecond))
+			if result.Workdir != "" {
+				fmt.Fprintf(os.Stderr, "  workdir: %s\n", result.Workdir)
+			}
+			if result.Error != "" {
+				fmt.Fprintf(os.Stderr, "  error: %s\n", result.Error)
+			}
 		}
 	}
 	report := eval.Summarize(results, resolvedProvider+"/"+resolvedModel, pricing)

@@ -1,0 +1,17 @@
+{
+  "id": "go-sum-digits",
+  "name": "Sum digits",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc SumDigits(n int) int {\n\ttotal := 0\n\tfor n > 0 {\n\t\ttotal += n % 10\n\t\tn /= 10\n\t}\n\treturn total\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestSumDigits(t *testing.T) {\n\tif got := SumDigits(123); got != 6 {\n\t\tt.Fatalf(\"SumDigits(123) = %d, want 6\", got)\n\t}\n\tif got := SumDigits(-45); got != 9 {\n\t\tt.Fatalf(\"SumDigits(-45) = %d, want 9\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

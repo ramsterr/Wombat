@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	maxStepsInPlan = 12
-	maxFacts       = 20
-	maxReportBytes = 24 * 1024
+	maxStepsInPlan   = 12
+	maxFacts         = 20
+	maxReportBytes   = 24 * 1024
+	maxChecksPerStep = 12
+	maxCheckOutput   = 4000
 )
 
 type StepStatus string
@@ -35,6 +37,28 @@ func (s StepStatus) Valid() bool {
 	return false
 }
 
+type CheckStatus string
+
+const (
+	CheckPending CheckStatus = "pending"
+	CheckPassed  CheckStatus = "passed"
+	CheckFailed  CheckStatus = "failed"
+)
+
+func (s CheckStatus) Valid() bool {
+	return s == CheckPending || s == CheckPassed || s == CheckFailed
+}
+
+type Check struct {
+	ID             string      `json:"id"`
+	Command        string      `json:"command"`
+	TimeoutSeconds int         `json:"timeout_seconds,omitempty"`
+	Status         CheckStatus `json:"status"`
+	Output         string      `json:"output,omitempty"`
+	ExitCode       int         `json:"exit_code,omitempty"`
+	RanAt          time.Time   `json:"ran_at,omitempty"`
+}
+
 type Step struct {
 	ID        string        `json:"id"`
 	Title     string        `json:"title"`
@@ -42,6 +66,7 @@ type Step struct {
 	Role      string        `json:"role,omitempty"`
 	Status    StepStatus    `json:"status"`
 	DependsOn []string      `json:"depends_on,omitempty"`
+	Checks    []Check       `json:"checks,omitempty"`
 	Report    *WorkerReport `json:"report,omitempty"`
 	Updated   time.Time     `json:"updated,omitempty"`
 }
@@ -51,6 +76,42 @@ type Ledger struct {
 	Facts   []string  `json:"facts,omitempty"`
 	Steps   []Step    `json:"steps,omitempty"`
 	Updated time.Time `json:"updated,omitempty"`
+}
+
+func normalizeChecks(checks []Check) []Check {
+	if len(checks) > maxChecksPerStep {
+		checks = checks[:maxChecksPerStep]
+	}
+	for i := range checks {
+		checks[i].ID = strings.TrimSpace(checks[i].ID)
+		checks[i].Command = strings.TrimSpace(checks[i].Command)
+		if !checks[i].Status.Valid() {
+			checks[i].Status = CheckPending
+		}
+		if len(checks[i].Output) > maxCheckOutput {
+			checks[i].Output = checks[i].Output[:maxCheckOutput] + "\n…[truncated]"
+		}
+	}
+	return checks
+}
+
+func checkSummary(checks []Check) string {
+	parts := make([]string, 0, len(checks))
+	for _, c := range checks {
+		parts = append(parts, c.ID+"="+string(c.Status))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func allChecksPassed(steps []Step) bool {
+	for _, s := range steps {
+		for _, c := range s.Checks {
+			if c.Status != CheckPassed {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func LedgerPath(sessionPath string) string {
@@ -98,6 +159,7 @@ func (l *Ledger) normalize() {
 			s.Status = StepPending
 		}
 		s.Report = trimReport(s.Report)
+		s.Checks = normalizeChecks(s.Checks)
 		out = append(out, s)
 	}
 	l.Steps = out
@@ -159,6 +221,25 @@ func (l *Ledger) Validate() error {
 		ids[s.ID] = i
 		if !s.Status.Valid() {
 			return fmt.Errorf("step %q: invalid status %q", s.ID, s.Status)
+		}
+		if len(s.Checks) > maxChecksPerStep {
+			return fmt.Errorf("step %q: too many checks: %d (max %d)", s.ID, len(s.Checks), maxChecksPerStep)
+		}
+		checkIDs := make(map[string]bool, len(s.Checks))
+		for j, c := range s.Checks {
+			if strings.TrimSpace(c.ID) == "" {
+				return fmt.Errorf("step %q: check %d needs an id", s.ID, j+1)
+			}
+			if checkIDs[c.ID] {
+				return fmt.Errorf("step %q: duplicate check id %q", s.ID, c.ID)
+			}
+			checkIDs[c.ID] = true
+			if strings.TrimSpace(c.Command) == "" {
+				return fmt.Errorf("step %q: check %q needs a command", s.ID, c.ID)
+			}
+			if !c.Status.Valid() {
+				return fmt.Errorf("step %q: check %q has invalid status %q", s.ID, c.ID, c.Status)
+			}
 		}
 	}
 	for _, s := range l.Steps {
@@ -243,6 +324,9 @@ func (l *Ledger) PromptView() string {
 		if len(s.DependsOn) > 0 {
 			fmt.Fprintf(&b, " (depends on: %s)", strings.Join(s.DependsOn, ", "))
 		}
+		if len(s.Checks) > 0 {
+			fmt.Fprintf(&b, " (checks: %s)", checkSummary(s.Checks))
+		}
 		if s.Report != nil && s.Report.Summary != "" {
 			fmt.Fprintf(&b, "\n  result: %s", oneLine(s.Report.Summary, 400))
 		}
@@ -260,6 +344,9 @@ func (l *Ledger) View() LedgerView {
 			Status:    s.Status,
 			DependsOn: append([]string(nil), s.DependsOn...),
 		}
+		for _, c := range s.Checks {
+			item.Checks = append(item.Checks, CheckView{ID: c.ID, Command: c.Command, Status: c.Status, ExitCode: c.ExitCode})
+		}
 		if s.Report != nil {
 			item.Result = oneLine(s.Report.Summary, 500)
 			item.ReportStatus = s.Report.Status
@@ -276,12 +363,20 @@ type LedgerView struct {
 }
 
 type StepView struct {
-	ID           string     `json:"id"`
-	Title        string     `json:"title"`
-	Status       StepStatus `json:"status"`
-	DependsOn    []string   `json:"depends_on,omitempty"`
-	ReportStatus string     `json:"report_status,omitempty"`
-	Result       string     `json:"result,omitempty"`
+	ID           string      `json:"id"`
+	Title        string      `json:"title"`
+	Status       StepStatus  `json:"status"`
+	DependsOn    []string    `json:"depends_on,omitempty"`
+	Checks       []CheckView `json:"checks,omitempty"`
+	ReportStatus string      `json:"report_status,omitempty"`
+	Result       string      `json:"result,omitempty"`
+}
+
+type CheckView struct {
+	ID       string      `json:"id"`
+	Command  string      `json:"command"`
+	Status   CheckStatus `json:"status"`
+	ExitCode int         `json:"exit_code,omitempty"`
 }
 
 func oneLine(s string, max int) string {
@@ -340,4 +435,44 @@ func sortedStatusCounts(l *Ledger) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, ", ")
+}
+
+func mergeChecks(old, next []Check) []Check {
+	byID := make(map[string]Check, len(old))
+	for _, c := range old {
+		byID[c.ID] = c
+	}
+	out := make([]Check, 0, len(next))
+	for _, c := range next {
+		c.ID = strings.TrimSpace(c.ID)
+		c.Command = strings.TrimSpace(c.Command)
+		if c.ID == "" {
+			c.ID = c.Command
+		}
+		if prev, ok := byID[c.ID]; ok && strings.TrimSpace(prev.Command) == c.Command {
+			c.Status = prev.Status
+			c.Output = prev.Output
+			c.ExitCode = prev.ExitCode
+			c.RanAt = prev.RanAt
+		}
+		if !c.Status.Valid() {
+			c.Status = CheckPending
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func completionGate(l *Ledger) error {
+	for _, s := range l.Steps {
+		if s.Status != StepCompleted {
+			continue
+		}
+		for _, c := range s.Checks {
+			if c.Status != CheckPassed {
+				return fmt.Errorf("step %q cannot be completed: check %q is %s; run run_checks after fixing it", s.ID, c.ID, c.Status)
+			}
+		}
+	}
+	return nil
 }

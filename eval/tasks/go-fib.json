@@ -1,0 +1,17 @@
+{
+  "id": "go-fib",
+  "name": "Fibonacci",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Fib(n int) int {\n\ta, b := 1, 0\n\tfor i := 0; i < n; i++ {\n\t\ta, b = b, a+b\n\t}\n\treturn a\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestFib(t *testing.T) {\n\tif got := Fib(0); got != 0 {\n\t\tt.Fatalf(\"Fib(0) = %d\", got)\n\t}\n\tif got := Fib(10); got != 55 {\n\t\tt.Fatalf(\"Fib(10) = %d, want 55\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

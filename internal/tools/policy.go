@@ -81,6 +81,9 @@ func (e *Env) CheckPath(kind, path string) error {
 			return err
 		}
 		if outside {
+			if e.DenyOutside {
+				return fmt.Errorf("path outside workspace is disabled: %s", path)
+			}
 			if err := e.permit("outside", path); err != nil {
 				return fmt.Errorf("path outside workspace: %w", err)
 			}

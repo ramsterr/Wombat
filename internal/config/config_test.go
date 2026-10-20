@@ -22,6 +22,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxParallelScouts != DefaultMaxParallelScouts || cfg.WorkerTokenBudget != DefaultWorkerTokenBudget || cfg.TurnWorkerTokenBudget != DefaultTurnWorkerTokenBudget {
 		t.Fatalf("worker defaults = %+v", cfg)
 	}
+	if cfg.Sandbox != "workspace-write" || !cfg.Checkpoints || !cfg.RequireVerification || !cfg.Writers {
+		t.Fatalf("safety defaults = %+v", cfg)
+	}
+	if cfg.MaxParallelWriters != DefaultMaxParallelWriters || cfg.WriterMaxSteps != DefaultWriterMaxSteps || cfg.WriterTokenBudget != DefaultWriterTokenBudget {
+		t.Fatalf("writer defaults = %+v", cfg)
+	}
 	if _, ok := cfg.Providers["ollama"]; !ok {
 		t.Fatalf("ollama preset missing")
 	}

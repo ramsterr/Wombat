@@ -70,16 +70,18 @@ type Provider interface {
 var UserAgent = "wombat/dev"
 
 func New(name string, pc *config.Provider, apiKey string) (Provider, error) {
+	var p Provider
 	switch pc.Kind {
 	case "openai":
-		return newOpenAI(name, pc.BaseURL, apiKey, pc.NumCtx), nil
+		p = newOpenAI(name, pc.BaseURL, apiKey, pc.NumCtx)
 	case "anthropic":
-		return newAnthropic(name, pc.BaseURL, apiKey), nil
+		p = newAnthropic(name, pc.BaseURL, apiKey)
 	case "ollama":
-		return newOllama(name, pc.BaseURL, pc.NumCtx), nil
+		p = newOllama(name, pc.BaseURL, pc.NumCtx)
 	case "opencode":
-		return newOpenCode(name, pc.BaseURL, apiKey), nil
+		p = newOpenCode(name, pc.BaseURL, apiKey)
 	default:
 		return nil, fmt.Errorf("provider %q: unknown kind %q", name, pc.Kind)
 	}
+	return WithRetry(p, DefaultRetryPolicy), nil
 }

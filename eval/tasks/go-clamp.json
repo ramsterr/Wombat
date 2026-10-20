@@ -1,0 +1,17 @@
+{
+  "id": "go-clamp",
+  "name": "Clamp a number",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Clamp(n, lo, hi int) int {\n\tif n < lo {\n\t\treturn lo\n\t}\n\treturn n\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestClamp(t *testing.T) {\n\tcases := [][3]int{{5, 1, 3}, {-1, 0, 10}, {5, 1, 10}}\n\twant := []int{3, 0, 5}\n\tfor i, c := range cases {\n\t\tif got := Clamp(c[0], c[1], c[2]); got != want[i] {\n\t\t\tt.Fatalf(\"Clamp(%v) = %d, want %d\", c, got, want[i])\n\t\t}\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

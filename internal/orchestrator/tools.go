@@ -17,12 +17,19 @@ type updatePlanArgs struct {
 }
 
 type planStep struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title"`
-	Objective string   `json:"objective"`
-	Role      string   `json:"role"`
-	Status    string   `json:"status"`
-	DependsOn []string `json:"depends_on"`
+	ID        string      `json:"id"`
+	Title     string      `json:"title"`
+	Objective string      `json:"objective"`
+	Role      string      `json:"role"`
+	Status    string      `json:"status"`
+	DependsOn []string    `json:"depends_on"`
+	Checks    []planCheck `json:"checks"`
+}
+
+type planCheck struct {
+	ID             string `json:"id"`
+	Command        string `json:"command"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
 func (t *updatePlanTool) Name() string  { return "update_plan" }
@@ -40,6 +47,19 @@ func (t *updatePlanTool) Schema() map[string]any {
 			"role":       map[string]any{"type": "string", "description": "optional role, e.g. explorer, implementer, verifier"},
 			"status":     map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "failed"}},
 			"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"checks": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"id":              map[string]any{"type": "string", "description": "short stable id, e.g. unit"},
+						"command":         map[string]any{"type": "string", "description": "exact command that proves the step, e.g. go test ./..."},
+						"timeout_seconds": map[string]any{"type": "integer", "description": "optional per-check timeout (default 120s)"},
+					},
+					"required": []string{"id", "command"},
+				},
+				"description": "commands that must pass before this step can be completed (max 12)",
+			},
 		},
 		"required": []string{"id", "title"},
 	}
@@ -64,14 +84,26 @@ func (t *updatePlanTool) Run(_ context.Context, raw json.RawMessage, _ *tools.En
 	}
 	steps := make([]Step, 0, len(a.Steps))
 	for _, s := range a.Steps {
-		steps = append(steps, Step{
+		step := Step{
 			ID:        s.ID,
 			Title:     s.Title,
 			Objective: s.Objective,
 			Role:      s.Role,
 			Status:    StepStatus(s.Status),
 			DependsOn: s.DependsOn,
-		})
+		}
+		if s.Checks != nil {
+			step.Checks = make([]Check, 0, len(s.Checks))
+			for _, c := range s.Checks {
+				step.Checks = append(step.Checks, Check{
+					ID:             c.ID,
+					Command:        c.Command,
+					TimeoutSeconds: c.TimeoutSeconds,
+					Status:         CheckPending,
+				})
+			}
+		}
+		steps = append(steps, step)
 	}
 	return t.o.updatePlan(a.Goal, a.Facts, steps)
 }

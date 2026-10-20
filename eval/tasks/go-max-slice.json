@@ -1,0 +1,17 @@
+{
+  "id": "go-max-slice",
+  "name": "Maximum of a slice",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Max(nums []int) int {\n\tmax := 0\n\tfor _, n := range nums {\n\t\tif n > max {\n\t\t\tmax = n\n\t\t}\n\t}\n\treturn max\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestMax(t *testing.T) {\n\tif got := Max([]int{-3, -1, -2}); got != -1 {\n\t\tt.Fatalf(\"Max(all negative) = %d, want -1\", got)\n\t}\n\tif got := Max([]int{1, 5, 2}); got != 5 {\n\t\tt.Fatalf(\"Max = %d, want 5\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

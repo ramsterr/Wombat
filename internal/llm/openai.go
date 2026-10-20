@@ -349,5 +349,10 @@ func statusError(name string, resp *http.Response) error {
 	if msg == "" {
 		msg = resp.Status
 	}
-	return fmt.Errorf("%s: http %d: %s", name, resp.StatusCode, msg)
+	return &HTTPError{
+		Provider:   name,
+		StatusCode: resp.StatusCode,
+		Body:       msg,
+		RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+	}
 }

@@ -1,0 +1,17 @@
+{
+  "id": "go-capitalize",
+  "name": "Capitalize words",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nimport \"strings\"\n\nfunc Capitalize(s string) string {\n\treturn strings.ToUpper(s[:1]) + s[1:]\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestCapitalize(t *testing.T) {\n\tif got := Capitalize(\"hello world\"); got != \"Hello World\" {\n\t\tt.Fatalf(\"Capitalize = %q, want Hello World\", got)\n\t}\n\tif got := Capitalize(\"\"); got != \"\" {\n\t\tt.Fatalf(\"Capitalize(empty) = %q\", got)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

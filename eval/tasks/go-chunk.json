@@ -1,0 +1,17 @@
+{
+  "id": "go-chunk",
+  "name": "Chunk a slice",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nfunc Chunk(nums []int, size int) [][]int {\n\tif len(nums) == 0 {\n\t\treturn nil\n\t}\n\treturn [][]int{nums}\n}\n",
+    "code_test.go": "package fixture\n\nimport (\n\t\"reflect\"\n\t\"testing\"\n)\n\nfunc TestChunk(t *testing.T) {\n\tgot := Chunk([]int{1, 2, 3, 4, 5}, 2)\n\twant := [][]int{{1, 2}, {3, 4}, {5}}\n\tif !reflect.DeepEqual(got, want) {\n\t\tt.Fatalf(\"Chunk = %v, want %v\", got, want)\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

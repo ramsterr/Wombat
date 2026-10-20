@@ -1,0 +1,17 @@
+{
+  "id": "go-count-vowels",
+  "name": "Count vowels",
+  "prompt": "Fix the failing Go test in this module. Read the source and test, make the smallest correct change, and run `go test ./...` to verify. Do not modify the test.",
+  "files": {
+    "go.mod": "module fixture\n\ngo 1.26\n",
+    "code.go": "package fixture\n\nimport \"strings\"\n\nfunc CountVowels(s string) int {\n\tn := 0\n\tfor _, r := range s {\n\t\tif strings.ContainsRune(\"AEIOU\", r) {\n\t\t\tn++\n\t\t}\n\t}\n\treturn n\n}\n",
+    "code_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestCountVowels(t *testing.T) {\n\tcases := map[string]int{\"Hello World\": 3, \"AEIOU\": 5, \"xyz\": 0}\n\tfor s, want := range cases {\n\t\tif got := CountVowels(s); got != want {\n\t\t\tt.Fatalf(\"CountVowels(%q) = %d, want %d\", s, got, want)\n\t\t}\n\t}\n}\n"
+  },
+  "check": [
+    "go test ./..."
+  ],
+  "tags": [
+    "go",
+    "bugfix"
+  ]
+}

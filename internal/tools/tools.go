@@ -5,7 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/ramsterr/Wombat/internal/sandbox"
 )
+
+type Checkpointer interface {
+	Snapshot(reason string, paths []string) (string, error)
+}
 
 type Decision struct {
 	Allow    bool
@@ -20,6 +26,20 @@ type Env struct {
 	AllowOutside  bool
 	DenyDangerous bool
 	DenyNetwork   bool
+	DenyGit       bool
+	DenyOutside   bool
+	Sandbox       sandbox.Policy
+	Checkpoint    Checkpointer
+}
+
+func (e *Env) Snapshot(reason string, paths ...string) error {
+	if e == nil || e.Checkpoint == nil || e.ReadOnly {
+		return nil
+	}
+	if _, err := e.Checkpoint.Snapshot(reason, paths); err != nil {
+		return fmt.Errorf("checkpoint failed: %w", err)
+	}
+	return nil
 }
 
 type Tool interface {
@@ -54,6 +74,9 @@ func (e *Env) checkPolicy(kind, detail string) error {
 		}
 		if e.DenyNetwork && IsNetworkCommand(detail) {
 			return fmt.Errorf("network access is disabled: %s", detail)
+		}
+		if e.DenyGit && IsGitMutatingCommand(detail) {
+			return fmt.Errorf("git mutations are disabled for this worker: %s", detail)
 		}
 	}
 	return nil

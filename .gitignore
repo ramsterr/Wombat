@@ -3,6 +3,7 @@
 *.test
 .DS_Store
 /eval/results/
+/improvements.md
 
 .env
 .env.*

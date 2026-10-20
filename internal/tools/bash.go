@@ -1,12 +1,10 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -41,37 +39,20 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if err := env.Check("bash", a.Command); err != nil {
 		return "", err
 	}
+	if MayMutate(a.Command) {
+		if err := env.Snapshot("before mutating bash"); err != nil {
+			return "", err
+		}
+	}
 	timeout := time.Duration(a.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 120 * time.Second
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(runCtx, "sh", "-c", a.Command)
-	cmd.Dir = env.Dir
-	cmd.WaitDelay = 2 * time.Second
-	prepareCommand(cmd)
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	err = cmd.Run()
-	if errors.Is(runCtx.Err(), context.Canceled) {
-		return "", runCtx.Err()
+	result := RunCommand(ctx, env, a.Command, timeout)
+	if errors.Is(result.Err, context.Canceled) {
+		return "", result.Err
 	}
-
-	out := buf.String()
-	if runCtx.Err() == context.DeadlineExceeded {
-		out += fmt.Sprintf("\nerror: timed out after %s", timeout)
-	} else if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			out += fmt.Sprintf("\nexit code: %d", exitErr.ExitCode())
-		} else {
-			out += "\nerror: " + err.Error()
-		}
-	}
-	out = strings.TrimSpace(out)
+	out := result.Display()
 	if out == "" {
 		out = "(no output)"
 	}
