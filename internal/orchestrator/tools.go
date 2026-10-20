@@ -125,7 +125,8 @@ func (t *delegateTool) Description() string {
 	return "Delegate one self-contained, read-only investigation to a fresh worker with its own context. " +
 		"Use when exploration would flood your context. For two or more independent angles, use delegate_many - that is " +
 		"the default for multi-step work. Do the work directly when it is small or requires edits. " +
-		"Workers cannot edit files, run mutating commands, or delegate. Returns a structured JSON report with evidence and usage."
+		"Workers can read, search, fetch the web, and run non-mutating bash; they cannot edit files, write downloads, run mutating commands, or delegate. " +
+		"Returns a structured JSON report with evidence and usage."
 }
 func (t *delegateTool) Schema() map[string]any {
 	return map[string]any{
@@ -163,7 +164,8 @@ func (t *delegateManyTool) Description() string {
 		"USE THIS BY DEFAULT: for any task with more than two steps, for research, for comparison, or for anything that " +
 		"spans several parts of the codebase, dispatch a fleet of workers with one call instead of exploring one thread at " +
 		"a time. It is faster and keeps your context small. Give each worker a distinct angle and a self-contained brief. " +
-		"Do not use it for dependent steps, edits, or work you can do directly. Returns one structured JSON report per " +
+		"Workers can read, search, fetch the web, and run non-mutating bash; they cannot create files or download to disk. " +
+		"Do not use them for dependent steps, edits, or work you can do directly. Returns one structured JSON report per " +
 		"worker plus total usage; reconcile conflicting reports yourself."
 }
 func (t *delegateManyTool) Schema() map[string]any {
@@ -184,7 +186,7 @@ func (t *delegateManyTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"tasks": map[string]any{
 				"type":        "array",
-				"description": "independent read-only investigations to run concurrently (2-6)",
+				"description": "independent read-only investigations to run concurrently",
 				"minItems":    2,
 				"items":       taskSchema,
 			},

@@ -165,8 +165,11 @@ func (e *Env) checkPolicy(kind, detail string) error {
 	if kind == "read" {
 		return nil
 	}
-	if e.ReadOnly && (kind == "write" || kind == "edit" || kind == "bash") {
+	if e.ReadOnly && (kind == "write" || kind == "edit") {
 		return fmt.Errorf("read-only mode: %s is disabled", kind)
+	}
+	if e.ReadOnly && kind == "bash" && MayMutate(detail) {
+		return fmt.Errorf("read-only mode: commands that change files are disabled: %s", detail)
 	}
 	if e.DenyMutate && (kind == "write" || kind == "edit") {
 		return fmt.Errorf("chat mode: %s is disabled — switch to create mode to change files", kind)

@@ -157,7 +157,7 @@ func TestWorkerToolsIncludeWeb(t *testing.T) {
 	for _, tool := range o.workerTools {
 		names[tool.Name()] = true
 	}
-	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch"} {
+	for _, want := range []string{"bash", "read", "glob", "grep", "websearch", "webfetch"} {
 		if !names[want] {
 			t.Errorf("worker tools are missing %s: %v", want, names)
 		}

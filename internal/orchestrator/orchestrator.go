@@ -86,13 +86,13 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		loadWarning: warning,
 	}
 	for _, t := range ag.Tools {
-		if t.Class() == "read" || t.Class() == "network" {
+		if t.Class() == "read" || t.Class() == "network" || t.Class() == "bash" {
 			o.workerTools = append(o.workerTools, t)
 		}
 	}
 	if len(o.workerTools) == 0 {
 		// The workers do the reading and the searching, including the web.
-		o.workerTools = []tools.Tool{&tools.Read{}, &tools.Glob{}, &tools.Grep{}, &tools.WebSearch{}, &tools.WebFetch{}}
+		o.workerTools = []tools.Tool{&tools.Bash{}, &tools.Read{}, &tools.Glob{}, &tools.Grep{}, &tools.WebSearch{}, &tools.WebFetch{}}
 	}
 	for _, t := range ag.Tools {
 		switch t.Name() {
@@ -185,7 +185,7 @@ func (o *Orchestrator) systemPrompt() string {
 	b.WriteString("Never put dependent steps in one fleet. Do the work yourself when it is small, needs edits, or you already know where to look. ")
 	b.WriteString("There is no limit on how many scouts or how many turns you use; dispatch every independent angle you need.\n")
 	b.WriteString("Give each worker a complete objective, the context it cannot see from this conversation, and a concrete deliverable. ")
-	b.WriteString("Workers are read-only, cannot delegate, and have websearch/webfetch plus the file tools. They have no step, token, or time cap. ")
+	b.WriteString("Workers are read-only, cannot delegate, and have read/glob/grep/batch, websearch/webfetch, and bash for non-mutating commands. They cannot create or modify files: do downloads and file writes yourself or use delegate_write. They have no step, token, or time cap. ")
 	b.WriteString("Treat their reports as evidence, not truth: reconcile them and verify what matters.\n\n")
 	if o.worktrees != nil {
 		b.WriteString("### Writers\n")

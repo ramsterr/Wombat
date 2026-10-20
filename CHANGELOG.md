@@ -30,6 +30,12 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- Read-only workers can now run non-mutating bash (for example `ls`,
+  `which`, `yt-dlp --flat-playlist`, `curl` to stdout, and `ffmpeg -version`).
+  Writes, redirects, downloads to disk, and ffmpeg output are still refused,
+  and an unknown tool now reports the tools that are actually available.
+- Plan updates no longer reject a completed step because a check is pending;
+  checks are evidence, not a gate.
 - A provider error no longer poisons every later prompt. On a 400/422
   (`invalid_request`, context overflow, bad tool ordering), Wombat backs up
   the session and retries the latest prompt from a fresh context. If that also

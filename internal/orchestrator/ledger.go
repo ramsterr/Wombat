@@ -447,17 +447,3 @@ func mergeChecks(old, next []Check) []Check {
 	}
 	return out
 }
-
-func completionGate(l *Ledger) error {
-	for _, s := range l.Steps {
-		if s.Status != StepCompleted {
-			continue
-		}
-		for _, c := range s.Checks {
-			if c.Status != CheckPassed {
-				return fmt.Errorf("step %q cannot be completed: check %q is %s; run run_checks after fixing it", s.ID, c.ID, c.Status)
-			}
-		}
-	}
-	return nil
-}

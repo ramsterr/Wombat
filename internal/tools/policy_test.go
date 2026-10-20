@@ -66,10 +66,16 @@ func TestReadOnlyEnvBlocksMutations(t *testing.T) {
 		ReadOnly: true,
 		Permit:   func(string, string) Decision { return Decision{Allow: true} },
 	}
-	for _, kind := range []string{"write", "edit", "bash"} {
+	for _, kind := range []string{"write", "edit"} {
 		if err := env.Check(kind, "x"); err == nil || !strings.Contains(err.Error(), "read-only") {
 			t.Errorf("%s should be blocked: %v", kind, err)
 		}
+	}
+	if err := env.Check("bash", "echo hi"); err != nil {
+		t.Errorf("a non-mutating command should be allowed: %v", err)
+	}
+	if err := env.Check("bash", "echo hi > out.txt"); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Errorf("a mutating command should be blocked: %v", err)
 	}
 	if err := env.Check("read", "x"); err != nil {
 		t.Errorf("read should be allowed: %v", err)
@@ -158,5 +164,20 @@ func TestDeniedCallKeepsUserFeedback(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "use printf instead") {
 		t.Errorf("the feedback should be kept: %v", err)
+	}
+}
+
+func TestReadOnlyBashRunsNonMutatingCommands(t *testing.T) {
+	env := &Env{
+		Dir:      t.TempDir(),
+		ReadOnly: true,
+		Permit:   func(string, string) Decision { return Decision{Allow: true} },
+	}
+	out, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"echo hello"}`), env)
+	if err != nil || !strings.Contains(out, "hello") {
+		t.Fatalf("non-mutating bash failed: %q err=%v", out, err)
+	}
+	if _, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"echo x > out.txt"}`), env); err == nil {
+		t.Fatal("a mutating command should be refused in a read-only worker")
 	}
 }
