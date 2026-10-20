@@ -63,14 +63,16 @@ func (s Settings) Note() string {
 	}
 	if mode == Off {
 		b.WriteString("Sandbox: off. Commands run with the user's own permissions; every one of them " +
-			"is shown to the user for approval before it runs.")
+			"is shown to the user for approval before it runs. Network: available.")
 		return b.String()
 	}
 	b.WriteString("Sandbox: " + s.Summary() + ".")
 	if !s.Enforced() {
 		b.WriteString(" This host cannot enforce that mode, so commands run without a sandbox.")
 	}
-	if !s.Network {
+	if s.Network {
+		b.WriteString(" Network: available.")
+	} else {
 		b.WriteString(" The network is unavailable: commands that need it are stopped by the sandbox.")
 		b.WriteString(" If a task genuinely needs the network, say so and ask the user to enable it")
 		b.WriteString(" (they approve the request when prompted, or run `/sandbox network on`);")

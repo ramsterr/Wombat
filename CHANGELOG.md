@@ -8,6 +8,18 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- A **craft standard** in the system prompt: aim at a professional result, and
+  research before building whenever the network is available. The agent is
+  told to study how professionals do the work, prefer proven and licensed
+  sources, match the repository's own examples, and verify the result by
+  building and looking at it. Concrete starting points are named per kind of
+  work (3D, frontend, charts, icons, code, audio).
+
+### Changed
+
+- The model is now told explicitly whether the network is available, so it
+  researches when it can and asks when it cannot.
+
 - **Modes**: `chat` (look and explain, change nothing) and `create` (read, write,
   edit, run anything). Switch with `/mode chat|create`, list with `/modes`. The
   mode is enforced in the tools, shown in the header, and told to the model.

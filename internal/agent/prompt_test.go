@@ -20,3 +20,24 @@ func TestSystemPromptIncludesGuardrails(t *testing.T) {
 		}
 	}
 }
+
+func TestCraftStandardInPrompt(t *testing.T) {
+	p := buildSystem("/tmp")
+	for _, want := range []string{
+		"Craft standard",
+		"Research before you build",
+		"network is available",
+		"professional result",
+		"Prefer proven, maintained, licensed sources",
+		"Never copy a copyrighted asset",
+		"licence and attribution",
+		"examples/ directory",
+		"Poly Haven",
+		"design systems",
+		"Verify before you claim it works",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the system prompt is missing %q", want)
+		}
+	}
+}

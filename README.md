@@ -382,6 +382,39 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 
 Permissions are set per class to `ask` (default), `allow`, or `deny`. Read is always allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed.
 
+## Craft standard
+
+The system prompt tells the agent to aim at a professional result and to
+**research before it builds** whenever the network is available:
+
+> Aim at a professional result. Anything a person will judge on quality — a 3D
+> model, an illustration, a page, a chart, a game, a sound, a plugin, a CLI — is
+> measured against the best work you can find, not against your first attempt.
+
+Concretely, the agent is told to:
+
+- look at how professionals do it first — established libraries, official
+  design systems, curated asset packs, well-known open-source projects;
+- prefer proven, maintained, licensed sources over inventing from scratch,
+  and say why it chose one;
+- study the reference's *craft* (proportions, palette, typography, spacing,
+  motion, error states, accessibility, performance), never copy a copyrighted
+  asset;
+- fetch references with the shell, preferring primary sources — the project's
+  own docs and source over a blog summary;
+- pick sources it can actually read (a text agent cannot see a rendered image,
+  so model files, source, specs, and docs beat screenshots);
+- check licences and keep the credits;
+- read the repository's own `examples/` directory first and match its polish;
+- build it, run it, render it, **look at the output**, and fix what is wrong
+  before claiming it works.
+
+When the network is unavailable the agent is told to say so plainly, work from
+its best knowledge, and list the assumptions it had to make. The prompt also
+names concrete starting points per kind of work (Poly Haven and Sketchfab for
+3D, Material and Apple HIG for UI, Observable Plot and D3 for charts, Lucide
+and Phosphor for icons, and so on).
+
 ## Guardrails
 
 The system prompt carries safety rules that apply even when the user does not mention them:
