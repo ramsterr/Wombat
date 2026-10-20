@@ -31,6 +31,11 @@ func init() {
 	}
 	if v := strings.TrimSpace(info.Main.Version); v != "" && v != "(devel)" {
 		Version = strings.TrimPrefix(v, "v")
+		// A pseudo-version means "built from source, past the last tag".
+		// Show it as <tag>-dev instead of the noisy Go form.
+		if i := strings.Index(Version, "-0."); i > 0 {
+			Version = Version[:i] + "-dev"
+		}
 	}
 	for _, setting := range info.Settings {
 		switch setting.Key {
