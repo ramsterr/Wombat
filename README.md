@@ -376,6 +376,10 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `bash` | bash | 120s timeout, OS sandbox by default, output truncated head and tail |
 | `glob` | read | `**` patterns; skips `.git` and `node_modules` |
 | `grep` | read | pure-Go regular-expression search |
+| `batch` | read | several `read`/`grep`/`glob` calls in one round-trip |
+| `multi_edit` | edit | several edits to one file, applied atomically |
+| `webfetch` | network | fetch a URL and return readable text |
+| `websearch` | network | search the web and return ranked results |
 | `update_plan` | plan | create/replace the ledger, steps, and checks |
 | `run_checks` | verify | run a step's checks and record evidence |
 | `delegate` / `delegate_many` | delegate | read-only investigation workers |
@@ -433,6 +437,14 @@ harnesses do it:
   answers with one command rather than reading twenty files into its context.
 - **Parallel scouts.** A research task is one `delegate_many` call with two to
   five scouts, each in its own context, so the lead's context stays small.
+- **Web tools.** `websearch` and `webfetch` are first-class tools, so research
+  does not need a shell round-trip or a permission prompt for every `curl`.
+  The read-only workers get them too.
+- **One call instead of many.** `batch` runs several reads and searches in a
+  single round-trip, and `multi_edit` applies several edits to one file at
+  once. A big search result is written to a file with a pointer instead of
+  being carried in the model's context, so the model reads only the part it
+  needs.
 - **Cheaper scouts.** The read-only workers can run on a different, cheaper
   model than the lead, which is the biggest cost lever because the workers do
   the reading:

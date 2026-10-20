@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -101,6 +102,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	var media []tools.Media
 	if a.Env != nil {
 		a.Env.SetMediaSink(&media)
+		a.Env.SetSpillDir(a.spillDir())
 	}
 	// Repeating the same call with the same arguments means the model is
 	// stuck; stop it before it burns the budget.
@@ -298,6 +300,14 @@ func toolArg(tc llm.ToolCall, key string) string {
 		return v
 	}
 	return ""
+}
+
+// spillDir is where large tool results are written for the model to read.
+func (a *Agent) spillDir() string {
+	if a.Env == nil || a.Env.Dir == "" {
+		return ""
+	}
+	return filepath.Join(a.Env.Dir, ".wombat", "spill")
 }
 
 // appendMedia attaches files a tool produced to a user message, so the model

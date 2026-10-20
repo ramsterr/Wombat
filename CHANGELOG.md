@@ -8,6 +8,14 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Web tools**: `websearch` and `webfetch` are real tools now, so research
+  costs one round-trip instead of a shell command plus a permission prompt.
+  The read-only workers get them as well.
+- **`batch`**: several read, grep, and glob calls in one round-trip.
+- **`multi_edit`**: several edits to one file, checked before any of them is
+  written, so the file is never half-edited.
+- Large search results are written to a file with a pointer, so the model
+  reads only the part it needs instead of carrying the whole output.
 - **Parallel tool execution**: independent read-only tool calls now run at the
   same time, while anything that can change the workspace still runs alone and
   in order. Tool execution is about half of an agent's wall-clock time, so

@@ -156,7 +156,8 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		}
 	}
 	if len(o.workerTools) == 0 {
-		o.workerTools = []tools.Tool{&tools.Read{}, &tools.Glob{}, &tools.Grep{}}
+		// The workers do the reading and the searching, including the web.
+		o.workerTools = []tools.Tool{&tools.Read{}, &tools.Glob{}, &tools.Grep{}, &tools.WebSearch{}, &tools.WebFetch{}}
 	}
 	for _, t := range ag.Tools {
 		switch t.Name() {

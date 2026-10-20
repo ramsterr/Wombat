@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ramsterr/Wombat/internal/sandbox"
@@ -49,6 +51,19 @@ type Env struct {
 	// media collects files a tool wants the model to look at, such as an
 	// image the agent downloaded. The agent owns the list.
 	media *[]Media
+
+	// spillDir is where a large tool result is written so the model can
+	// read the parts it needs instead of carrying the whole thing in its
+	// context. The agent sets it.
+	spillDir string
+}
+
+// SetSpillDir sets the directory large tool results are written to.
+func (e *Env) SetSpillDir(dir string) {
+	if e == nil {
+		return
+	}
+	e.spillDir = dir
 }
 
 // Media is a file a tool produced for the model to look at.
@@ -138,6 +153,28 @@ func (e *Env) allowDangerous(command string) bool {
 	return false
 }
 
+// AskNetwork resolves network access for a tool that reaches the network
+// itself, such as webfetch and websearch. The sandbox cannot police those
+// calls, because they run inside the agent process, so the decision is made
+// here.
+func (e *Env) AskNetwork(detail string) error {
+	policy := e.sandboxPolicy()
+	if !e.DenyNetwork && (!policy.Enabled() || policy.AllowNetwork) {
+		return nil
+	}
+	if e.SandboxAsk == nil {
+		return describeNetworkBlock(detail, e)
+	}
+	switch e.askSandbox(SandboxNetwork, detail) {
+	case SandboxAllowOnce:
+		return nil
+	case SandboxAllowSession:
+		e.widenSandbox(func(s *sandbox.Settings) { s.Network = true })
+		return nil
+	}
+	return describeNetworkBlock(detail, e)
+}
+
 // widenSandbox changes the session sandbox settings.
 func (e *Env) widenSandbox(fn func(*sandbox.Settings)) {
 	if e == nil || e.SandboxState == nil {
@@ -165,7 +202,7 @@ type Tool interface {
 }
 
 func Registry() []Tool {
-	return []Tool{&Bash{}, &Read{}, &Write{}, &Edit{}, &Glob{}, &Grep{}}
+	return []Tool{&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &Glob{}, &Grep{}, &Batch{}, &WebFetch{}, &WebSearch{}}
 }
 
 func (e *Env) Check(kind, detail string) error {
@@ -184,6 +221,17 @@ func (e *Env) checkPolicy(kind, detail string) error {
 	}
 	if e.DenyMutate && (kind == "write" || kind == "edit") {
 		return fmt.Errorf("chat mode: %s is disabled — switch to create mode to change files", kind)
+	}
+	if kind == "network" {
+		// The web tools reach the network directly, so the sandbox's network
+		// rule applies to them too.
+		policy := e.sandboxPolicy()
+		if e.DenyNetwork || (policy.Enabled() && !policy.AllowNetwork) {
+			if e.SandboxAsk == nil {
+				return describeNetworkBlock(detail, e)
+			}
+			return nil // the tool asks the user before it runs
+		}
 	}
 	if kind == "bash" {
 		// A dangerous command is always blocked here; the bash tool asks the
@@ -239,6 +287,32 @@ func obj(props map[string]any, required ...string) map[string]any {
 		m["required"] = required
 	}
 	return m
+}
+
+// spillThreshold is how large a tool result may get before it is written to
+// a file instead of being carried in the model's context.
+const spillThreshold = 24 * 1024
+
+// Spill writes a large result to a file and returns a short pointer to it.
+// Claude Code does the same with tool output: the model gets the path and
+// reads only the parts it needs, instead of carrying the whole thing.
+func (e *Env) Spill(name, content string) (string, bool) {
+	if e == nil || e.spillDir == "" || len(content) <= spillThreshold {
+		return content, false
+	}
+	if err := os.MkdirAll(e.spillDir, 0o755); err != nil {
+		return content, false
+	}
+	path := filepath.Join(e.spillDir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return content, false
+	}
+	lines := strings.Count(content, "\n") + 1
+	head := content
+	if len(head) > spillThreshold {
+		head = head[:spillThreshold]
+	}
+	return fmt.Sprintf("%s\n[the full output is %d lines in %s - read the parts you need]", head, lines, path), true
 }
 
 func Truncate(s string, maxLines int, headFraction float64, maxBytes int) string {
