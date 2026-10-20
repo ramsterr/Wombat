@@ -160,6 +160,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Reasoning:     cfg.Reasoning,
 		SandboxNote:   settings.Note(),
 		ModeNote:      sessionMode.Note(),
+		TrimReasoning: cfg.TrimReasoning,
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		ag.Trace = tr
