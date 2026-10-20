@@ -19,7 +19,7 @@ func TrimStaleReasoning(msgs []Message) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
-		if i == last || out[i].Role != "assistant" {
+		if i == last || out[i].Role != "assistant" || len(out[i].ToolCalls) > 0 {
 			continue
 		}
 		out[i].Reasoning = ""
