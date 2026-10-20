@@ -46,6 +46,7 @@ const helpLines = `/help             this list
 /cost             token usage
 /status           show settings
 /yolo             toggle auto-approve
+/sandbox          sandbox and network control
 /clear            clear the transcript view
 /setup            reconfigure providers
 /exit             quit`
@@ -129,6 +130,8 @@ type chat struct {
 
 	provName  string
 	modelName string
+
+	sandbox sandbox.Settings
 
 	vp viewport.Model
 	ta textarea.Model
@@ -294,19 +297,18 @@ func (c *chat) rebuild(reset bool) error {
 	if cwd == "" {
 		cwd = c.opt.Cwd
 	}
-	mode, err := sandbox.Parse(c.cfg.Sandbox)
-	if err != nil {
-		return err
+	if c.sandbox.Mode == "" && c.sandbox.Network == false {
+		mode, err := sandbox.Parse(c.cfg.Sandbox)
+		if err != nil {
+			return err
+		}
+		c.sandbox = sandbox.Settings{Mode: mode, Network: c.cfg.SandboxNetwork}
 	}
-	mode = sandbox.Resolve(mode)
 	env := &tools.Env{
-		Dir:    cwd,
-		Permit: c.permit,
-		Sandbox: sandbox.Policy{
-			Mode:         mode,
-			Workspace:    cwd,
-			AllowNetwork: c.cfg.SandboxNetwork,
-		},
+		Dir:         cwd,
+		Permit:      c.permit,
+		Sandbox:     c.sandbox.Policy(cwd),
+		DenyNetwork: !c.sandbox.Network,
 	}
 	if c.cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(c.sess.Path()), cwd)
@@ -333,6 +335,7 @@ func (c *chat) rebuild(reset bool) error {
 		MaxTurnDuration: time.Duration(c.cfg.MaxTurnDuration) * time.Second,
 		MaxToolCalls:    c.cfg.MaxToolCalls,
 		Pricing:         agent.Pricing{InputPerMTok: c.cfg.PriceIn, CachedPerMTok: c.cfg.PriceCached, OutputPerMTok: c.cfg.PriceOut},
+		SandboxNote:     c.sandbox.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		c.ag.Trace = tr
@@ -903,11 +906,27 @@ func (c *chat) command(line string) tea.Cmd {
 		if c.sess != nil {
 			cwd = c.sess.Meta.Cwd
 		}
-		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nauto-approve=%v",
-			c.provName, c.modelName, c.sessionID(), cwd, c.auto), false)
+		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nauto-approve=%v\nsandbox: %s",
+			c.provName, c.modelName, c.sessionID(), cwd, c.auto, c.sandbox.Status()), false)
 	case "/yolo":
 		c.auto = !c.auto
 		c.note(fmt.Sprintf("auto-approve: %v", c.auto), false)
+	case "/sandbox":
+		settings, msg, changed, err := sandbox.ApplyCommand(line, c.sandbox)
+		if err != nil {
+			c.note(err.Error(), true)
+			return nil
+		}
+		if !changed {
+			c.note(msg, false)
+			return nil
+		}
+		c.sandbox = settings
+		if err := c.rebuild(false); err != nil {
+			c.note("could not apply the sandbox change: "+err.Error(), true)
+			return nil
+		}
+		c.note(msg, false)
 	case "/clear":
 		c.entries = nil
 	case "/setup":

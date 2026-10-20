@@ -38,6 +38,8 @@ type Agent struct {
 	Hooks         Hooks
 	Trace         *trace.Logger
 
+	SandboxNote string
+
 	MaxTurnTokens   int
 	MaxTurnCost     float64
 	MaxTurnDuration time.Duration
@@ -108,6 +110,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		maxSteps = 64
 	}
 	system := buildSystem(a.Env.Dir)
+	if note := strings.TrimSpace(a.SandboxNote); note != "" {
+		system += "\n\n" + note
+	}
 	if a.SystemExtra != nil {
 		if extra := strings.TrimSpace(a.SystemExtra()); extra != "" {
 			system += "\n\n" + extra

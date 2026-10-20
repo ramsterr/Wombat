@@ -6,7 +6,14 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `/sandbox` in the TUI and the REPL: show the sandbox mode, turn the network
+  on or off, and switch between `off`, `read-only`, `workspace-write`, and
+  `danger-full-access` without restarting the session.
+- Commands that need the network now fail with a message that says how to
+  enable it, instead of an opaque DNS error, and the model is told to ask
+  the user instead of working around the restriction.
 
 ## [0.2.5] — 2026-10-20
 

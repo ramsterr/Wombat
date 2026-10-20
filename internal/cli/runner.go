@@ -26,6 +26,11 @@ type runOpts struct {
 	provider string
 	yolo     bool
 	quiet    bool
+
+	// sandbox overrides the configured sandbox for this session when
+	// sandboxSet is true (the /sandbox command).
+	sandbox    sandbox.Settings
+	sandboxSet bool
 }
 
 func BuildProvider(ctx context.Context, cfg *config.Config, name, modelOverride string) (llm.Provider, string, string, error) {
@@ -88,19 +93,18 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		cwd, _ = os.Getwd()
 		sess.Meta.Cwd = cwd
 	}
-	mode, err := sandbox.Parse(cfg.Sandbox)
+	settings, err := sandboxSettings(cfg)
 	if err != nil {
 		return nil, err
 	}
-	mode = sandbox.Resolve(mode)
+	if opts.sandboxSet {
+		settings = opts.sandbox
+	}
 	env := &tools.Env{
-		Dir:    cwd,
-		Permit: p.Permit,
-		Sandbox: sandbox.Policy{
-			Mode:         mode,
-			Workspace:    cwd,
-			AllowNetwork: cfg.SandboxNetwork,
-		},
+		Dir:         cwd,
+		Permit:      p.Permit,
+		Sandbox:     settings.Policy(cwd),
+		DenyNetwork: !settings.Network,
 	}
 	if cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(sess.Path()), cwd)
@@ -124,6 +128,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		MaxTurnDuration: time.Duration(cfg.MaxTurnDuration) * time.Second,
 		MaxToolCalls:    cfg.MaxToolCalls,
 		Pricing:         agent.Pricing{InputPerMTok: cfg.PriceIn, CachedPerMTok: cfg.PriceCached, OutputPerMTok: cfg.PriceOut},
+		SandboxNote:     settings.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		ag.Trace = tr

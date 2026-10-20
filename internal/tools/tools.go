@@ -73,7 +73,10 @@ func (e *Env) checkPolicy(kind, detail string) error {
 			return fmt.Errorf("blocked dangerous command: %s", detail)
 		}
 		if e.DenyNetwork && IsNetworkCommand(detail) {
-			return fmt.Errorf("network access is disabled: %s", detail)
+			return describeNetworkBlock(detail, e)
+		}
+		if e.Sandbox.Enabled() && !e.Sandbox.AllowNetwork && IsNetworkCommand(detail) {
+			return describeNetworkBlock(detail, e)
 		}
 		if e.DenyGit && IsGitMutatingCommand(detail) {
 			return fmt.Errorf("git mutations are disabled for this worker: %s", detail)

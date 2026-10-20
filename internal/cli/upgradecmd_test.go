@@ -14,7 +14,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/release"
+	"github.com/ramsterr/Wombat/internal/sandbox"
+	"github.com/ramsterr/Wombat/internal/session"
 )
 
 func TestUpgradeBinaryReplacesTarget(t *testing.T) {
@@ -137,4 +140,36 @@ func tarGz(t *testing.T, name string, data []byte) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func TestBuildAgentUsesSandboxOverride(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	cfg := &config.Config{
+		Provider:  "openai",
+		Model:     "test-model",
+		Sandbox:   "workspace-write",
+		Providers: map[string]*config.Provider{"openai": {Kind: "openai", BaseURL: "http://127.0.0.1:1/v1"}},
+	}
+	sess, err := session.CreateAt(home, t.TempDir(), "openai", "test-model", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := runOpts{sandboxSet: true, sandbox: sandbox.Settings{Mode: sandbox.DangerFullAccess, Network: true}}
+	ag, err := buildAgent(cfg, opts, sess, newPrompter(false, false, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ag.Env.Sandbox.Mode != sandbox.DangerFullAccess {
+		t.Errorf("mode = %q", ag.Env.Sandbox.Mode)
+	}
+	if !ag.Env.Sandbox.AllowNetwork {
+		t.Error("network should be allowed")
+	}
+	if ag.Env.DenyNetwork {
+		t.Error("DenyNetwork should be false when the network is allowed")
+	}
+	if ag.SandboxNote == "" {
+		t.Error("the agent should be told about the sandbox")
+	}
 }

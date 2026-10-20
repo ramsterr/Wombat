@@ -14,6 +14,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 )
 
@@ -284,6 +285,7 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
   /compact          force context compaction
   /cost             cumulative token usage
   /yolo             toggle auto-approve
+  /sandbox          sandbox and network control
   /status           show current settings
   /exit             quit
 
@@ -347,6 +349,26 @@ tip: write @path/to/file (or @"path with spaces") to attach an image,
 	case "/yolo":
 		p.auto = !p.auto
 		fmt.Println(dim(fmt.Sprintf("auto-approve: %v", p.auto)))
+	case "/sandbox":
+		current, err := sandboxSettings(cfg)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		newSettings, msg, changed, err := sandbox.ApplyCommand(line, current)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		fmt.Println(msg)
+		if !changed {
+			return false, nil, nil, nil
+		}
+		opts.sandbox = newSettings
+		opts.sandboxSet = true
+		na, _, _, err := rebuild(cfg, *opts, sess, p, r)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		return false, na, sess, nil
 	case "/status":
 		fmt.Printf("provider=%s model=%s session=%s cwd=%s\n", ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd)
 	default:

@@ -263,7 +263,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 
 Flags for `run` and `resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`, and for `run` also `--image`, `--video`, `--audio`, and `--file` (repeatable).
 
-Line REPL commands: `/model`, `/models`, `/provider`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/help`, `/exit`.
+Line REPL commands: `/model`, `/models`, `/provider`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/sandbox`, `/help`, `/exit`.
 
 ## Attachments
 
@@ -353,6 +353,32 @@ The system prompt carries safety rules that apply even when the user does not me
 As a second layer, the `write` and `edit` tools append a warning when a secrets-like file (`.env`, `.env.*`, `*.pem`, `*.key`, `credentials.*`, …) is written in a git repository but is not ignored. The warning appears in the tool result so the agent can fix `.gitignore` before committing.
 
 These are guardrails plus an optional OS sandbox. On macOS, `workspace-write` uses `sandbox-exec`; on Linux it uses `bwrap` when installed. Windows has no sandbox backend yet and falls back to off. Permission prompts remain the application-level gate; `--yolo` and `permissions: allow` bypass them, so review diffs before committing.
+
+### You control the sandbox
+
+The sandbox is yours to change, at any time, without restarting.
+
+```sh
+/sandbox                      # show the current mode and network state
+/sandbox network on           # let commands reach the internet
+/sandbox network off          # block it again
+/sandbox mode off             # no sandbox at all
+/sandbox mode read-only       # reads only
+/sandbox mode workspace-write # writes limited to the working directory (default)
+/sandbox mode danger-full-access
+```
+
+Set the defaults for new sessions with `wombat config set sandbox workspace-write`
+and `wombat config set sandbox_network true`.
+
+When the network is off, a command that needs it fails with a clear message
+instead of a DNS error, and the agent is told to ask you rather than work
+around it:
+
+```
+network access is blocked by the sandbox: git fetch origin
+  the user can enable it with `/sandbox network on` (or `wombat config set sandbox_network true`)
+```
 
 ## Context management
 
