@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """Update the wombat Homebrew formula in a tap after a release.
 
-Used by .github/workflows/release.yml when a HOMEBREW_TAP_TOKEN secret is
-configured. Reads checksums.txt from the published release and rewrites the
-formula in the tap repository through the GitHub contents API.
+Used by .github/workflows/release.yml and .github/workflows/tap.yml. It reads
+checksums.txt from the published release, renders the formula, and commits it
+to the tap repository with git.
 
-    update-tap.py --tap ramsterr/homebrew-tap --version 0.2.0 --checksums checksums.txt
+    update-tap.py --tap ramsterr/homebrew-wombat --version 0.2.3 --checksums checksums.txt
+
+The token comes from HOMEBREW_TAP_TOKEN (a fine-grained PAT with contents:
+write on the tap repository) or GITHUB_TOKEN.
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
-import json
 import os
-import re
+import shutil
+import subprocess
 import sys
-import urllib.error
-import urllib.request
+import tempfile
 
-API = "https://api.github.com"
 FORMULA_PATH = "Formula/wombat.rb"
 
 TEMPLATE = '''class Wombat < Formula
@@ -59,6 +59,17 @@ end
 '''
 
 
+def run(args: list[str], cwd: str | None = None) -> str:
+    result = subprocess.run(
+        args,
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
+
+
 def parse_checksums(path: str) -> dict[str, str]:
     sums: dict[str, str] = {}
     with open(path, encoding="utf-8") as handle:
@@ -81,20 +92,6 @@ def required_sums(sums: dict[str, str], version: str) -> dict[str, str]:
     return wanted
 
 
-def api(method: str, path: str, token: str, payload: dict | None = None):
-    url = f"{API}{path}"
-    data = json.dumps(payload).encode() if payload is not None else None
-    request = urllib.request.Request(url, data=data, method=method)
-    request.add_header("Authorization", f"Bearer {token}")
-    request.add_header("Accept", "application/vnd.github+json")
-    request.add_header("User-Agent", "wombat-release-bot")
-    if data is not None:
-        request.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(request) as response:
-        body = response.read()
-    return json.loads(body) if body else {}
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--tap", required=True, help="owner/tap repository")
@@ -111,33 +108,39 @@ def main() -> int:
     formula = TEMPLATE.format(version=args.version, **sums)
 
     owner, repo = args.tap.split("/", 1)
-    path = f"/repos/{owner}/{repo}/contents/{FORMULA_PATH}"
-    sha = None
+    workdir = tempfile.mkdtemp(prefix="wombat-tap-")
     try:
-        existing = api("GET", path, token)
-        sha = existing.get("sha")
-    except urllib.error.HTTPError as error:
-        if error.code != 404:
-            raise
+        url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+        print(f"cloning {owner}/{repo}")
+        run(["git", "clone", "--depth", "1", url, workdir])
+        run(["git", "config", "user.name", "wombat-release-bot"], cwd=workdir)
+        run(["git", "config", "user.email", "wombat@localhost"], cwd=workdir)
 
-    payload = {
-        "message": args.message or f"wombat {args.version}",
-        "content": base64.b64encode(formula.encode()).decode(),
-        "branch": "main",
-    }
-    if sha:
-        payload["sha"] = sha
-        try:
-            current = api("GET", path + "?ref=main", token)
-            import base64 as _b64
+        target = os.path.join(workdir, FORMULA_PATH)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        previous = ""
+        if os.path.exists(target):
+            with open(target, encoding="utf-8") as handle:
+                previous = handle.read()
+        if previous == formula:
+            print(f"{owner}/{repo}/{FORMULA_PATH} is already at {args.version}")
+            return 0
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write(formula)
 
-            if _b64.b64decode(current.get("content", "")).decode() == formula:
-                print(f"{args.tap}/{FORMULA_PATH} is already at {args.version}")
-                return 0
-        except Exception:  # noqa: BLE001 - fall through and write the formula
-            pass
-    api("PUT", path, token, payload)
-    print(f"updated {args.tap}/{FORMULA_PATH} to {args.version}")
+        run(["git", "add", FORMULA_PATH], cwd=workdir)
+        run(
+            ["git", "commit", "-m", args.message or f"wombat {args.version}"],
+            cwd=workdir,
+        )
+        run(["git", "push", "origin", "HEAD"], cwd=workdir)
+        print(f"updated {owner}/{repo}/{FORMULA_PATH} to {args.version}")
+    except subprocess.CalledProcessError as error:
+        sys.stderr.write(error.stdout or "")
+        sys.stderr.write(error.stderr or "")
+        raise SystemExit(f"git failed: {error}") from error
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
     return 0
 
 
