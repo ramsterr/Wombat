@@ -4,6 +4,8 @@
 .DS_Store
 /eval/results/
 /dist/
+/examples/video/animated-cat/
+/scripts/
 /improvements.md
 
 .env
