@@ -133,5 +133,14 @@ esac
 
 say ""
 "$PREFIX/$BIN_NAME" version
+
+# Warn if a different wombat comes first on PATH, otherwise the new binary
+# is installed but the old one keeps running.
+CURRENT="$(command -v wombat 2>/dev/null || true)"
+if [ -n "$CURRENT" ] && [ "$CURRENT" != "$PREFIX/$BIN_NAME" ]; then
+  say ""
+  say "warning: 'wombat' on your PATH is $CURRENT, not $PREFIX/$BIN_NAME."
+  say "         remove the old copy (for example: rm \"$CURRENT\") so the new one is used."
+fi
 say ""
 say "Update later with: wombat upgrade"

@@ -100,6 +100,11 @@ func detectInstallMethod() string {
 	if err != nil {
 		return "script"
 	}
+	return installMethodFor(exe)
+}
+
+// installMethodFor maps an executable path to the way it was installed.
+func installMethodFor(exe string) string {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}

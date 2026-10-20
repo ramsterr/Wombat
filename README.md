@@ -54,82 +54,54 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 
 ## Install
 
-One self-contained binary of about 11 MB. No runtime dependencies on macOS and Linux; Go is only needed if you build from source.
+One self-contained binary, about 11 MB. No runtime dependencies, no Docker, no Python, no Node.
 
-### macOS and Linux (install script)
+### First time? Pick one line
+
+**macOS, Linux, WSL2, or Git Bash**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
 ```
 
-The script picks the right build for your machine, verifies its SHA-256 checksum against the release manifest, and installs it to `~/.local/bin`. Set `PREFIX` to install elsewhere, or `VERSION=0.2.0` to pin a release:
+**macOS or Linux with Homebrew**
 
 ```sh
-PREFIX=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
+brew tap ramsterr/wombat && brew install ramsterr/wombat/wombat
 ```
 
-If the command is not found, add `~/.local/bin` to your PATH and restart the shell:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-```
-
-### Homebrew
-
-```sh
-brew tap ramsterr/wombat
-brew install wombat
-```
-
-The tap is refreshed after every release, so `brew upgrade wombat` keeps up.
-
-### Go
+**Anywhere with Go 1.26+**
 
 ```sh
 go install github.com/ramsterr/Wombat/cmd/wombat@latest
 ```
 
-### Build from source
-
-Requires Go 1.26+.
+Then check it works:
 
 ```sh
-git clone https://github.com/ramsterr/Wombat.git
-cd Wombat
-
-mkdir -p ~/.local/bin
-go build -o ~/.local/bin/wombat ./cmd/wombat
+wombat version      # wombat 0.2.5
+wombat setup        # pick a provider, paste your API key, pick a model
+wombat              # start chatting
 ```
 
-Builds are silent on success — no output is expected. Verify:
+The install script picks the right build for your machine, checks its SHA-256
+checksum, and puts the binary in `~/.local/bin`. If `wombat` is "command not
+found", add that folder to your PATH:
 
 ```sh
-wombat version        # wombat 0.2.5
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # zsh
 ```
 
-To uninstall, delete the binary (`rm ~/.local/bin/wombat`) and, if you want, `~/.wombat/`.
+Other options: `PREFIX=/usr/local/bin` to install elsewhere, or
+`VERSION=0.2.5` to pin a version. To uninstall, delete the binary and, if you
+want, `~/.wombat/`.
 
-## Updating
-
-Releases are published on GitHub with binaries for macOS, Linux, and Windows.
+**If `wombat version` shows an old version**, you have more than one copy on
+your PATH. Find them and delete the old ones:
 
 ```sh
-wombat upgrade           # download, verify, and install the latest release
-wombat upgrade --check   # only report whether a newer version exists
-wombat doctor            # shows the update status too
+which -a wombat
 ```
-
-`wombat upgrade` detects how you installed Wombat and updates it the same way: it replaces a script or manual install in place, runs `brew upgrade` for a Homebrew install, and runs `go install` for a `go install` install. Override the guess with `wombat upgrade --method script|go|brew`.
-
-You can also update with the method you originally used:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash   # script
-brew upgrade wombat                                                                 # Homebrew
-go install github.com/ramsterr/Wombat/cmd/wombat@latest                            # Go
-```
-
-Set `WOMBAT_NO_UPDATE_CHECK=1` to stop Wombat from checking for new releases.
 
 ### Windows
 
@@ -186,6 +158,33 @@ Clipboard image paste is not implemented on Windows; attach an image by path ins
 ```
 
 To uninstall, delete `wombat.exe` and, if you want, the `%USERPROFILE%\.wombat` folder.
+
+## Updating
+
+### Already have wombat? One command
+
+```sh
+wombat upgrade
+```
+
+That is all. It finds the newest release, checks the checksum, and replaces
+your binary. It works no matter how you installed Wombat — install script,
+Homebrew, or `go install` — because it looks at where the binary lives.
+
+```sh
+wombat upgrade --check   # just tell me if there is a newer version
+wombat doctor            # shows the update status as well
+```
+
+Prefer your package manager? Use the same one you installed with:
+
+```sh
+brew upgrade ramsterr/wombat/wombat                                                  # Homebrew
+go install github.com/ramsterr/Wombat/cmd/wombat@latest                              # Go
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash   # script
+```
+
+Set `WOMBAT_NO_UPDATE_CHECK=1` to stop Wombat from ever checking for new releases.
 
 ## Quickstart
 

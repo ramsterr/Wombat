@@ -101,6 +101,22 @@ func TestDetectInstallMethod(t *testing.T) {
 	}
 }
 
+func TestInstallMethodFor(t *testing.T) {
+	cases := map[string]string{
+		"/opt/homebrew/Cellar/wombat/0.2.5/bin/wombat": "brew",
+		"/home/linuxbrew/bin/wombat":                   "brew",
+		"/usr/local/go/bin/wombat":                     "go",
+		"/home/user/go/bin/wombat":                     "go",
+		"/home/user/.local/bin/wombat":                 "script",
+		"/usr/local/bin/wombat":                        "script",
+	}
+	for path, want := range cases {
+		if got := installMethodFor(path); got != want {
+			t.Errorf("installMethodFor(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
 func tarGz(t *testing.T, name string, data []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
