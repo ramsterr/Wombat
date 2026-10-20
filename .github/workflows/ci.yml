@@ -26,9 +26,6 @@ jobs:
         run: go build ./...
       - name: eval tasks
         run: go run ./cmd/eval -tasks eval/tasks -dry-run
-      - name: probe continue-on-error
-        continue-on-error: true
-        run: exit 1
       - name: check the tap secret
         env:
           TAP: ${{ secrets.HOMEBREW_TAP_TOKEN }}

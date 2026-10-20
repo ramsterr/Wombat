@@ -64,21 +64,6 @@ jobs:
           git push --force origin refs/tags/stable
           echo "stable now points at ${GITHUB_SHA}"
 
-      - name: Update the Homebrew tap
-        if: github.event_name == 'push'
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
-            echo "::error::HOMEBREW_TAP_TOKEN is not set in this repository; skipping the Homebrew tap"
-            exit 1
-          fi
-          VERSION="${GITHUB_REF_NAME#v}"
-          gh release download "v${VERSION}" --pattern checksums.txt --dir . --clobber
-          python3 packaging/homebrew/update-tap.py --tap ramsterr/homebrew-wombat --version "$VERSION" --checksums checksums.txt
-
       - name: Publish the rolling install assets
         if: github.event_name == 'push'
         env:
@@ -93,3 +78,17 @@ jobs:
             gh release create stable --target "$GITHUB_SHA" --title "stable" --notes "Rolling release tag. The latest stable version is in VERSION.txt." VERSION.txt install.sh
           fi
           echo "published stable install assets for ${VERSION}"
+
+      - name: Update the Homebrew tap
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is not set in this repository; skipping the Homebrew tap"
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release download "v${VERSION}" --pattern checksums.txt --dir . --clobber
+          python3 packaging/homebrew/update-tap.py --tap ramsterr/homebrew-wombat --version "$VERSION" --checksums checksums.txt

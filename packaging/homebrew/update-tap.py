@@ -110,7 +110,11 @@ def main() -> int:
     owner, repo = args.tap.split("/", 1)
     workdir = tempfile.mkdtemp(prefix="wombat-tap-")
     try:
-        url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+        base = os.environ.get("TAP_REPO_URL", "").strip()
+        if base:
+            url = base
+        else:
+            url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
         print(f"cloning {owner}/{repo}")
         run(["git", "clone", "--depth", "1", url, workdir])
         run(["git", "config", "user.name", "wombat-release-bot"], cwd=workdir)
