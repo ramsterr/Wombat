@@ -83,12 +83,14 @@ func (s Settings) Note() string {
 
 // NetworkHint explains how to turn the network on.
 func NetworkHint() string {
-	return "the user can enable it with `/sandbox network on` (or `wombat config set sandbox_network true`)"
+	return "the user can enable it with `/sandbox network on` (or `wombat config set sandbox_network true`). " +
+		"Do not claim the command ran."
 }
 
 // DangerHint explains that a dangerous command was refused.
 func DangerHint() string {
-	return "the user can allow it when asked, or disable the check with `wombat config set permissions.bash allow`"
+	return "the user can allow it when asked, or disable the check with `wombat config set permissions.bash allow`. " +
+		"Do not claim the command ran."
 }
 
 // Status describes the settings for the user interface.

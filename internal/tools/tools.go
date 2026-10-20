@@ -19,6 +19,11 @@ type Decision struct {
 	Feedback string
 }
 
+// toolsDeniedNote is what the model sees when a call is refused and there is
+// no explanation: it must not claim the work happened.
+const toolsDeniedNote = "the user declined this call. Do not claim it was done. " +
+	"Continue without it, or tell the user what you need in order to proceed."
+
 type Env struct {
 	Dir           string
 	Permit        func(kind, detail string) Decision
@@ -179,9 +184,9 @@ func (e *Env) permit(kind, detail string) error {
 		return nil
 	}
 	if d.Feedback != "" {
-		return fmt.Errorf("permission denied by user — instructions: %s", d.Feedback)
+		return fmt.Errorf("permission denied by user: %s", d.Feedback)
 	}
-	return fmt.Errorf("permission denied by user")
+	return fmt.Errorf("permission denied by user: %s", toolsDeniedNote)
 }
 
 func decode[T any](args json.RawMessage) (T, error) {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -90,5 +91,32 @@ func TestHelpListsCommands(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Errorf("help is missing %s", want)
 		}
+	}
+}
+
+func TestNonInteractiveNoteExplainsHowToApprove(t *testing.T) {
+	note := nonInteractiveNote("bash")
+	for _, want := range []string{"no one is available", "--yolo", "permissions.bash", "Do not claim it was done"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note is missing %q: %s", want, note)
+		}
+	}
+}
+
+func TestDeclinedNote(t *testing.T) {
+	note := declinedNote()
+	if !strings.Contains(note, "Do not claim it was done") {
+		t.Errorf("note = %s", note)
+	}
+}
+
+func TestIsTTYRejectsNullDevice(t *testing.T) {
+	f, err := os.Open("/dev/null")
+	if err != nil {
+		t.Skip("no /dev/null on this platform")
+	}
+	defer f.Close()
+	if isTTY(f) {
+		t.Error("/dev/null must not be treated as a terminal")
 	}
 }

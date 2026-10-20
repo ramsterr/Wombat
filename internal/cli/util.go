@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
@@ -70,12 +72,14 @@ func VersionString() string {
 
 var colorEnabled = os.Getenv("NO_COLOR") == "" && isTTY(os.Stdout)
 
+// isTTY reports whether the file is an interactive terminal. A character
+// device is not enough: /dev/null is one too, and treating it as a terminal
+// makes a non-interactive run wait for an answer that can never come.
 func isTTY(f *os.File) bool {
-	fi, err := f.Stat()
-	if err != nil {
+	if f == nil {
 		return false
 	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(f.Fd()))
 }
 
 func dim(s string) string     { return wrap(s, "2") }
@@ -128,7 +132,7 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 	}
 	if !p.tty {
 		fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" requires approval: "+clipLine(detail, 120)+" — denied (non-interactive; rerun with --yolo)"))
-		return tools.Decision{}
+		return tools.Decision{Feedback: nonInteractiveNote(kind)}
 	}
 	look := lookFor(tools.PermKindFor(kind))
 	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s, or type instructions to deny with feedback: ",
@@ -146,7 +150,7 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 		p.always[kind] = true
 		return tools.Decision{Allow: true}
 	case "n", "no", "":
-		return tools.Decision{}
+		return tools.Decision{Feedback: declinedNote()}
 	default:
 		return tools.Decision{Feedback: answer}
 	}
@@ -171,6 +175,20 @@ func lookFor(kind tools.PermKind) permLook {
 		return permLook{symbol: "?", color: blue, title: "outside the workspace"}
 	}
 	return permLook{symbol: "?", color: yellow, title: "allow"}
+}
+
+// nonInteractiveNote explains a refusal that nobody could approve, so the
+// model tells the user what it needs instead of quietly continuing.
+func nonInteractiveNote(kind string) string {
+	return "no one is available to approve this call in a non-interactive run, so it was refused. " +
+		"Do not claim it was done. Tell the user this step needs approval: rerun with --yolo, " +
+		"or set permissions." + kind + " to allow, then repeat the task."
+}
+
+// declinedNote is what the model sees when the user says no.
+func declinedNote() string {
+	return "the user declined this call. Do not claim it was done. Continue without it, " +
+		"or tell the user what you need in order to proceed."
 }
 
 // AskSandbox asks the user whether a command blocked by the sandbox may run.

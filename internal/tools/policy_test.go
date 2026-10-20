@@ -169,3 +169,31 @@ func TestNetworkBlockedMessage(t *testing.T) {
 		t.Errorf("out = %q", out)
 	}
 }
+
+func TestDeniedCallTellsTheModelNotToClaimIt(t *testing.T) {
+	env := &Env{
+		Dir:    t.TempDir(),
+		Permit: func(kind, detail string) Decision { return Decision{} },
+	}
+	_, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"echo hi"}`), env)
+	if err == nil {
+		t.Fatal("expected the call to be denied")
+	}
+	if !strings.Contains(err.Error(), "Do not claim it was done") {
+		t.Errorf("the model should be told not to claim the work: %v", err)
+	}
+}
+
+func TestDeniedCallKeepsUserFeedback(t *testing.T) {
+	env := &Env{
+		Dir:    t.TempDir(),
+		Permit: func(kind, detail string) Decision { return Decision{Feedback: "use printf instead"} },
+	}
+	_, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"echo hi"}`), env)
+	if err == nil {
+		t.Fatal("expected the call to be denied")
+	}
+	if !strings.Contains(err.Error(), "use printf instead") {
+		t.Errorf("the feedback should be kept: %v", err)
+	}
+}
