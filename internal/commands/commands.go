@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// Option is one choice a command offers.
+type Option struct {
+	// Value is what gets appended to the command.
+	Value string
+	// Summary explains the choice.
+	Summary string
+}
+
 // Command is one slash command.
 type Command struct {
 	// Name is the command, including the leading slash.
@@ -15,6 +23,8 @@ type Command struct {
 	Args string
 	// Summary is the one-line description.
 	Summary string
+	// Options are the choices the command offers when it is run.
+	Options []Option
 }
 
 // Usage renders the command with its argument.
@@ -27,9 +37,19 @@ func (c Command) Usage() string {
 
 // List is every command, in the order they are shown.
 var List = []Command{
-	{Name: "/mode", Args: "[chat|create]", Summary: "switch the working mode"},
+	{Name: "/mode", Args: "[chat|create]", Summary: "switch the working mode", Options: []Option{
+		{Value: "chat", Summary: "look and explain, change nothing"},
+		{Value: "create", Summary: "read, write, edit, and run any command"},
+	}},
 	{Name: "/modes", Summary: "list the working modes"},
-	{Name: "/sandbox", Args: "[network on|off]", Summary: "sandbox and network control"},
+	{Name: "/sandbox", Args: "[network on|off]", Summary: "sandbox and network control", Options: []Option{
+		{Value: "network on", Summary: "let commands reach the internet"},
+		{Value: "network off", Summary: "block the internet"},
+		{Value: "mode off", Summary: "no sandbox"},
+		{Value: "mode read-only", Summary: "commands may not write"},
+		{Value: "mode workspace-write", Summary: "writes limited to the working directory"},
+		{Value: "mode danger-full-access", Summary: "no restrictions"},
+	}},
 	{Name: "/toolset", Summary: "the tools this session can use"},
 	{Name: "/sources", Summary: "sites and files used in this session"},
 	{Name: "/history", Summary: "the messages in this session"},
@@ -41,7 +61,9 @@ var List = []Command{
 	{Name: "/models", Summary: "browse models"},
 	{Name: "/attach", Args: "<path>", Summary: "attach an image, video, audio, or file"},
 	{Name: "/paste", Summary: "attach an image from the clipboard"},
-	{Name: "/detach", Args: "[n|all]", Summary: "remove pending attachments"},
+	{Name: "/detach", Args: "[n|all]", Summary: "remove pending attachments", Options: []Option{
+		{Value: "all", Summary: "remove every pending attachment"},
+	}},
 	{Name: "/mouse", Summary: "toggle mouse: wheel scroll or text selection"},
 	{Name: "/new", Summary: "start a fresh session"},
 	{Name: "/compact", Summary: "compact the context now"},

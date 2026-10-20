@@ -380,6 +380,14 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 		}
 		fmt.Println(msg)
 		if !changed {
+			if cmd, ok := commands.Find("/mode"); ok && len(cmd.Options) > 0 {
+				fmt.Println(dim("options:"))
+				for _, o := range cmd.Options {
+					fmt.Printf("  %-26s %s\n", o.Value, dim(o.Summary))
+				}
+			}
+		}
+		if !changed {
 			return false, nil, nil, nil
 		}
 		opts.mode = newMode
@@ -402,6 +410,14 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 			return false, nil, nil, err
 		}
 		fmt.Println(msg)
+		if !changed {
+			if cmd, ok := commands.Find("/sandbox"); ok && len(cmd.Options) > 0 {
+				fmt.Println(dim("options:"))
+				for _, o := range cmd.Options {
+					fmt.Printf("  %-26s %s\n", o.Value, dim(o.Summary))
+				}
+			}
+		}
 		if !changed {
 			return false, nil, nil, nil
 		}

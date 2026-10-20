@@ -21,8 +21,8 @@ func TestPaletteMatches(t *testing.T) {
 	if len(c.cmdList) == 0 {
 		t.Fatal("expected the palette to list the commands")
 	}
-	if c.cmdList[0].Name != "/mode" {
-		t.Errorf("first command = %q", c.cmdList[0].Name)
+	if c.cmdList[0].insert != "/mode" {
+		t.Errorf("first command = %q", c.cmdList[0].insert)
 	}
 }
 
@@ -30,7 +30,7 @@ func TestPaletteFilters(t *testing.T) {
 	c := newPaletteChat()
 	c.ta.SetValue("/sand")
 	c.updatePalette()
-	if len(c.cmdList) != 1 || c.cmdList[0].Name != "/sandbox" {
+	if len(c.cmdList) != 1 || c.cmdList[0].insert != "/sandbox" {
 		t.Fatalf("filtered = %+v", c.cmdList)
 	}
 }
@@ -83,7 +83,7 @@ func TestPaletteAppearsWhileTyping(t *testing.T) {
 	if len(c.cmdList) == 0 {
 		t.Fatal("the palette closed while typing")
 	}
-	if c.cmdList[0].Name != "/sessions" && c.cmdList[0].Name != "/sandbox" && c.cmdList[0].Name != "/status" && c.cmdList[0].Name != "/setup" && c.cmdList[0].Name != "/sources" {
+	if c.cmdList[0].insert != "/sessions" && c.cmdList[0].insert != "/sandbox" && c.cmdList[0].insert != "/status" && c.cmdList[0].insert != "/setup" && c.cmdList[0].insert != "/sources" {
 		t.Errorf("filtered list = %+v", c.cmdList)
 	}
 }
@@ -118,13 +118,13 @@ func TestPaletteArrowsMoveSelection(t *testing.T) {
 	if !c.paletteOpen() {
 		t.Fatal("the palette did not open")
 	}
-	first := c.cmdList[0].Name
+	first := c.cmdList[0].insert
 
 	c.key(tea.KeyMsg{Type: tea.KeyDown})
 	if c.cmdSel != 1 {
 		t.Fatalf("cmdSel = %d, want 1", c.cmdSel)
 	}
-	if c.cmdList[c.cmdSel].Name == first {
+	if c.cmdList[c.cmdSel].insert == first {
 		t.Error("the selection did not move")
 	}
 
@@ -151,20 +151,61 @@ func TestPaletteTabCompletesAndEscCloses(t *testing.T) {
 	c.ta.Focus()
 	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	c.key(tea.KeyMsg{Type: tea.KeyTab})
-	if c.paletteOpen() {
-		t.Error("tab should complete and close the palette")
-	}
 	if !strings.HasPrefix(c.ta.Value(), "/") {
 		t.Errorf("input = %q", c.ta.Value())
-	}
-
-	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
-	if !c.paletteOpen() {
-		t.Fatal("the palette did not reopen")
 	}
 	c.key(tea.KeyMsg{Type: tea.KeyEsc})
 	if c.paletteOpen() {
 		t.Error("esc should close the palette")
+	}
+}
+
+// TestPaletteEnterRunsCommand checks that Enter runs the highlighted command.
+func TestPaletteEnterRunsCommand(t *testing.T) {
+	c := newPaletteChat()
+	c.ta.Focus()
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/yolo")})
+	if !c.paletteOpen() {
+		t.Fatal("the palette did not open")
+	}
+	before := c.auto
+	c.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if c.auto == before {
+		t.Error("enter did not run the highlighted command")
+	}
+	if c.paletteOpen() {
+		t.Error("the palette should close after running a command")
+	}
+}
+
+// TestPaletteEnterOffersOptions checks that a command with options opens
+// them instead of running straight away.
+func TestPaletteEnterOffersOptions(t *testing.T) {
+	c := newPaletteChat()
+	c.ta.Focus()
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/sandbox")})
+	if !c.paletteOpen() {
+		t.Fatal("the palette did not open")
+	}
+	c.key(tea.KeyMsg{Type: tea.KeyEnter})
+	if c.ta.Value() != "/sandbox " {
+		t.Errorf("input = %q, want %q", c.ta.Value(), "/sandbox ")
+	}
+	if !c.paletteOpen() {
+		t.Fatal("the options did not open")
+	}
+	labels := map[string]bool{}
+	for _, e := range c.cmdList {
+		labels[e.label] = true
+	}
+	if !labels["network on"] || !labels["network off"] {
+		t.Errorf("options = %v", labels)
+	}
+	// the option list filters as the argument is typed
+	c.ta.SetValue("/sandbox net")
+	c.updatePalette()
+	if len(c.cmdList) != 2 {
+		t.Errorf("filtered options = %+v", c.cmdList)
 	}
 }
 
@@ -194,8 +235,8 @@ func TestPaletteWindowFollowsSelection(t *testing.T) {
 		t.Errorf("expected a counter above:\n%s", view)
 	}
 	// the selected command must be in the visible window
-	if !strings.Contains(view, c.cmdList[c.cmdSel].Name) {
-		t.Errorf("the selection %q is not visible:\n%s", c.cmdList[c.cmdSel].Name, view)
+	if !strings.Contains(view, c.cmdList[c.cmdSel].insert) {
+		t.Errorf("the selection %q is not visible:\n%s", c.cmdList[c.cmdSel].insert, view)
 	}
 	// walking back up scrolls the window back
 	for i := 0; i < 10; i++ {

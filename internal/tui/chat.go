@@ -146,11 +146,15 @@ type chat struct {
 	sandboxState *sandbox.State
 	mode         mode.Mode
 
-	// cmdList is the palette of matching slash commands. cmdSel is the
+	// cmdList is the palette of matching commands or options. cmdSel is the
 	// highlighted entry and cmdTop is the first visible one.
-	cmdList []commands.Command
+	cmdList []paletteEntry
 	cmdSel  int
 	cmdTop  int
+
+	// cmdOptions holds the options of the command being edited.
+	cmdOptions []commands.Option
+	cmdCommand string
 
 	vp viewport.Model
 	ta textarea.Model
@@ -458,22 +462,119 @@ func (c *chat) permit(kind, detail string) tools.Decision {
 }
 
 // updatePalette refreshes the slash-command palette for the current input.
+// When the input names a command that offers options, the palette shows
+// those options instead.
 func (c *chat) updatePalette() {
 	text := c.ta.Value()
 	if !strings.HasPrefix(text, "/") || strings.Contains(text, "\n") {
-		c.cmdList = nil
-		c.cmdSel = 0
+		c.clearPalette()
 		return
 	}
-	prefix := text
-	if i := strings.IndexAny(prefix, " \t"); i >= 0 {
-		prefix = prefix[:i]
+	name, arg, hasArg := splitCommand(text)
+	cmd, known := commands.Find(name)
+	if known && len(cmd.Options) > 0 && hasArg {
+		// the user is typing an argument: offer the command's options
+		c.cmdCommand = name
+		c.cmdOptions = cmd.Options
+		c.cmdList = optionEntries(cmd.Options, arg)
+		if c.cmdSel >= len(c.cmdList) {
+			c.cmdSel = 0
+		}
+		c.cmdTop = 0
+		return
 	}
-	c.cmdList = commands.Match(prefix)
+	c.cmdCommand = ""
+	c.cmdOptions = nil
+	prefix := name
+	entries := make([]paletteEntry, 0, len(commands.Match(prefix)))
+	for _, cmd := range commands.Match(prefix) {
+		entries = append(entries, paletteEntry{
+			label:      cmd.Usage(),
+			summary:    cmd.Summary,
+			insert:     cmd.Name,
+			isCommand:  true,
+			hasOptions: len(cmd.Options) > 0,
+		})
+	}
+	c.cmdList = entries
 	if c.cmdSel >= len(c.cmdList) {
 		c.cmdSel = 0
 	}
 	c.cmdTop = 0
+}
+
+// splitCommand splits an input like "/sandbox net" into the command and the
+// argument.
+func splitCommand(text string) (name string, arg string, hasArg bool) {
+	name = strings.TrimSpace(text)
+	if i := strings.IndexAny(name, " \t"); i >= 0 {
+		arg = strings.TrimSpace(name[i+1:])
+		name = name[:i]
+		hasArg = true
+	}
+	return name, arg, hasArg
+}
+
+// optionEntries turns a command's options into palette rows.
+func optionEntries(options []commands.Option, filter string) []paletteEntry {
+	entries := make([]paletteEntry, 0, len(options))
+	for _, o := range options {
+		if filter != "" && !strings.HasPrefix(o.Value, filter) {
+			continue
+		}
+		entries = append(entries, paletteEntry{
+			label:   o.Value,
+			summary: o.Summary,
+			insert:  o.Value,
+		})
+	}
+	return entries
+}
+
+// paletteEnter acts on the highlighted palette row: a command with options
+// opens its options, an option is filled in and run, and a plain command runs
+// straight away.
+func (c *chat) paletteEnter() tea.Cmd {
+	if len(c.cmdList) == 0 {
+		return nil
+	}
+	entry := c.cmdList[min(c.cmdSel, len(c.cmdList)-1)]
+	if entry.isCommand && entry.hasOptions {
+		// open the options of the command
+		found, ok := commands.Find(entry.insert)
+		if !ok || len(found.Options) == 0 {
+			return c.submit(entry.insert)
+		}
+		c.ta.SetValue(entry.insert + " ")
+		c.ta.CursorEnd()
+		c.cmdCommand = entry.insert
+		c.cmdOptions = found.Options
+		c.cmdList = optionEntries(found.Options, "")
+		c.cmdSel = 0
+		c.cmdTop = 0
+		c.layout()
+		c.refresh()
+		return nil
+	}
+	if !entry.isCommand && c.cmdCommand != "" {
+		full := c.cmdCommand + " " + entry.insert
+		c.ta.SetValue(full)
+		c.clearPalette()
+		return c.submit(full)
+	}
+	// a plain command runs as it is
+	c.ta.SetValue(entry.insert)
+	c.clearPalette()
+	return c.submit(entry.insert)
+}
+
+// clearPalette closes the palette.
+func (c *chat) clearPalette() {
+	c.cmdList = nil
+	c.cmdSel = 0
+	c.cmdTop = 0
+	c.cmdOptions = nil
+	c.cmdCommand = ""
 }
 
 // paletteOpen reports whether the palette is showing.
@@ -489,11 +590,9 @@ func (c *chat) completeCommand() {
 	if i := strings.IndexAny(text, " \t"); i >= 0 {
 		text = text[:i]
 	}
-	c.ta.SetValue(sel.Name + " ")
+	c.ta.SetValue(sel.insert + " ")
 	c.ta.CursorEnd()
-	c.cmdList = nil
-	c.cmdSel = 0
-	c.cmdTop = 0
+	c.clearPalette()
 }
 
 // currentSandbox returns the live sandbox settings of the session.
@@ -1357,6 +1456,11 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		if text == "" {
 			return nil
 		}
+		// With the palette open, Enter acts on the highlighted row: it runs
+		// the command, or offers the options when the command has some.
+		if c.paletteOpen() {
+			return c.paletteEnter()
+		}
 		return c.submit(text)
 	}
 	var cmd tea.Cmd
@@ -1482,6 +1586,22 @@ func (c *chat) view() string {
 	return strings.Join(parts, "\n")
 }
 
+// paletteEntry is one row of the command palette: a command, or one of the
+// options a command offers.
+type paletteEntry struct {
+	// label is what the row shows.
+	label string
+	// summary is the one-line description.
+	summary string
+	// insert is the text placed in the input when the row is chosen.
+	insert string
+	// isCommand is true for a command row, false for an option.
+	isCommand bool
+	// hasOptions is true when picking this command should offer its options
+	// instead of running it.
+	hasOptions bool
+}
+
 // paletteLimit is how many entries the palette shows at once.
 func (c *chat) paletteLimit() int {
 	limit := 8
@@ -1540,15 +1660,18 @@ func (c *chat) paletteView() string {
 	if end > len(c.cmdList) {
 		end = len(c.cmdList)
 	}
+	if c.cmdCommand != "" {
+		b.WriteString(styleFaint.Render("  options for "+c.cmdCommand) + "\n")
+	}
 	for i := c.cmdTop; i < end; i++ {
-		cmd := c.cmdList[i]
+		entry := c.cmdList[i]
 		marker := "  "
 		style := styleDim
 		if i == c.cmdSel {
 			marker = styleKey.Render(" > ")
 			style = lipgloss.NewStyle().Foreground(cAccent)
 		}
-		b.WriteString(marker + style.Render(pad(cmd.Usage(), 30)) + styleDim.Render(cmd.Summary) + "\n")
+		b.WriteString(marker + style.Render(pad(entry.label, 30)) + styleDim.Render(entry.summary) + "\n")
 	}
 	if end < len(c.cmdList) {
 		b.WriteString(styleFaint.Render(fmt.Sprintf("  … %d more below", len(c.cmdList)-end)) + "\n")
