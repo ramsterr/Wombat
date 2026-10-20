@@ -30,6 +30,11 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- A provider error no longer poisons every later prompt. On a 400/422
+  (`invalid_request`, context overflow, bad tool ordering), Wombat backs up
+  the session and retries the latest prompt from a fresh context. If that also
+  fails, it drops the failed prompt and restores the last good history, so the
+  next prompt starts clean instead of replaying the same error.
 - Text-only models (Beam, LongCat) no longer fail with `Beam supports text
   input only` when the conversation contains an image. `read` returns image
   metadata without attaching it, existing image attachments are replaced with

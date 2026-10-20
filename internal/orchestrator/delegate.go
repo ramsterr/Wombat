@@ -313,6 +313,13 @@ func workerHooks(parent agent.Hooks, title string, mu *sync.Mutex) agent.Hooks {
 				parent.OnCompact("worker:"+kind, before, after)
 			}
 		},
+		OnNotice: func(s string) {
+			lock()
+			defer unlock()
+			if parent.OnNotice != nil {
+				parent.OnNotice("worker: " + s)
+			}
+		},
 	}
 }
 

@@ -121,6 +121,13 @@ func (r *renderer) hooks() agent.Hooks {
 			fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("⟳ %s compaction: %s → %s tokens",
 				kind, humanTokens(before), humanTokens(after))))
 		},
+		OnNotice: func(s string) {
+			if r.quiet {
+				return
+			}
+			r.breakLine()
+			fmt.Fprintln(os.Stderr, dim("! "+s))
+		},
 	}
 }
 

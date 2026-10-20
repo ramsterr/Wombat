@@ -302,6 +302,9 @@ func (c *chat) hooks() agent.Hooks {
 		OnCompact: func(kind string, before, after int) {
 			c.emit(compactMsg{kind: kind, before: before, after: after})
 		},
+		OnNotice: func(s string) {
+			c.emit(noteMsg{text: s})
+		},
 	}
 }
 

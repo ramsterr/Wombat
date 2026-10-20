@@ -22,6 +22,7 @@ type Hooks struct {
 	OnToolResult func(name, result string, dur time.Duration)
 	OnUsage      func(u llm.Usage, historyTokens int)
 	OnCompact    func(kind string, before, after int)
+	OnNotice     func(string)
 }
 
 type Agent struct {
@@ -91,10 +92,14 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 	}
+	prior := append([]llm.Message(nil), a.Sess.Messages...)
+	var inputMsg *llm.Message
 	if input != "" || len(attachments) > 0 {
-		if err := a.Sess.Append(llm.Message{Role: "user", Content: input, Attachments: attachments}); err != nil {
+		msg := llm.Message{Role: "user", Content: input, Attachments: attachments}
+		if err := a.Sess.Append(msg); err != nil {
 			return err
 		}
+		inputMsg = &msg
 	}
 	// Files a tool hands over (an image the agent downloaded) are attached to
 	// the next user message so the model can actually look at them.
@@ -149,6 +154,13 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			a.Trace.Emit("vision_disabled", map[string]any{"error": tools.Truncate(err.Error(), 0, 0, 500)})
 			req.Messages = llm.TextOnlyMessages(messages)
 			res, err = a.Provider.Chat(ctx, req, a.Hooks.OnText)
+		}
+		if err != nil && llm.IsInvalidRequest(err) && inputMsg != nil {
+			// The provider rejected the conversation itself (bad tool
+			// ordering, an oversized context, an unsupported message). Try
+			// once with only the latest request, so a poisoned history does
+			// not make every future prompt fail the same way.
+			res, err = a.recoverInvalidRequest(ctx, system, prior, *inputMsg, err)
 		}
 		if err != nil {
 			return err
@@ -208,6 +220,75 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+	}
+}
+
+// recoverInvalidRequest retries the latest request from a fresh context. If
+// even that fails, it restores the history before the failed prompt and drops
+// that prompt, so the next prompt is not poisoned by it.
+func (a *Agent) recoverInvalidRequest(ctx context.Context, system string, prior []llm.Message, input llm.Message, cause error) (*llm.Result, error) {
+	fresh := make([]llm.Message, 0, 2)
+	for _, m := range prior {
+		if m.Role == "user" && strings.HasPrefix(m.Content, "Today: ") {
+			fresh = append(fresh, m)
+			break
+		}
+	}
+	fresh = append(fresh, input)
+	backup, _ := a.Sess.Backup("recovered")
+	if err := a.Sess.ReplaceMessages(fresh); err != nil {
+		return nil, cause
+	}
+	req := llm.Request{
+		Model: a.Model,
+		System: system + "\n\nNote: the earlier conversation was rejected by the provider and dropped. " +
+			"Answer the user's latest request from scratch.",
+		Tools:       a.toolDefs(),
+		Messages:    llm.NormalizeToolCalls(fresh),
+		NumCtx:      a.NumCtx,
+		Reasoning:   a.Reasoning,
+		SessionID:   a.Sess.ID(),
+		OnReasoning: a.Hooks.OnReasoning,
+	}
+	if a.NoVision {
+		req.Messages = llm.TextOnlyMessages(req.Messages)
+	}
+	res, err := a.Provider.Chat(ctx, req, a.Hooks.OnText)
+	if err == nil {
+		msg := "provider rejected the old conversation; retried your latest request from a fresh context"
+		if backup != "" {
+			msg += " (backup: " + backup + ")"
+		}
+		a.notice(msg)
+		return res, nil
+	}
+	if llm.IsImageUnsupported(err) && !a.NoVision {
+		a.NoVision = true
+		if a.Env != nil {
+			a.Env.NoImages = true
+		}
+		req.Messages = llm.TextOnlyMessages(req.Messages)
+		res, err = a.Provider.Chat(ctx, req, a.Hooks.OnText)
+		if err == nil {
+			a.notice("provider rejected images; retried the latest request as text")
+			return res, nil
+		}
+	}
+	// Even a fresh context failed. Restore the last known-good conversation
+	// and drop the failed prompt, so the next prompt starts clean.
+	_ = a.Sess.ReplaceMessages(prior)
+	msg := "provider rejected the request; removed the failed turn so your next prompt starts clean"
+	if backup != "" {
+		msg += " (backup: " + backup + ")"
+	}
+	a.notice(msg)
+	return nil, err
+}
+
+func (a *Agent) notice(s string) {
+	a.Trace.Emit("notice", map[string]any{"text": tools.Truncate(s, 0, 0, 500)})
+	if a.Hooks.OnNotice != nil {
+		a.Hooks.OnNotice(s)
 	}
 }
 

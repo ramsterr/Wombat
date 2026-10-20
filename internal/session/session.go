@@ -248,6 +248,32 @@ func (s *Session) Append(m llm.Message) error {
 	return nil
 }
 
+// Backup writes a copy of the current session file before a destructive
+// recovery (for example, dropping a context the provider rejected).
+func (s *Session) Backup(tag string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		return "", err
+	}
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		tag = "backup"
+	}
+	tag = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return '-'
+	}, tag)
+	dst := s.path + "." + tag + ".bak"
+	if err := os.WriteFile(dst, raw, 0o600); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
 func (s *Session) ReplaceMessages(msgs []llm.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
