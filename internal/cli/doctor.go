@@ -74,6 +74,10 @@ func cmdDoctor(_ []string) error {
 		fmt.Printf("  %s %-9s %s%s\n", green("✓"), p.Name, dim(fmt.Sprintf("%d models", len(models))), dim(preview))
 	}
 
+	fmt.Println()
+	fmt.Println(bold("updates"))
+	printUpdateStatus(ctx)
+
 	if activeErr == nil {
 		fmt.Println()
 		fmt.Println(bold("active provider"))

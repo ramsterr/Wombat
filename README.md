@@ -2,7 +2,7 @@
 <img width="2872" height="676" alt="Wombat" src="https://github.com/user-attachments/assets/53857c41-0947-4be9-b90f-72dd92ab9f99" />
 
 [![CI](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg)](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ramsterr/Wombat)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/ramsterr/Wombat)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#install)
 [![Binary](https://img.shields.io/badge/binary-~11%20MB-brightgreen)](#install)
@@ -21,6 +21,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 
 - [Features](#features)
 - [Install](#install)
+- [Updating](#updating)
 - [Quickstart](#quickstart)
 - [The TUI](#the-tui)
 - [Commands](#commands)
@@ -53,9 +54,43 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 
 ## Install
 
-Requires Go 1.26+. The result is a single self-contained binary of about 11 MB.
+One self-contained binary of about 11 MB. No runtime dependencies on macOS and Linux; Go is only needed if you build from source.
 
-### macOS and Linux
+### macOS and Linux (install script)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
+```
+
+The script picks the right build for your machine, verifies its SHA-256 checksum against the release manifest, and installs it to `~/.local/bin`. Set `PREFIX` to install elsewhere, or `VERSION=0.2.0` to pin a release:
+
+```sh
+PREFIX=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
+```
+
+If the command is not found, add `~/.local/bin` to your PATH and restart the shell:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+### Homebrew
+
+```sh
+brew install ramsterr/tap/wombat
+```
+
+The tap is refreshed after every release. If it is not available yet, use the install script.
+
+### Go
+
+```sh
+go install github.com/ramsterr/Wombat/cmd/wombat@latest
+```
+
+### Build from source
+
+Requires Go 1.26+.
 
 ```sh
 git clone https://github.com/ramsterr/Wombat.git
@@ -68,22 +103,32 @@ go build -o ~/.local/bin/wombat ./cmd/wombat
 Builds are silent on success — no output is expected. Verify:
 
 ```sh
-wombat version        # wombat 0.1.0
-```
-
-If the command is not found, add `~/.local/bin` to your PATH and restart the shell:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-```
-
-Prefer another location? The binary is self-contained; build it anywhere and move it onto your PATH:
-
-```sh
-go build -o wombat ./cmd/wombat && mv wombat /usr/local/bin/
+wombat version        # wombat 0.2.0
 ```
 
 To uninstall, delete the binary (`rm ~/.local/bin/wombat`) and, if you want, `~/.wombat/`.
+
+## Updating
+
+Releases are published on GitHub with binaries for macOS, Linux, and Windows.
+
+```sh
+wombat upgrade           # download, verify, and install the latest release
+wombat upgrade --check   # only report whether a newer version exists
+wombat doctor            # shows the update status too
+```
+
+`wombat upgrade` detects how you installed Wombat and updates it the same way: it replaces a script or manual install in place, runs `brew upgrade` for a Homebrew install, and runs `go install` for a `go install` install. Override the guess with `wombat upgrade --method script|go|brew`.
+
+You can also update with the method you originally used:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash   # script
+brew upgrade ramsterr/tap/wombat                                                    # Homebrew
+go install github.com/ramsterr/Wombat/cmd/wombat@latest                            # Go
+```
+
+Set `WOMBAT_NO_UPDATE_CHECK=1` to stop Wombat from checking for new releases.
 
 ### Windows
 
@@ -101,12 +146,7 @@ Then, inside the Ubuntu terminal (Windows Terminal works well):
 
 ```sh
 sudo apt update && sudo apt install -y git curl
-# install Go 1.26+ from https://go.dev/dl/
-git clone https://github.com/ramsterr/Wombat.git
-cd Wombat
-
-mkdir -p ~/.local/bin
-go build -o ~/.local/bin/wombat ./cmd/wombat
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 
@@ -122,12 +162,18 @@ WSL shares the Windows clipboard through WSLg, but image paste also needs `wl-pa
 Install [Go for Windows](https://go.dev/dl/) and [Git for Windows](https://git-scm.com/download/win), then run this in **Git Bash**:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
+~/.local/bin/wombat.exe version
+```
+
+The script detects Windows and unpacks the release archive, so `unzip` must be available. It installs to `~/.local/bin`; add that folder to your user `PATH` (or copy the binary to `~/bin`). Or download `wombat_<version>_windows_amd64.zip` from the [releases page](https://github.com/ramsterr/Wombat/releases) and unzip it yourself.
+
+Or build from source with [Go for Windows](https://go.dev/dl/):
+
+```sh
 git clone https://github.com/ramsterr/Wombat.git
 cd Wombat
-
-mkdir -p ~/bin
 go build -o ~/bin/wombat.exe ./cmd/wombat
-~/bin/wombat.exe version
 ```
 
 `~/bin` maps to `%USERPROFILE%\bin`. Add that folder to your user `PATH`, or call the binary by path. Launch Wombat from Git Bash so `sh.exe` is available to the `bash` tool. Config and sessions live in `%USERPROFILE%\.wombat\`.
@@ -212,6 +258,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat config set <key> <value>` | set `provider`, `model`, `max_steps`, sandbox, budgets, writers, or a permission |
 | `wombat checkpoint list` | list snapshots for the latest session |
 | `wombat checkpoint restore <id>` | restore a snapshot (`--yes` for non-interactive use) |
+| `wombat upgrade` | update wombat to the latest release (`--check` to only look) |
 | `wombat version` | print the version |
 
 Flags for `run` and `resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`, and for `run` also `--image`, `--video`, `--audio`, and `--file` (repeatable).
@@ -410,7 +457,7 @@ Tasks are self-contained JSON fixtures under `eval/tasks/` (20 tasks today). The
 ```text
 cmd/wombat        entry point
 cmd/eval          eval harness CLI
-internal/cli      REPL, headless run, setup wizard, doctor, checkpoints
+internal/cli      REPL, headless run, setup wizard, doctor, checkpoints, upgrade
 internal/agent    agent loop, system prompt, hooks, budgets, usage, compaction
 internal/orchestrator  ledger, checks, read-only delegation, writers, merge queue
 internal/worktree isolated git worktree manager and patch merge queue
@@ -419,6 +466,7 @@ internal/sandbox  macOS sandbox-exec and Linux bwrap policies
 internal/trace    append-only JSONL run events
 internal/eval     task loader, protection, repeats, reports, pricing
 internal/llm      provider adapters, HTTP errors, retry/backoff
+internal/release  GitHub release lookup, checksums, version comparison
 internal/tools    read/write/edit/bash/glob/grep, sandboxed commands, permissions
 internal/tui      Bubble Tea chat UI, sessions, models, usage, doctor
 internal/session  JSONL session persistence and attachment store
@@ -426,6 +474,7 @@ internal/config   config load/save, presets, key resolution
 internal/tokens   token estimation and model context windows
 internal/clip     clipboard image readers
 eval/tasks        self-contained eval fixtures
+packaging         release process notes and the Homebrew tap updater
 examples          genre-grouped tasks and reference outputs
 ```
 
@@ -441,3 +490,14 @@ go build -o /tmp/wombat ./cmd/wombat
 ```
 
 CI runs the same checks on every push to `main` and on pull requests.
+
+### Cutting a release
+
+Wombat ships as GitHub releases. Pushing a `v<version>` tag builds the
+binaries, publishes them with checksums, moves the rolling `stable` tag, and
+refreshes the Homebrew tap when a tap token is configured. The full checklist
+lives in [packaging/RELEASING.md](packaging/RELEASING.md).
+
+```sh
+git tag v0.3.0 && git push origin v0.3.0
+```

@@ -67,8 +67,10 @@ func Main() {
 		err = cmdConfig(args)
 	case "checkpoint":
 		err = cmdCheckpoint(args)
+	case "upgrade":
+		err = cmdUpgrade(args)
 	case "version", "--version", "-v":
-		fmt.Println("wombat " + Version)
+		fmt.Println(VersionString())
 	case "help", "--help", "-h":
 		help()
 	default:
@@ -97,6 +99,7 @@ usage:
   wombat config              show config (redacted); use ` + "`wombat config set`" + `
   wombat checkpoint list     list session checkpoints
   wombat checkpoint restore  restore a checkpoint (--yes to confirm)
+  wombat upgrade             update wombat to the latest release
   wombat version             print version
 
 flags for run/resume:
