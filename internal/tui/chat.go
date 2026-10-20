@@ -370,7 +370,6 @@ func (c *chat) rebuild(reset bool) error {
 		Tools:         tools.RegistryWithQuestion(),
 		Env:           env,
 		Sess:          c.sess,
-		MaxSteps:      c.cfg.MaxSteps,
 		Compact:       true,
 		ContextWindow: tokens.Window(c.modelName),
 		NumCtx:        pc.NumCtx,

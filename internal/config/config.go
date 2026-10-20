@@ -35,7 +35,6 @@ type Config struct {
 	Model               string               `json:"model"`
 	Providers           map[string]*Provider `json:"providers"`
 	Permissions         map[string]string    `json:"permissions,omitempty"`
-	MaxSteps            int                  `json:"max_steps,omitempty"`
 	Orchestrator        bool                 `json:"orchestrator"`
 	MaxParallelScouts   int                  `json:"max_parallel_scouts"`
 	MaxParallelWriters  int                  `json:"max_parallel_writers"`

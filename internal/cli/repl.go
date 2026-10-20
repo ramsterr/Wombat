@@ -371,7 +371,7 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 				current = m
 			}
 		}
-		fmt.Println(toolsetText(ag, current))
+		fmt.Println(toolsetText(ag, current, cfg.Permissions))
 	case "/sources":
 		fmt.Println(sourcesText(sess))
 	case "/history":

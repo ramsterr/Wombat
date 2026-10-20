@@ -18,8 +18,11 @@ func (c *chat) toolsetView() string {
 	for _, t := range c.ag.Tools {
 		gate := "allowed"
 		switch t.Class() {
-		case "bash", "write", "edit":
-			gate = "asks"
+		case "bash", "write", "edit", "network":
+			gate = c.cfg.Permissions[t.Class()]
+			if gate == "" {
+				gate = "allow"
+			}
 		case "read":
 			gate = "always"
 		}

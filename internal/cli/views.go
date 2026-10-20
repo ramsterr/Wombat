@@ -18,7 +18,7 @@ func helpText() string {
 }
 
 // toolsetText lists the tools the session can use.
-func toolsetText(ag *agent.Agent, current mode.Mode) string {
+func toolsetText(ag *agent.Agent, current mode.Mode, perms map[string]string) string {
 	if ag == nil {
 		return "no tools yet"
 	}
@@ -27,8 +27,11 @@ func toolsetText(ag *agent.Agent, current mode.Mode) string {
 	for _, t := range ag.Tools {
 		gate := "allowed"
 		switch t.Class() {
-		case "bash", "write", "edit":
-			gate = "asks"
+		case "bash", "write", "edit", "network":
+			gate = perms[t.Class()]
+			if gate == "" {
+				gate = "allow"
+			}
 		case "read":
 			gate = "always"
 		}
