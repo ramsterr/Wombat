@@ -66,6 +66,7 @@ jobs:
 
       - name: Update the Homebrew tap
         if: github.event_name == 'push'
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

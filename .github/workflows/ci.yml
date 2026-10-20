@@ -31,10 +31,10 @@ jobs:
           TAP: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$TAP" ]; then
-            echo "::error::HOMEBREW_TAP_TOKEN is missing from this repository"
-            exit 1
+            echo "HOMEBREW_TAP_TOKEN is not set; the Homebrew tap will not be updated"
+          else
+            echo "HOMEBREW_TAP_TOKEN is present"
           fi
-          echo "HOMEBREW_TAP_TOKEN is present"
 
   release-config:
     runs-on: ubuntu-latest
