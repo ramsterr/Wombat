@@ -1293,6 +1293,7 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 			if c.cmdSel > 0 {
 				c.cmdSel--
 			}
+			c.syncPaletteWindow(c.paletteLimit())
 			c.layout()
 			c.refresh()
 			return nil
@@ -1300,6 +1301,7 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 			if c.cmdSel < len(c.cmdList)-1 {
 				c.cmdSel++
 			}
+			c.syncPaletteWindow(c.paletteLimit())
 			c.layout()
 			c.refresh()
 			return nil
@@ -1494,17 +1496,16 @@ func (c *chat) paletteLimit() int {
 	return limit
 }
 
-// paletteView renders the list of slash commands that match the input. The
-// window follows the selection, so the highlighted command is always visible.
-func (c *chat) paletteView() string {
+// syncPaletteWindow scrolls the visible window so the selected command is
+// always on screen.
+func (c *chat) syncPaletteWindow(limit int) {
 	if len(c.cmdList) == 0 {
-		return ""
+		c.cmdTop = 0
+		return
 	}
-	limit := c.paletteLimit()
 	if limit > len(c.cmdList) {
 		limit = len(c.cmdList)
 	}
-	// keep the selection inside the window
 	if c.cmdSel < c.cmdTop {
 		c.cmdTop = c.cmdSel
 	}
@@ -1517,6 +1518,19 @@ func (c *chat) paletteView() string {
 	if c.cmdTop+limit > len(c.cmdList) {
 		c.cmdTop = len(c.cmdList) - limit
 	}
+}
+
+// paletteView renders the list of slash commands that match the input. The
+// window follows the selection, so the highlighted command is always visible.
+func (c *chat) paletteView() string {
+	if len(c.cmdList) == 0 {
+		return ""
+	}
+	limit := c.paletteLimit()
+	if limit > len(c.cmdList) {
+		limit = len(c.cmdList)
+	}
+	c.syncPaletteWindow(limit)
 
 	var b strings.Builder
 	if c.cmdTop > 0 {
