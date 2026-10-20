@@ -94,7 +94,7 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if out == "" {
 		out = "(no output)"
 	}
-	return Truncate(out, 220, 0.25, 48*1024), nil
+	return Truncate(out, 120, 0.25, 24*1024), nil
 }
 
 // escalateNetwork asks the user for network access when the sandbox blocks

@@ -385,35 +385,33 @@ Permissions are set per class to `ask` (default), `allow`, or `deny`. Read is al
 ## Craft standard
 
 The system prompt tells the agent to aim at a professional result and to
-**research before it builds** whenever the network is available:
+**research before it builds**:
 
-> Aim at a professional result. Anything a person will judge on quality — a 3D
-> model, an illustration, a page, a chart, a game, a sound, a plugin, a CLI — is
-> measured against the best work you can find, not against your first attempt.
+> Aim at what the best practitioners in the field achieve, not at your first
+> attempt.
 
-Concretely, the agent is told to:
+Concretely, the agent is told to look at how the best people in the field do
+the work — established libraries, official docs and design systems, curated
+assets, well-known open-source projects — and to learn from their craft
+(proportions, palette, typography, spacing, motion, error states,
+accessibility, performance). It prefers proven, licensed sources over
+inventing from scratch, credits what it reuses, reads the repository's own
+`examples/` directory first, and looks at its own output before claiming it
+works.
 
-- look at how professionals do it first — established libraries, official
-  design systems, curated asset packs, well-known open-source projects;
-- prefer proven, maintained, licensed sources over inventing from scratch,
-  and say why it chose one;
-- study the reference's *craft* (proportions, palette, typography, spacing,
-  motion, error states, accessibility, performance), never copy a copyrighted
-  asset;
-- fetch references with the shell, preferring primary sources — the project's
-  own docs and source over a blog summary;
-- pick sources it can actually read (a text agent cannot see a rendered image,
-  so model files, source, specs, and docs beat screenshots);
-- check licences and keep the credits;
-- read the repository's own `examples/` directory first and match its polish;
-- build it, run it, render it, **look at the output**, and fix what is wrong
-  before claiming it works.
+## Parallel work
 
-When the network is unavailable the agent is told to say so plainly, work from
-its best knowledge, and list the assumptions it had to make. The prompt also
-names concrete starting points per kind of work (Poly Haven and Sketchfab for
-3D, Material and Apple HIG for UI, Observable Plot and D3 for charts, Lucide
-and Phosphor for icons, and so on).
+The prompt also tells the agent to **work in parallel**:
+
+> For research, comparison, or anything more than two steps, fan out 2-5
+> workers with delegate_many to investigate different angles at the same time,
+> then synthesize their reports. That is faster and uses far fewer of your own
+> tokens than working through it alone.
+
+So a typical research task becomes one `delegate_many` call with two to five
+scouts, each with a different angle, instead of the lead exploring one thread
+at a time. Up to `max_parallel_scouts` run at once (five by default), so a
+fleet finishes in a single wave.
 
 ## Guardrails
 
@@ -565,13 +563,13 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn, `max_parallel_scouts` caps concurrent scouts, and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops. Lead turns are not capped: the only stop is `max_steps`. `sandbox` is `off`, `read-only`, `workspace-write`, or `danger-full-access`; checkpoints are on by default. Writers additionally use `max_parallel_writers`, per-writer and per-turn token budgets, and step/timeout caps.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn (six by default, so a five-scout fleet fits in one turn), `max_parallel_scouts` caps concurrent scouts (five by default, so a fleet runs in one wave), and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops. Lead turns are not capped: the only stop is `max_steps`. `sandbox` is `off`, `read-only`, `workspace-write`, or `danger-full-access`; checkpoints are on by default. Writers additionally use `max_parallel_writers`, per-writer and per-turn token budgets, and step/timeout caps.
 
 ## Orchestration
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to six independent scouts concurrently, in waves bounded by `max_parallel_scouts`. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
 
 ### Checks, verification, and writers
 

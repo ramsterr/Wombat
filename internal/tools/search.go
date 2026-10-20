@@ -131,7 +131,7 @@ func (t *Glob) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 		return "no files matched " + a.Pattern, nil
 	}
 	out := fmt.Sprintf("%d files:\n%s", len(matches), strings.Join(matches, "\n"))
-	return Truncate(out, 260, 0.95, 32*1024), nil
+	return Truncate(out, 160, 0.95, 16*1024), nil
 }
 
 type Grep struct{}
@@ -244,5 +244,5 @@ func (t *Grep) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 		header = fmt.Sprintf("%d+ matches (capped) in %d+ files:\n", maxMatches, len(matchedFiles))
 	}
 	res := header + strings.Join(out, "\n")
-	return Truncate(res, 300, 0.9, 40*1024), nil
+	return Truncate(res, 200, 0.9, 20*1024), nil
 }

@@ -158,7 +158,7 @@ type delegateManyArgs struct {
 func (t *delegateManyTool) Name() string  { return "delegate_many" }
 func (t *delegateManyTool) Class() string { return "delegate" }
 func (t *delegateManyTool) Description() string {
-	return "Run two to six independent, read-only scouting tasks concurrently, each with its own context and session. Use only for independent questions that would flood the lead context; do not use for dependent steps, edits, or work you can do directly. Returns one structured JSON report per scout plus total usage; reconcile conflicting reports yourself."
+	return "Run two to five independent, read-only scouting tasks concurrently, each with its own context and session. Prefer this for research, comparison, or any task with more than two steps: parallel scouts are faster and keep the lead context small. Give each one a distinct angle. Do not use it for dependent steps, edits, or work you can do directly. Returns one structured JSON report per scout plus total usage; reconcile conflicting reports yourself."
 }
 func (t *delegateManyTool) Schema() map[string]any {
 	taskSchema := map[string]any{

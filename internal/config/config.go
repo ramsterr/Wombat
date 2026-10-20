@@ -18,11 +18,11 @@ type Provider struct {
 }
 
 const (
-	DefaultMaxDelegations        = 3
-	DefaultMaxParallelScouts     = 3
-	DefaultWorkerMaxSteps        = 24
-	DefaultWorkerTokenBudget     = 120_000
-	DefaultTurnWorkerTokenBudget = 240_000
+	DefaultMaxDelegations        = 6
+	DefaultMaxParallelScouts     = 5
+	DefaultWorkerMaxSteps        = 16
+	DefaultWorkerTokenBudget     = 50_000
+	DefaultTurnWorkerTokenBudget = 260_000
 	DefaultMaxParallelWriters    = 2
 	DefaultWriterMaxSteps        = 40
 	DefaultWriterTokenBudget     = 200_000

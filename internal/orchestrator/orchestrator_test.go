@@ -510,3 +510,26 @@ func runGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
 }
+
+func TestOrchestrationPromptStaysShort(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{Goal: "g"}}
+	if n := len(o.systemPrompt()); n > 2200 {
+		t.Errorf("the orchestration prompt is %d characters, want under 2200", n)
+	}
+}
+
+func TestOrchestrationPromptPushesParallelScouts(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{Goal: "g"}}
+	p := o.systemPrompt()
+	for _, want := range []string{
+		"delegate_many",
+		"two to five",
+		"run at the same time",
+		"faster",
+		"fewer tokens",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the orchestration prompt is missing %q", want)
+		}
+	}
+}

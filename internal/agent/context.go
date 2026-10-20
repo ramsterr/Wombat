@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	protectToolTokens = 40000
-	minReclaim        = 15000
-	keepVerbatim      = 15000
+	protectToolTokens = 16000
+	minReclaim        = 8000
+	keepVerbatim      = 8000
 	compactReserve    = 20000
 	compactSafety     = 13000
 )

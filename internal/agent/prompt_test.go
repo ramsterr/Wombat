@@ -24,20 +24,27 @@ func TestSystemPromptIncludesGuardrails(t *testing.T) {
 func TestCraftStandardInPrompt(t *testing.T) {
 	p := buildSystem("/tmp")
 	for _, want := range []string{
-		"Craft standard",
-		"Research before you build",
-		"network is available",
-		"professional result",
-		"Prefer proven, maintained, licensed sources",
-		"Never copy a copyrighted asset",
-		"licence and attribution",
+		"Quality bar",
+		"best practitioners",
+		"Work in parallel",
+		"2-5 workers",
+		"delegate_many",
+		"established libraries",
+		"Prefer proven, licensed sources",
+		"credit what you reuse",
+		"Search the web when the network is available",
 		"examples/ directory",
-		"Poly Haven",
-		"design systems",
-		"Verify before you claim it works",
+		"before claiming it works",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the system prompt is missing %q", want)
 		}
+	}
+}
+
+func TestPromptStaysShort(t *testing.T) {
+	// The system prompt is sent with every request, so it has to stay lean.
+	if n := len(buildSystem("/tmp")); n > 4000 {
+		t.Errorf("the system prompt is %d characters, want under 4000", n)
 	}
 }

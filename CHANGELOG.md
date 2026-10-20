@@ -6,6 +6,22 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The system prompt tells the agent to work in parallel: fan out two to five
+  workers with `delegate_many` for research, comparison, or anything with
+  more than two steps, each on a different angle, then synthesize.
+
+### Changed
+
+- The system prompt is compressed by about a third (it is sent with every
+  request), and the orchestration rules were tightened the same way.
+- The lead keeps far less tool output verbatim in its history (16k tokens
+  instead of 40k) and tool results are smaller, so every request is cheaper.
+- Five scouts run at once by default, each with a tighter step and token
+  budget, so a fleet finishes in one wave. The per-turn delegation budget is
+  now six, so a five-scout fleet fits in a single turn.
+
 ### Removed
 
 - The agent's turn budgets: `max_turn_tokens`, `max_turn_cost`,
