@@ -433,6 +433,13 @@ harnesses do it:
   answers with one command rather than reading twenty files into its context.
 - **Parallel scouts.** A research task is one `delegate_many` call with two to
   five scouts, each in its own context, so the lead's context stays small.
+- **Cheaper scouts.** The read-only workers can run on a different, cheaper
+  model than the lead, which is the biggest cost lever because the workers do
+  the reading:
+
+  ```sh
+  wombat config set scout_model gpt-5-mini
+  ```
 
 ## Showing or hiding the thinking
 

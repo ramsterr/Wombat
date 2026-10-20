@@ -39,6 +39,10 @@ type Config struct {
 	TurnWorkerTokenBudget int
 	WorkerTimeout         time.Duration
 	WorkerHome            string
+	// ScoutModel is the model the read-only workers use. Empty means the
+	// lead's model. A cheaper model here is the biggest speed and cost
+	// lever, because the workers do the reading.
+	ScoutModel            string
 	MaxParallelWriters    int
 	WriterMaxSteps        int
 	WriterTokenBudget     int

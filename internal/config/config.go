@@ -49,6 +49,7 @@ type Config struct {
 	Mode                  string               `json:"mode"`
 	Reasoning             string               `json:"reasoning,omitempty"`
 	ShowThinking          bool                 `json:"show_thinking"`
+	ScoutModel            string               `json:"scout_model,omitempty"`
 	Sandbox               string               `json:"sandbox"`
 	SandboxNetwork        bool                 `json:"sandbox_network"`
 	Checkpoints           bool                 `json:"checkpoints"`

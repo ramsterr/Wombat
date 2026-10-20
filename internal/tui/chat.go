@@ -387,6 +387,7 @@ func (c *chat) rebuild(reset bool) error {
 			MaxDelegations:        c.cfg.MaxDelegations,
 			MaxParallelScouts:     c.cfg.MaxParallelScouts,
 			WorkerMaxSteps:        c.cfg.WorkerMaxSteps,
+			ScoutModel:            c.cfg.ScoutModel,
 			WorkerTokenBudget:     c.cfg.WorkerTokenBudget,
 			TurnWorkerTokenBudget: c.cfg.TurnWorkerTokenBudget,
 			MaxParallelWriters:    c.cfg.MaxParallelWriters,

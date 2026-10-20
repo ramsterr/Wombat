@@ -166,6 +166,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			MaxDelegations:        cfg.MaxDelegations,
 			MaxParallelScouts:     cfg.MaxParallelScouts,
 			WorkerMaxSteps:        cfg.WorkerMaxSteps,
+			ScoutModel:            cfg.ScoutModel,
 			WorkerTokenBudget:     cfg.WorkerTokenBudget,
 			TurnWorkerTokenBudget: cfg.TurnWorkerTokenBudget,
 			MaxParallelWriters:    cfg.MaxParallelWriters,

@@ -16,6 +16,8 @@ All notable changes to Wombat are recorded here. The format follows
   times stops with "stop repeating it" instead of burning the turn.
 - `/thinking on|off` and a `show_thinking` setting. The thinking is hidden by
   default and shown as a one-line summary; it is always kept in the session.
+- A `scout_model` setting: the read-only workers can run on a cheaper model
+  than the lead, which is where most of the reading happens.
 - A `reasoning` setting (off, low, medium, high) that maps to the provider's
   thinking controls, so the cost of thinking is the user's choice.
 

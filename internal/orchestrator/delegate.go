@@ -291,9 +291,13 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		}
 	}
 
+	model := o.lead.Model
+	if o.cfg.ScoutModel != "" {
+		model = o.cfg.ScoutModel
+	}
 	worker := &agent.Agent{
 		Provider:      o.lead.Provider,
-		Model:         o.lead.Model,
+		Model:         model,
 		Tools:         o.workerTools,
 		Env:           &env,
 		Sess:          ws,

@@ -15,8 +15,9 @@ import (
 )
 
 type fleetProvider struct {
-	mu sync.Mutex
-	n  int
+	mu     sync.Mutex
+	n      int
+	models []string
 }
 
 func (p *fleetProvider) Name() string                                 { return "mock" }
@@ -25,6 +26,7 @@ func (p *fleetProvider) Chat(_ context.Context, req llm.Request, _ func(string))
 	p.mu.Lock()
 	p.n++
 	n := p.n
+	p.models = append(p.models, req.Model)
 	p.mu.Unlock()
 	report := map[string]any{"status": "completed", "summary": fmt.Sprintf("scout %d", n),
 		"findings": []map[string]any{{"claim": fmt.Sprintf("angle %d", n), "evidence": "README.md:1"}},
@@ -90,6 +92,51 @@ func TestFleetRunsInParallel(t *testing.T) {
 	for _, task := range parsed.Tasks {
 		if task.Report.Summary == "" {
 			t.Error("a scout returned no summary")
+		}
+	}
+}
+
+// TestScoutsUseTheirOwnModel checks the model routing: the read-only
+// workers can run on a cheaper model than the lead.
+func TestScoutsUseTheirOwnModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	sess, err := session.CreateAt(home, t.TempDir(), "mock", "lead-model", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &fleetProvider{}
+	ag := &agent.Agent{Provider: prov, Model: "lead-model", Tools: tools.Registry(),
+		Env:  &tools.Env{Dir: sess.Meta.Cwd, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		Sess: sess, MaxSteps: 8}
+	o, err := Attach(ag, Config{MaxDelegations: 6, MaxParallelScouts: 5, WorkerMaxSteps: 4,
+		WorkerTokenBudget: 50000, TurnWorkerTokenBudget: 260000, ScoutModel: "cheap-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.updatePlan("research", nil, []Step{
+		{ID: "s1", Title: "S", Status: StepInProgress},
+		{ID: "s2", Title: "S", Status: StepInProgress},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegateMany(context.Background(), []delegateArgs{
+		{StepID: "s1", Title: "t", Objective: "one", Deliverable: "d"},
+		{StepID: "s2", Title: "t", Objective: "two", Deliverable: "d"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("out: %s", out)
+	prov.mu.Lock()
+	models := append([]string(nil), prov.models...)
+	prov.mu.Unlock()
+	if len(models) == 0 {
+		t.Fatal("the workers never called the model")
+	}
+	for _, m := range models {
+		if m != "cheap-model" {
+			t.Errorf("a worker used %q, want cheap-model", m)
 		}
 	}
 }
