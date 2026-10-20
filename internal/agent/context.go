@@ -19,8 +19,21 @@ const (
 
 func (a *Agent) historyTokens() int {
 	total := 0
-	for _, m := range a.Sess.Messages {
-		total += tokens.Estimate(m.Content) + tokens.Estimate(m.Reasoning) + 6
+	// Only the newest assistant turn keeps its reasoning in the request, so
+	// only that reasoning counts against the context window.
+	last := -1
+	for i := len(a.Sess.Messages) - 1; i >= 0; i-- {
+		if a.Sess.Messages[i].Role == "assistant" {
+			last = i
+			break
+		}
+	}
+	for i, m := range a.Sess.Messages {
+		reasoning := m.Reasoning
+		if i != last {
+			reasoning = ""
+		}
+		total += tokens.Estimate(m.Content) + tokens.Estimate(reasoning) + 6
 		for _, at := range m.Attachments {
 			total += attachmentTokens(at)
 		}

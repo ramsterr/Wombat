@@ -527,6 +527,25 @@ network access is blocked by the sandbox: git fetch origin
   the user can enable it with `/sandbox network on` (or `wombat config set sandbox_network true`)
 ```
 
+## Reasoning and cost
+
+Thinking (reasoning) tokens are **billed as output tokens** — generating them
+costs money, usually more per token than ordinary output. *Displaying* them in
+the TUI is free, but keeping them in the conversation is not: Wombat replays
+the reasoning of the most recent turn on every request, and older turns are
+now stripped of it (the session file still keeps it for the transcript and
+`/history`).
+
+To spend less on thinking:
+
+```sh
+wombat config set reasoning low      # off | low | medium | high
+```
+
+`off` is the cheapest, `low` is a good default for everyday work, and `high`
+is worth it for hard problems. The level maps to what each provider supports:
+`reasoning_effort` for OpenAI, a thinking budget for Anthropic.
+
 ## Context management
 
 Long sessions stay under the model window with two tiers:

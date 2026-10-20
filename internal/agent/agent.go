@@ -40,6 +40,9 @@ type Agent struct {
 
 	SandboxNote string
 	ModeNote    string
+	// Reasoning asks the provider to think less or more: off, low, medium,
+	// high, or "" for the provider default.
+	Reasoning string
 
 	mu    sync.Mutex
 	usage UsageStats
@@ -119,9 +122,10 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		res, err := a.Provider.Chat(ctx, llm.Request{
 			Model:       a.Model,
 			System:      system,
-			Messages:    a.Sess.Messages,
+			Messages:    llm.TrimStaleReasoning(a.Sess.Messages),
 			Tools:       a.toolDefs(),
 			NumCtx:      a.NumCtx,
+			Reasoning:   a.Reasoning,
 			SessionID:   a.Sess.ID(),
 			OnReasoning: a.Hooks.OnReasoning,
 		}, a.Hooks.OnText)

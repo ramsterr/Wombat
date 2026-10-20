@@ -190,6 +190,9 @@ func (a *anthropic) Chat(ctx context.Context, req Request, onDelta func(string))
 		"messages":   msgs,
 		"stream":     true,
 	}
+	if budget, ok := thinkingBudget(req.Reasoning, maxTokens); ok {
+		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+	}
 	if req.System != "" {
 		body["system"] = []map[string]any{{
 			"type":          "text",

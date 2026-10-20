@@ -8,6 +8,17 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- A `reasoning` setting (off, low, medium, high) that maps to the provider's
+  thinking controls, so the cost of thinking is the user's choice.
+
+### Changed
+
+- Only the newest assistant turn keeps its reasoning in the request. Older
+  reasoning was replayed on every request, paying input tokens for text the
+  model no longer needs. The session still keeps it for the transcript.
+
+### Added
+
 - The agent can look at images it finds: reading an image file attaches it to
   the next message, so a vision-capable model sees it exactly like a pasted
   image. Download with curl, then read the file.

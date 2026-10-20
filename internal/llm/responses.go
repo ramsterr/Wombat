@@ -199,6 +199,9 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 	}
 	if isReasoningModel(req.Model) {
 		body["reasoning"] = map[string]any{"summary": "auto"}
+		if effort := reasoningEffort(req.Reasoning); effort != "" {
+			body["reasoning"].(map[string]any)["effort"] = effort
+		}
 		body["include"] = []string{"reasoning.encrypted_content"}
 	}
 	if len(req.Tools) > 0 {

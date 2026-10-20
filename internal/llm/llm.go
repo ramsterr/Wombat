@@ -48,6 +48,9 @@ type Request struct {
 	MaxTokens   int
 	Temperature float64
 	NumCtx      int
+	// Reasoning asks the provider to think less or more: off, low, medium,
+	// high, or "" for the provider default.
+	Reasoning   string
 	SessionID   string
 	OnReasoning func(string)
 }

@@ -195,6 +195,9 @@ func (o *openAI) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 	if len(req.Tools) > 0 {
 		body["tools"] = toolSchemas(req.Tools)
 	}
+	if effort := reasoningEffort(req.Reasoning); effort != "" {
+		body["reasoning_effort"] = effort
+	}
 	if req.Temperature > 0 {
 		body["temperature"] = req.Temperature
 	}

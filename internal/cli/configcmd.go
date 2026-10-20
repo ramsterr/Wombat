@@ -21,7 +21,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, reasoning, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -44,6 +44,13 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg.Orchestrator = v
+	case key == "reasoning":
+		switch strings.ToLower(val) {
+		case "off", "none", "minimal", "low", "medium", "default", "high", "max":
+			cfg.Reasoning = strings.ToLower(val)
+		default:
+			return fmt.Errorf("reasoning must be off, low, medium, or high")
+		}
 	case key == "mode":
 		m, err := mode.Parse(val)
 		if err != nil {
