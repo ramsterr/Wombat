@@ -123,7 +123,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		res, err := a.Provider.Chat(ctx, llm.Request{
 			Model:       a.Model,
 			System:      system,
-			Messages:    llm.TrimStaleReasoning(a.Sess.Messages),
+			Messages:    llm.NormalizeToolCalls(llm.TrimStaleReasoning(a.Sess.Messages)),
 			Tools:       defs,
 			NumCtx:      a.NumCtx,
 			Reasoning:   a.Reasoning,
@@ -167,12 +167,6 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}); err != nil {
 				return err
 			}
-			if len(media) > 0 {
-				if err := a.appendMedia(media); err != nil {
-					return err
-				}
-				media = media[:0]
-			}
 			a.Trace.Emit("tool_end", map[string]any{
 				"name": tc.Name, "duration_ms": r.duration.Milliseconds(),
 				"result_bytes": len(r.content),
@@ -180,6 +174,16 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			if a.Hooks.OnToolResult != nil {
 				a.Hooks.OnToolResult(tc.Name, r.content, r.duration)
 			}
+		}
+		// Every tool message for this assistant turn must be committed before
+		// any user message. Tools that hand back an image append to `media`;
+		// attaching it inside the loop would put a user message between two
+		// tool results, which providers reject.
+		if len(media) > 0 {
+			if err := a.appendMedia(media); err != nil {
+				return err
+			}
+			media = media[:0]
 		}
 		if err := ctx.Err(); err != nil {
 			return err
