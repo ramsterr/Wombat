@@ -179,12 +179,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}); err != nil {
 				return err
 			}
-			if len(media) > 0 {
-				if err := a.appendMedia(media); err != nil {
-					return err
-				}
-				media = media[:0]
-			}
+			// The media is attached after every tool result of this turn: a
+			// user message in the middle of a tool_call/tool_result pair
+			// breaks the API's pairing rules.
 			a.Trace.Emit("tool_end", map[string]any{
 				"name": tc.Name, "duration_ms": r.duration.Milliseconds(),
 				"result_bytes": len(r.content),
@@ -192,6 +189,12 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			if a.Hooks.OnToolResult != nil {
 				a.Hooks.OnToolResult(tc.Name, r.content, r.duration)
 			}
+		}
+		if len(media) > 0 {
+			if err := a.appendMedia(media); err != nil {
+				return err
+			}
+			media = media[:0]
 		}
 		if err := ctx.Err(); err != nil {
 			return err
