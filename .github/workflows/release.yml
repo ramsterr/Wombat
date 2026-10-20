@@ -84,6 +84,6 @@ jobs:
           if gh release view stable >/dev/null 2>&1; then
             gh release upload stable VERSION.txt install.sh --clobber
           else
-            gh release create stable --title "stable" --notes "Rolling release tag. See the latest tagged release for the version." VERSION.txt install.sh
+            gh release create stable --target "$GITHUB_SHA" --title "stable" --notes "Rolling release tag. The latest stable version is in VERSION.txt." VERSION.txt install.sh
           fi
           echo "published stable install assets for ${VERSION}"

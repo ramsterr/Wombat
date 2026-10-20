@@ -42,6 +42,9 @@ The `Release` workflow then:
    so the install script always finds the current version,
 6. updates the Homebrew formula when `HOMEBREW_TAP_TOKEN` is set.
 
+If a release workflow run fails halfway, delete the GitHub release for that
+tag and re-push the tag; goreleaser refuses to overwrite an existing release.
+
 ## Verifying a release locally
 
 ```sh
