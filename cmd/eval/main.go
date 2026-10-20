@@ -22,7 +22,6 @@ func main() {
 		outDir         = flag.String("out", "eval/results", "directory for report.json and report.md")
 		providerName   = flag.String("provider", "", "provider override")
 		model          = flag.String("model", "", "model override")
-		maxSteps       = flag.Int("max-steps", 64, "maximum agent steps per task")
 		orchestrator   = flag.Bool("orchestrator", true, "enable lead/worker orchestration")
 		timeout        = flag.Duration("timeout", 10*time.Minute, "per-task agent timeout")
 		commandTimeout = flag.Duration("command-timeout", 2*time.Minute, "per setup/check command timeout")
@@ -96,10 +95,8 @@ func main() {
 				}
 				return tools.Decision{Allow: true}
 			},
-			DenyDangerous: true,
-			DenyNetwork:   true,
+			DenyNetwork: true,
 		},
-		MaxSteps:       *maxSteps,
 		Orchestrator:   *orchestrator,
 		ContextWindow:  tokens.Window(resolvedModel),
 		Timeout:        *timeout,

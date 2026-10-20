@@ -17,47 +17,27 @@ type Provider struct {
 	NumCtx  int      `json:"num_ctx,omitempty"`
 }
 
-const (
-	DefaultMaxDelegations        = 6
-	DefaultMaxParallelScouts     = 5
-	DefaultWorkerMaxSteps        = 16
-	DefaultWorkerTokenBudget     = 50_000
-	DefaultTurnWorkerTokenBudget = 260_000
-	DefaultMaxParallelWriters    = 2
-	DefaultWriterMaxSteps        = 40
-	DefaultWriterTokenBudget     = 200_000
-	DefaultTurnWriterTokenBudget = 400_000
-)
+// configVersion is bumped when a default changes in a way that existing
+// configs should inherit. Version 2 removed the sandbox and the old
+// ask-by-default permission set.
+const configVersion = 2
 
 type Config struct {
-	Version               int                  `json:"version"`
-	Provider              string               `json:"provider"`
-	Model                 string               `json:"model"`
-	Providers             map[string]*Provider `json:"providers"`
-	Permissions           map[string]string    `json:"permissions,omitempty"`
-	MaxSteps              int                  `json:"max_steps,omitempty"`
-	Orchestrator          bool                 `json:"orchestrator"`
-	MaxDelegations        int                  `json:"max_delegations"`
-	MaxParallelScouts     int                  `json:"max_parallel_scouts"`
-	WorkerMaxSteps        int                  `json:"worker_max_steps"`
-	WorkerTokenBudget     int                  `json:"worker_token_budget"`
-	TurnWorkerTokenBudget int                  `json:"turn_worker_token_budget"`
-	MaxParallelWriters    int                  `json:"max_parallel_writers"`
-	WriterMaxSteps        int                  `json:"writer_max_steps"`
-	WriterTokenBudget     int                  `json:"writer_token_budget"`
-	TurnWriterTokenBudget int                  `json:"turn_writer_token_budget"`
-	Mode                  string               `json:"mode"`
-	Reasoning             string               `json:"reasoning,omitempty"`
-	ShowThinking          bool                 `json:"show_thinking"`
-	ParallelAgents        bool                 `json:"parallel_agents"`
-	ScoutModel            string               `json:"scout_model,omitempty"`
-	Sandbox               string               `json:"sandbox"`
-	SandboxNetwork        bool                 `json:"sandbox_network"`
-	Checkpoints           bool                 `json:"checkpoints"`
-	RequireVerification   bool                 `json:"require_verification"`
-	Writers               bool                 `json:"writers"`
-	KeepWorktrees         bool                 `json:"keep_worktrees,omitempty"`
-	Mouse                 bool                 `json:"mouse,omitempty"`
+	Version        int                  `json:"version"`
+	Provider       string               `json:"provider"`
+	Model          string               `json:"model"`
+	Providers      map[string]*Provider `json:"providers"`
+	Permissions    map[string]string    `json:"permissions,omitempty"`
+	Orchestrator   bool                 `json:"orchestrator"`
+	Mode           string               `json:"mode"`
+	Reasoning      string               `json:"reasoning,omitempty"`
+	ShowThinking   bool                 `json:"show_thinking"`
+	ParallelAgents bool                 `json:"parallel_agents"`
+	ScoutModel     string               `json:"scout_model,omitempty"`
+	Checkpoints    bool                 `json:"checkpoints"`
+	Writers        bool                 `json:"writers"`
+	KeepWorktrees  bool                 `json:"keep_worktrees,omitempty"`
+	Mouse          bool                 `json:"mouse,omitempty"`
 }
 
 type Preset struct {
@@ -125,32 +105,24 @@ func Path() string {
 
 func Defaults() *Config {
 	c := &Config{
-		Version:   1,
+		Version:   configVersion,
 		Provider:  "openai",
 		Model:     "",
 		Providers: map[string]*Provider{},
+		// The agent works without stopping to ask. A user who wants a
+		// prompt can set any class back to "ask".
 		Permissions: map[string]string{
-			"bash":  "ask",
-			"write": "ask",
-			"edit":  "ask",
+			"bash":    "allow",
+			"write":   "allow",
+			"edit":    "allow",
+			"network": "allow",
+			"outside": "allow",
 		},
-		MaxSteps:              64,
-		Orchestrator:          true,
-		MaxDelegations:        DefaultMaxDelegations,
-		MaxParallelScouts:     DefaultMaxParallelScouts,
-		WorkerMaxSteps:        DefaultWorkerMaxSteps,
-		WorkerTokenBudget:     DefaultWorkerTokenBudget,
-		TurnWorkerTokenBudget: DefaultTurnWorkerTokenBudget,
-		MaxParallelWriters:    DefaultMaxParallelWriters,
-		WriterMaxSteps:        DefaultWriterMaxSteps,
-		WriterTokenBudget:     DefaultWriterTokenBudget,
-		TurnWriterTokenBudget: DefaultTurnWriterTokenBudget,
-		Mode:                  "create",
-		ParallelAgents:        true,
-		Sandbox:               "off",
-		Checkpoints:           true,
-		RequireVerification:   true,
-		Writers:               true,
+		Orchestrator:   true,
+		Mode:           "create",
+		ParallelAgents: true,
+		Checkpoints:    true,
+		Writers:        true,
 	}
 	for _, p := range Presets {
 		c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}
@@ -170,6 +142,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	c := Defaults()
+	// Permissions are a map: json.Unmarshal merges into an existing map,
+	// which would hide the old default values from the migration below.
+	c.Permissions = nil
 	if err := json.Unmarshal(raw, c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", Path(), err)
 	}
@@ -181,38 +156,30 @@ func Load() (*Config, error) {
 			c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}
 		}
 	}
-	if c.MaxSteps <= 0 {
-		c.MaxSteps = 64
+	if c.Version < configVersion {
+		// The old default asked before bash/write/edit. Nobody chose that by
+		// hand, and it makes a headless run useless. Only migrate when the
+		// permissions still look like the old defaults; an explicit deny or
+		// allow is left alone.
+		legacy := len(c.Permissions) <= 3
+		for _, kind := range []string{"bash", "write", "edit"} {
+			if c.Permissions[kind] != "ask" {
+				legacy = false
+			}
+		}
+		if legacy {
+			c.Permissions = map[string]string{
+				"bash":    "allow",
+				"write":   "allow",
+				"edit":    "allow",
+				"network": "allow",
+				"outside": "allow",
+			}
+		}
+		c.Version = configVersion
 	}
-	if c.MaxDelegations <= 0 {
-		c.MaxDelegations = DefaultMaxDelegations
-	}
-	if c.WorkerMaxSteps <= 0 {
-		c.WorkerMaxSteps = DefaultWorkerMaxSteps
-	}
-	if c.MaxParallelScouts <= 0 {
-		c.MaxParallelScouts = DefaultMaxParallelScouts
-	}
-	if c.WorkerTokenBudget <= 0 {
-		c.WorkerTokenBudget = DefaultWorkerTokenBudget
-	}
-	if c.TurnWorkerTokenBudget <= 0 {
-		c.TurnWorkerTokenBudget = DefaultTurnWorkerTokenBudget
-	}
-	if c.MaxParallelWriters <= 0 {
-		c.MaxParallelWriters = DefaultMaxParallelWriters
-	}
-	if c.WriterMaxSteps <= 0 {
-		c.WriterMaxSteps = DefaultWriterMaxSteps
-	}
-	if c.WriterTokenBudget <= 0 {
-		c.WriterTokenBudget = DefaultWriterTokenBudget
-	}
-	if c.TurnWriterTokenBudget <= 0 {
-		c.TurnWriterTokenBudget = DefaultTurnWriterTokenBudget
-	}
-	if strings.TrimSpace(c.Sandbox) == "" {
-		c.Sandbox = "off"
+	if c.Permissions == nil {
+		c.Permissions = Defaults().Permissions
 	}
 	if strings.TrimSpace(c.Mode) == "" {
 		c.Mode = "create"

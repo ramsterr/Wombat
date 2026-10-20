@@ -20,8 +20,8 @@ func TestMatch(t *testing.T) {
 }
 
 func TestFind(t *testing.T) {
-	if _, ok := Find("/sandbox"); !ok {
-		t.Error("/sandbox missing")
+	if _, ok := Find("/thinking"); !ok {
+		t.Error("/thinking missing")
 	}
 	if _, ok := Find("/nope"); ok {
 		t.Error("unexpected command")

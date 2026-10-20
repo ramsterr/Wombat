@@ -1,7 +1,10 @@
 package llm
 
 // TrimStaleReasoning returns the messages to send for a request, dropping
-// the reasoning of every assistant turn except the most recent one.
+// the reasoning of older assistant turns. Reasoning is kept on every turn
+// that has tool calls: thinking-mode providers (DeepSeek, and others) require
+// the reasoning_content of a tool-call turn to be passed back on the next
+// request, even after that turn is no longer the newest one.
 //
 // Why: reasoning (thinking) tokens are billed as output tokens when the model
 // produces them, and they are re-sent as input tokens on every later request
@@ -19,7 +22,7 @@ func TrimStaleReasoning(msgs []Message) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
-		if i == last || out[i].Role != "assistant" {
+		if i == last || out[i].Role != "assistant" || len(out[i].ToolCalls) > 0 {
 			continue
 		}
 		out[i].Reasoning = ""

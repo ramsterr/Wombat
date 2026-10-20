@@ -27,7 +27,6 @@ import (
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
-	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
@@ -114,10 +113,10 @@ type questionMsg struct {
 }
 
 // permColor returns the colour that marks a permission kind. Requests that
-// go beyond the sandbox get their own colour so they stand out.
+// reach the network or go outside the workspace stand out.
 func permColor(kind tools.PermKind) lipgloss.TerminalColor {
 	switch kind {
-	case tools.PermNetwork, tools.PermSandboxWrite:
+	case tools.PermNetwork:
 		return cSandbox
 	case tools.PermOutside:
 		return cOutside
@@ -130,8 +129,8 @@ func permColor(kind tools.PermKind) lipgloss.TerminalColor {
 // permTitle names the prompt.
 func permTitle(kind tools.PermKind) string {
 	switch kind {
-	case tools.PermNetwork, tools.PermSandboxWrite:
-		return "sandbox"
+	case tools.PermNetwork:
+		return "network"
 	case tools.PermDangerous:
 		return "dangerous"
 	case tools.PermOutside:
@@ -150,9 +149,7 @@ type chat struct {
 	provName  string
 	modelName string
 
-	sandbox      sandbox.Settings
-	sandboxState *sandbox.State
-	mode         mode.Mode
+	mode mode.Mode
 
 	// showThinking controls whether the model's thinking is displayed.
 	showThinking bool
@@ -341,16 +338,6 @@ func (c *chat) rebuild(reset bool) error {
 	if cwd == "" {
 		cwd = c.opt.Cwd
 	}
-	if c.sandbox.Mode == "" && c.sandbox.Network == false {
-		mode, err := sandbox.Parse(c.cfg.Sandbox)
-		if err != nil {
-			return err
-		}
-		c.sandbox = sandbox.Settings{Mode: mode, Network: c.cfg.SandboxNetwork}
-	}
-	if c.sandboxState == nil {
-		c.sandboxState = sandbox.NewState(c.sandbox)
-	}
 	c.showThinking = c.cfg.ShowThinking
 	if c.mode == "" {
 		if m, err := mode.Parse(c.cfg.Mode); err == nil {
@@ -360,15 +347,11 @@ func (c *chat) rebuild(reset bool) error {
 		}
 	}
 	env := &tools.Env{
-		Dir:           cwd,
-		Permit:        c.permit,
-		Sandbox:       c.sandbox.Policy(cwd),
-		SandboxState:  c.sandboxState,
-		DenyDangerous: true,
-		DenyMutate:    !c.mode.AllowsWrite(),
-		Mode:          c.mode.Label(),
+		Dir:        cwd,
+		Permit:     c.permit,
+		DenyMutate: !c.mode.AllowsWrite(),
+		Mode:       c.mode.Label(),
 	}
-	env.SandboxAsk = c.askSandbox
 	env.AskUser = c.askUser
 	if c.cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(c.sess.Path()), cwd)
@@ -386,12 +369,10 @@ func (c *chat) rebuild(reset bool) error {
 		Tools:         tools.RegistryWithQuestion(),
 		Env:           env,
 		Sess:          c.sess,
-		MaxSteps:      c.cfg.MaxSteps,
 		Compact:       true,
 		ContextWindow: tokens.Window(c.modelName),
 		NumCtx:        pc.NumCtx,
 		Reasoning:     c.cfg.Reasoning,
-		SandboxNote:   c.sandbox.Note(),
 		ModeNote:      c.mode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
@@ -399,20 +380,10 @@ func (c *chat) rebuild(reset bool) error {
 	}
 	if c.cfg.Orchestrator {
 		if _, err := orchestrator.Attach(c.ag, orchestrator.Config{
-			MaxDelegations:        c.cfg.MaxDelegations,
-			MaxParallelScouts:     c.cfg.MaxParallelScouts,
-			WorkerMaxSteps:        c.cfg.WorkerMaxSteps,
-			ScoutModel:            c.cfg.ScoutModel,
-			ParallelAgents:        c.cfg.ParallelAgents,
-			WorkerTokenBudget:     c.cfg.WorkerTokenBudget,
-			TurnWorkerTokenBudget: c.cfg.TurnWorkerTokenBudget,
-			MaxParallelWriters:    c.cfg.MaxParallelWriters,
-			WriterMaxSteps:        c.cfg.WriterMaxSteps,
-			WriterTokenBudget:     c.cfg.WriterTokenBudget,
-			TurnWriterTokenBudget: c.cfg.TurnWriterTokenBudget,
-			RequireVerification:   c.cfg.RequireVerification,
-			EnableWriters:         c.cfg.Writers,
-			KeepWorktrees:         c.cfg.KeepWorktrees,
+			ScoutModel:     c.cfg.ScoutModel,
+			ParallelAgents: c.cfg.ParallelAgents,
+			EnableWriters:  c.cfg.Writers,
+			KeepWorktrees:  c.cfg.KeepWorktrees,
 		}); err != nil {
 			return err
 		}
@@ -524,7 +495,7 @@ func (c *chat) updatePalette() {
 	c.cmdTop = 0
 }
 
-// splitCommand splits an input like "/sandbox net" into the command and the
+// splitCommand splits an input like "/thinking off" into the command and the
 // argument.
 func splitCommand(text string) (name string, arg string, hasArg bool) {
 	name = strings.TrimSpace(text)
@@ -614,14 +585,6 @@ func (c *chat) completeCommand() {
 	c.ta.SetValue(sel.insert + " ")
 	c.ta.CursorEnd()
 	c.clearPalette()
-}
-
-// currentSandbox returns the live sandbox settings of the session.
-func (c *chat) currentSandbox() sandbox.Settings {
-	if c.sandboxState != nil {
-		return c.sandboxState.Settings()
-	}
-	return c.sandbox
 }
 
 // askUser asks the user a question and waits for the answer.
@@ -752,39 +715,6 @@ func (c *chat) answerQuestion(answer string) {
 	c.layout()
 	c.refresh()
 	_ = q
-}
-
-// askSandbox asks the user whether a command blocked by the sandbox may run.
-func (c *chat) askSandbox(kind, command string) tools.SandboxDecision {
-	if c.send == nil {
-		return tools.SandboxDeny
-	}
-	perm := tools.PermKind(kind)
-	switch kind {
-	case tools.SandboxWrite:
-		perm = tools.PermSandboxWrite
-	case tools.SandboxDangerous:
-		perm = tools.PermDangerous
-	}
-	reply := make(chan tools.Decision, 1)
-	c.emit(permAskMsg{
-		kind:   perm.Label(),
-		perm:   perm,
-		detail: "the sandbox blocked this command — " + command,
-		reply:  reply,
-	})
-	select {
-	case d := <-reply:
-		switch {
-		case d.Allow && d.Always:
-			return tools.SandboxAllowSession
-		case d.Allow:
-			return tools.SandboxAllowOnce
-		}
-		return tools.SandboxDeny
-	case <-time.After(10 * time.Minute):
-		return tools.SandboxDeny
-	}
 }
 
 func (c *chat) loadHistory() {
@@ -1274,8 +1204,8 @@ func (c *chat) command(line string) tea.Cmd {
 		if c.sess != nil {
 			cwd = c.sess.Meta.Cwd
 		}
-		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nmode=%s  auto-approve=%v\nsandbox: %s",
-			c.provName, c.modelName, c.sessionID(), cwd, c.modeLabel(), c.auto, c.currentSandbox().Status()), false)
+		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nmode=%s  auto-approve=%v",
+			c.provName, c.modelName, c.sessionID(), cwd, c.modeLabel(), c.auto), false)
 	case "/yolo":
 		c.auto = !c.auto
 		c.note(fmt.Sprintf("auto-approve: %v", c.auto), false)
@@ -1313,29 +1243,6 @@ func (c *chat) command(line string) tea.Cmd {
 		c.note(c.sourcesView(), false)
 	case "/history":
 		c.note(c.historyView(), false)
-	case "/sandbox":
-		current := c.sandbox
-		if c.sandboxState != nil {
-			current = c.sandboxState.Settings()
-		}
-		settings, msg, changed, err := sandbox.ApplyCommand(line, current)
-		if err != nil {
-			c.note(err.Error(), true)
-			return nil
-		}
-		if !changed {
-			c.note(msg, false)
-			return nil
-		}
-		c.sandbox = settings
-		if c.sandboxState != nil {
-			c.sandboxState.Update(func(s *sandbox.Settings) { *s = settings })
-		}
-		if err := c.rebuild(false); err != nil {
-			c.note("could not apply the sandbox change: "+err.Error(), true)
-			return nil
-		}
-		c.note(msg, false)
 	case "/clear":
 		c.entries = nil
 	case "/setup":

@@ -49,11 +49,11 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two working modes** — `chat` explores and explains without touching anything; `create` writes and edits. Switch with `/mode`.
-- **Ask before you act** — every tool call can ask you first, and the sandbox (an OS-level jail for commands) is opt-in, not enforced. File mutations are snapshotted so you can restore a session workspace with `wombat checkpoint restore`.
+- **Ask before you act** — every tool call can ask you first; the default is to let it work. File mutations are snapshotted so you can restore a session workspace with `wombat checkpoint restore`.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
 - **Task ledger, verification, and delegation** — the lead agent keeps a persistent plan, records checks and evidence, runs bounded read-only scouts, and can hand independent coding tasks to writers in isolated git worktrees.
 - **Check-gated parallel writers** — writers own disjoint files, run in worktrees, and merge sequentially only after their offers pass tests; conflicts and failures are kept for inspection.
-- **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required. On Windows, shell commands need Git Bash or WSL and the OS sandbox falls back to off.
+- **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required. On Windows, shell commands need Git Bash or WSL.
 
 ## Install
 
@@ -230,7 +230,6 @@ same list, and an unknown `/command` shows the closest matches.
 | command | what it does |
 |---|---|
 | `/mode`, `/modes` | switch or list the working modes |
-| `/sandbox` | sandbox and network control |
 | `/thinking on\|off` | show or hide the model's thinking |
 | `/toolset` | the tools this session can use, and how each is gated |
 | `/sources` | the sites and files this session used |
@@ -300,7 +299,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat sessions` | list sessions for this directory |
 | `wombat doctor` | config, permissions, and connectivity checks |
 | `wombat config` | show config with API keys redacted |
-| `wombat config set <key> <value>` | set `provider`, `model`, `mode`, `max_steps`, sandbox, writers, or a permission |
+| `wombat config set <key> <value>` | set `provider`, `model`, `mode`, `writers`, or a permission |
 | `wombat checkpoint list` | list snapshots for the latest session |
 | `wombat checkpoint restore <id>` | restore a snapshot (`--yes` for non-interactive use) |
 | `wombat upgrade` | update wombat to the latest release (`--check` to only look) |
@@ -308,7 +307,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 
 Flags for `run` and `resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`, and for `run` also `--image`, `--video`, `--audio`, and `--file` (repeatable).
 
-Line REPL commands: `/model`, `/models`, `/provider`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/sandbox`, `/help`, `/exit`.
+Line REPL commands: `/model`, `/models`, `/provider`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/help`, `/exit`.
 
 ## Attachments
 
@@ -373,7 +372,7 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `read` | read | line-numbered, offset/limit, 8 MB cap |
 | `write` | write | creates parent directories |
 | `edit` | edit | exact-string replace; must match uniquely unless `replace_all` |
-| `bash` | bash | 120s timeout, OS sandbox by default, output truncated head and tail |
+| `bash` | bash | no default timeout, output truncated head and tail |
 | `glob` | read | `**` patterns; skips `.git` and `node_modules` |
 | `grep` | read | pure-Go regular-expression search |
 | `batch` | read | several `read`/`grep`/`glob` calls in one round-trip |
@@ -386,7 +385,7 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `delegate` / `delegate_many` | delegate | read-only investigation workers |
 | `delegate_write` | write | isolated git worktree writers (opt-in in config) |
 
-Permissions are set per class to `ask` (default), `allow`, or `deny`. Read is always allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed.
+Permissions are set per class to `allow` (default), `ask`, or `deny`. Read is always allowed. A headless run works out of the box; set a class to `ask` if you want to be consulted.
 
 ## Craft standard
 
@@ -534,7 +533,7 @@ The system prompt carries safety rules that apply even when the user does not me
 
 As a second layer, the `write` and `edit` tools append a warning when a secrets-like file (`.env`, `.env.*`, `*.pem`, `*.key`, `credentials.*`, …) is written in a git repository but is not ignored. The warning appears in the tool result so the agent can fix `.gitignore` before committing.
 
-These are guardrails plus an optional OS sandbox. On macOS, `workspace-write` uses `sandbox-exec`; on Linux it uses `bwrap` when installed. Windows has no sandbox backend yet and falls back to off. Permission prompts remain the application-level gate; `--yolo` and `permissions: allow` bypass them, so review diffs before committing.
+These are guardrails. Permission prompts are the application-level gate; the defaults are permissive so a run never stalls waiting for a prompt, and `--yolo` is still available. Review diffs before committing.
 
 ### Every permission, and how it looks
 
@@ -545,8 +544,7 @@ what you are approving:
 |---|---|---|---|
 | `?` | `bash`, `write`, `edit` | orange | ordinary tool use inside the workspace |
 | `?` | outside the workspace | blue | the command or file leaves your project |
-| `▲` | network access | magenta | the sandbox is blocking the internet |
-| `▲` | write outside the sandbox | magenta | the sandbox blocked a write |
+| `▲` | network access | magenta | the command reaches the internet |
 | `!` | dangerous command | red | `sudo`, `rm -rf /`, `mkfs`, `dd of=/dev/`, `git push --force`, fork bombs, … |
 
 In the TUI the prompt box border and the title use that colour. In the line
@@ -558,68 +556,22 @@ What can be requested, and how you change it:
 |---|---|---|
 | `bash`, `write`, `edit` | ask | `wombat config set permissions.bash allow\|deny\|ask` (same for `write`, `edit`) |
 | outside the workspace | ask | `wombat config set permissions.outside allow\|deny\|ask` |
-| network | off | `/sandbox network on` · `wombat config set sandbox_network true` |
-| dangerous commands | ask, then refused | approve the prompt, or `permissions.bash allow` |
-| sandbox mode | `workspace-write` | `/sandbox mode …` · `wombat config set sandbox …` |
+| network | allow | `wombat config set permissions.network ask\|deny\|allow` |
+| dangerous commands | allow | the prompt still warns; set `permissions.bash ask` to be consulted |
 | read-only workers | always on | writers and scouts are read-only by construction |
 | git mutations (writers) | always blocked | writers may not touch git state |
 | checkpoints | on | `wombat config set checkpoints false` |
 
-`--yolo` (and `permissions: allow`) skips the prompts but never the OS
-sandbox, the dangerous-command list, or the worker budgets. Reads are never
-gated: `read`, `glob`, and `grep` always work.
+There is no OS sandbox and no step, token, delegation, or worker budget.
+Reads are never gated: `read`, `glob`, and `grep` always work.
 
-### You control the sandbox
+### No sandbox
 
-The sandbox is **off by default** — Wombat asks you for every tool call
-instead of silently constraining the agent. The OS sandbox is an extra layer
-you can switch on when you want it:
-
-```sh
-/sandbox mode workspace-write   # confine commands to the working directory
-/sandbox mode read-only         # commands may not write at all
-/sandbox mode off               # no sandbox (the default)
-```
-
-The sandbox is yours to change, at any time, without restarting.
-
-```sh
-/sandbox                      # show the current mode and network state
-/sandbox network on           # let commands reach the internet
-/sandbox network off          # block it again
-/sandbox mode off             # no sandbox at all
-/sandbox mode read-only       # reads only
-/sandbox mode workspace-write # writes limited to the working directory (default)
-/sandbox mode danger-full-access
-```
-
-Set the defaults for new sessions with `wombat config set sandbox workspace-write`
-and `wombat config set sandbox_network true`.
-
-### It asks before it gives up
-
-When the sandbox stops a command, Wombat asks you instead of failing quietly.
-You get the same prompt you know from tool permissions:
-
-```
-╭─ permission  sandbox: network access ─────────────────────╮
-│  the sandbox blocked this command — git fetch origin         │
-│                                                              │
-│  y  allow   a  always sandbox: network access   n  deny      │
-╰──────────────────────────────────────────────────────────────╯
-```
-
-- **y** — run this one command with the network allowed, then keep the sandbox as it was
-- **a** — turn the network on for the rest of the session
-- **n** — refuse it; the agent is told the answer and moves on
-
-The same prompt appears when a command tried to write outside the workspace.
-A refused command comes back to the model as a clear message, not a DNS error:
-
-```
-network access is blocked by the sandbox: git fetch origin
-  the user can enable it with `/sandbox network on` (or `wombat config set sandbox_network true`)
-```
+Wombat does not wrap commands in an OS sandbox. Commands run with your own
+permissions, and the permission layer is the only gate. The default is
+permissive (`allow` for bash, write, edit, network, and outside paths), so a
+headless run never stalls on a prompt. Change any class with
+`wombat config set permissions.<class> ask|allow|deny`.
 
 ## Reasoning and cost
 
@@ -668,49 +620,39 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
       "num_ctx": 32768
     }
   },
-  "permissions": {"bash": "ask", "write": "ask", "edit": "ask"},
-  "max_steps": 64,
+  "permissions": {
+    "bash": "allow",
+    "write": "allow",
+    "edit": "allow",
+    "network": "allow",
+    "outside": "allow"
+  },
   "orchestrator": true,
-  "max_delegations": 3,
-  "max_parallel_scouts": 3,
-  "worker_max_steps": 24,
-  "worker_token_budget": 120000,
-  "turn_worker_token_budget": 240000,
-  "sandbox": "workspace-write",
-  "sandbox_network": false,
+  "parallel_agents": true,
   "checkpoints": true,
-  "require_verification": true,
   "writers": true,
-  "max_parallel_writers": 2,
-  "writer_max_steps": 40,
-  "writer_token_budget": 200000,
-  "turn_writer_token_budget": 400000,
   "mouse": false
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `max_delegations` limits delegations per user turn (six by default, so a five-scout fleet fits in one turn), `max_parallel_scouts` caps concurrent scouts (five by default, so a fleet runs in one wave), and `worker_max_steps` caps each worker. `worker_token_budget` caps a single worker and `turn_worker_token_budget` caps all workers in one turn; both are hard stops. Lead turns are not capped: the only stop is `max_steps`. `sandbox` is `off`, `read-only`, `workspace-write`, or `danger-full-access`; checkpoints are on by default. Writers additionally use `max_parallel_writers`, per-writer and per-turn token budgets, and step/timeout caps.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `parallel_agents` makes a fleet the default. There are no step, token, delegation, worker, writer, or command time limits: a turn ends when the model stops calling tools, the user interrupts, or the provider fails. Checkpoints are on by default and only snapshot the files a write or edit is about to touch.
 
 ## Orchestration
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs any number of independent scouts concurrently. Workers are read-only — they get `read`, `glob`, `grep`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. There is no worker step, token, time, or fleet budget. Dependent steps run sequentially; independent scouting tasks can share a fleet, and several scouts may share one ledger step.
 
 ### Checks, verification, and writers
 
-Steps can declare `checks` in `update_plan`. `run_checks` executes them in the lead workspace, records pass/fail output in the ledger, and the completion gate refuses to mark a step completed while a check is pending or failing. Writers (`delegate_write`) are available in git repositories when `writers` is enabled. Each writer gets a context pack and a temporary worktree, must declare the exact files it owns, runs the step checks, and is committed before merge. Merge is sequential: the patch is applied to the main workspace, checks run again, `git diff --check` runs, and a failing or conflicting patch is reverted while the worktree is kept for inspection. Writers cannot overlap file ownership; use them for independent implementation steps, not dependent edits.
+Steps can declare `checks` in `update_plan`. `run_checks` executes them in the lead workspace and records pass/fail output in the ledger. Checks are evidence, not a gate: a failed check never rejects a plan update. Writers (`delegate_write`) are available in git repositories when `writers` is enabled. Each writer gets a context pack and a temporary worktree, must declare the exact files it owns, runs the step checks, and is committed before merge. Merge is sequential: the patch is applied to the main workspace, checks run again, `git diff --check` runs, and a failing or conflicting patch is reverted while the worktree is kept for inspection. Writers cannot overlap file ownership; use them for independent implementation steps, not dependent edits.
 
 ```sh
 wombat config set orchestrator false        # disable ledger + delegation
-wombat config set max_delegations 2         # per-turn delegation budget
-wombat config set max_parallel_scouts 2     # concurrent scouts per wave
-wombat config set worker_max_steps 16       # per-worker step cap
-wombat config set worker_token_budget 80000 # per-worker token cap
-wombat config set turn_worker_token_budget 160000 # all workers per turn
-wombat config set sandbox workspace-write      # off | read-only | workspace-write | danger-full-access
-wombat config set checkpoints false            # disable snapshots
-wombat config set writers false                # disable worktree writers
+wombat config set parallel_agents false     # agents do the work themselves
+wombat config set permissions.bash ask      # be consulted before bash
+wombat config set checkpoints false         # disable snapshots
+wombat config set writers false             # disable worktree writers
 ```
 
 Worker and writer transcripts are stored under `~/.wombat/workers/` for inspection. Writers run in `~/.wombat/worktrees/` by default; successful worktrees are removed, failures are kept. The lead remains the default writer and owns merge decisions.
@@ -741,12 +683,11 @@ internal/agent    agent loop, system prompt, hooks, budgets, usage, compaction
 internal/orchestrator  ledger, checks, read-only delegation, writers, merge queue
 internal/worktree isolated git worktree manager and patch merge queue
 internal/checkpoint workspace snapshots and scoped restore
-internal/sandbox  macOS sandbox-exec and Linux bwrap policies
 internal/trace    append-only JSONL run events
 internal/eval     task loader, protection, repeats, reports, pricing
 internal/llm      provider adapters, HTTP errors, retry/backoff
 internal/release  GitHub release lookup, checksums, version comparison
-internal/tools    read/write/edit/bash/glob/grep, sandboxed commands, permissions
+internal/tools    read/write/edit/bash/glob/grep, permissions, checkpoints
 internal/tui      Bubble Tea chat UI, sessions, models, usage, doctor
 internal/session  JSONL session persistence and attachment store
 internal/config   config load/save, presets, key resolution

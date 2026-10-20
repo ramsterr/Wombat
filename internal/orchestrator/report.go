@@ -146,8 +146,5 @@ func validateDelegationArgs(a delegateArgs) error {
 	if len(a.Deliverable) > 4000 {
 		return fmt.Errorf("deliverable is too long (max 4000 chars)")
 	}
-	if a.MaxSteps < 0 || a.MaxSteps > 100 {
-		return fmt.Errorf("max_steps must be between 0 and 100")
-	}
 	return nil
 }

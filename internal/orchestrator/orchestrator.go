@@ -14,84 +14,21 @@ import (
 	"github.com/ramsterr/Wombat/internal/worktree"
 )
 
-const (
-	DefaultMaxDelegations        = config.DefaultMaxDelegations
-	DefaultMaxParallelScouts     = config.DefaultMaxParallelScouts
-	DefaultWorkerMaxSteps        = config.DefaultWorkerMaxSteps
-	DefaultWorkerTokenBudget     = config.DefaultWorkerTokenBudget
-	DefaultTurnWorkerTokenBudget = config.DefaultTurnWorkerTokenBudget
-	DefaultMaxParallelWriters    = config.DefaultMaxParallelWriters
-	DefaultWriterMaxSteps        = config.DefaultWriterMaxSteps
-	DefaultWriterTokenBudget     = config.DefaultWriterTokenBudget
-	DefaultTurnWriterTokenBudget = config.DefaultTurnWriterTokenBudget
-	DefaultWorkerTimeout         = 5 * time.Minute
-	DefaultWriterTimeout         = 10 * time.Minute
-	maxFleetTasks                = 6
-	maxWorkerStepsCap            = 100
-	minWorkerTokenBudget         = 1_000
-)
-
 type Config struct {
-	MaxDelegations        int
-	MaxParallelScouts     int
-	WorkerMaxSteps        int
-	WorkerTokenBudget     int
-	TurnWorkerTokenBudget int
-	WorkerTimeout         time.Duration
-	WorkerHome            string
 	// ParallelAgents makes the lead fan out workers by default.
 	ParallelAgents bool
 	// ScoutModel is the model the read-only workers use. Empty means the
-	// lead's model. A cheaper model here is the biggest speed and cost
-	// lever, because the workers do the reading.
-	ScoutModel            string
-	MaxParallelWriters    int
-	WriterMaxSteps        int
-	WriterTokenBudget     int
-	TurnWriterTokenBudget int
-	WriterTimeout         time.Duration
-	WorktreeRoot          string
-	RequireVerification   bool
-	EnableWriters         bool
-	KeepWorktrees         bool
+	// lead's model.
+	ScoutModel    string
+	WorkerHome    string
+	WorktreeRoot  string
+	EnableWriters bool
+	KeepWorktrees bool
 }
 
 func (c Config) withDefaults() Config {
-	if c.MaxDelegations <= 0 {
-		c.MaxDelegations = DefaultMaxDelegations
-	}
-	if c.MaxParallelScouts <= 0 {
-		c.MaxParallelScouts = DefaultMaxParallelScouts
-	}
-	if c.WorkerMaxSteps <= 0 {
-		c.WorkerMaxSteps = DefaultWorkerMaxSteps
-	}
-	if c.WorkerTokenBudget <= 0 {
-		c.WorkerTokenBudget = DefaultWorkerTokenBudget
-	}
-	if c.TurnWorkerTokenBudget <= 0 {
-		c.TurnWorkerTokenBudget = DefaultTurnWorkerTokenBudget
-	}
-	if c.WorkerTimeout <= 0 {
-		c.WorkerTimeout = DefaultWorkerTimeout
-	}
 	if c.WorkerHome == "" {
 		c.WorkerHome = filepath.Join(config.Home(), "workers")
-	}
-	if c.MaxParallelWriters <= 0 {
-		c.MaxParallelWriters = DefaultMaxParallelWriters
-	}
-	if c.WriterMaxSteps <= 0 {
-		c.WriterMaxSteps = DefaultWriterMaxSteps
-	}
-	if c.WriterTokenBudget <= 0 {
-		c.WriterTokenBudget = DefaultWriterTokenBudget
-	}
-	if c.TurnWriterTokenBudget <= 0 {
-		c.TurnWriterTokenBudget = DefaultTurnWriterTokenBudget
-	}
-	if c.WriterTimeout <= 0 {
-		c.WriterTimeout = DefaultWriterTimeout
 	}
 	if c.WorktreeRoot == "" {
 		c.WorktreeRoot = filepath.Join(config.Home(), "worktrees")
@@ -113,11 +50,7 @@ type Orchestrator struct {
 	ledger           *Ledger
 	ledgerPath       string
 	loadWarning      string
-	delegations      int
 	totalDelegations int
-	workerTokens     int
-	writers          int
-	writerTokens     int
 	hooksMu          sync.Mutex
 }
 
@@ -153,7 +86,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		loadWarning: warning,
 	}
 	for _, t := range ag.Tools {
-		if t.Class() == "read" {
+		if t.Class() == "read" || t.Class() == "network" {
 			o.workerTools = append(o.workerTools, t)
 		}
 	}
@@ -201,14 +134,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 	return o, nil
 }
 
-func (o *Orchestrator) beginTurn() {
-	o.mu.Lock()
-	o.delegations = 0
-	o.workerTokens = 0
-	o.writers = 0
-	o.writerTokens = 0
-	o.mu.Unlock()
-}
+func (o *Orchestrator) beginTurn() {}
 
 func (o *Orchestrator) Delegations() int {
 	o.mu.Lock()
@@ -232,7 +158,6 @@ func (o *Orchestrator) systemPrompt() string {
 	o.mu.Lock()
 	view := o.ledger.PromptView()
 	warning := o.loadWarning
-	maxDelegations := o.cfg.MaxDelegations
 	writerWarn := o.writerWarn
 	o.mu.Unlock()
 
@@ -258,16 +183,16 @@ func (o *Orchestrator) systemPrompt() string {
 	}
 	b.WriteString("Use delegate for a single investigation. ")
 	b.WriteString("Never put dependent steps in one fleet. Do the work yourself when it is small, needs edits, or you already know where to look. ")
-	fmt.Fprintf(&b, "At most %d delegations per turn and %d scouts at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
+	b.WriteString("There is no limit on how many scouts or how many turns you use; dispatch every independent angle you need.\n")
 	b.WriteString("Give each worker a complete objective, the context it cannot see from this conversation, and a concrete deliverable. ")
-	b.WriteString("Workers are read-only and cannot delegate; they have hard caps on steps, tokens, and time, and a fleet shares the turn's token budget. ")
+	b.WriteString("Workers are read-only, cannot delegate, and have websearch/webfetch plus the file tools. They have no step, token, or time cap. ")
 	b.WriteString("Treat their reports as evidence, not truth: reconcile them and verify what matters.\n\n")
 	if o.worktrees != nil {
 		b.WriteString("### Writers\n")
 		b.WriteString("Use delegate_write when coding splits into independent tasks with disjoint files. ")
 		b.WriteString("Each writer works in its own git worktree, must declare every file it changes, and must pass the step's checks; ")
 		b.WriteString("merge is sequential and check-gated, and a failing writer is kept for inspection. ")
-		fmt.Fprintf(&b, "At most %d writers at once, with non-overlapping files.\n\n", o.cfg.MaxParallelWriters)
+		b.WriteString("Run as many writers in parallel as the disjoint file sets allow.\n\n")
 	} else if writerWarn != "" {
 		b.WriteString("### Writers\n")
 		b.WriteString("Writers are unavailable: ")
@@ -275,8 +200,8 @@ func (o *Orchestrator) systemPrompt() string {
 		b.WriteString("\n\n")
 	}
 	b.WriteString("### Verification\n")
-	b.WriteString("Give each step one to three concrete checks in update_plan and run them with run_checks after editing. ")
-	b.WriteString("A step with failing or pending checks cannot be completed: fix the cause, never delete or weaken the check.\n\n")
+	b.WriteString("Give each step concrete checks in update_plan and run them with run_checks after editing. ")
+	b.WriteString("Checks are evidence, not a gate: record the result and keep moving. Never delete or weaken a check.\n\n")
 	b.WriteString("### Ledger rules\n")
 	b.WriteString("- One in_progress step at a time; a scout fleet may have several.\n")
 	b.WriteString("- Complete a step only when the deliverable exists and its checks pass.\n")
@@ -346,20 +271,12 @@ func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (st
 			steps[i].Checks = normalizeChecks(steps[i].Checks)
 		}
 	}
-	if len(facts) > maxFacts {
-		facts = facts[:maxFacts]
-	}
 	for i := range facts {
 		facts[i] = oneLine(facts[i], 500)
 	}
 	next := &Ledger{Goal: oneLine(goal, 1000), Facts: facts, Steps: steps, Updated: now}
 	if err := next.Validate(); err != nil {
 		return "", err
-	}
-	if o.cfg.RequireVerification {
-		if err := completionGate(next); err != nil {
-			return "", err
-		}
 	}
 	o.ledger = next
 	if err := o.ledger.Save(o.ledgerPath); err != nil {

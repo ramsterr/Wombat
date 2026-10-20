@@ -13,26 +13,22 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Provider != "openai" || cfg.MaxSteps != 64 {
+	if cfg.Provider != "openai" {
 		t.Fatalf("defaults = %+v", cfg)
 	}
-	if !cfg.Orchestrator || cfg.MaxDelegations != DefaultMaxDelegations || cfg.WorkerMaxSteps != DefaultWorkerMaxSteps {
-		t.Fatalf("orchestrator defaults = %+v", cfg)
+	if !cfg.Orchestrator || !cfg.ParallelAgents || !cfg.Checkpoints || !cfg.Writers {
+		t.Fatalf("defaults = %+v", cfg)
 	}
-	if cfg.MaxParallelScouts != DefaultMaxParallelScouts || cfg.WorkerTokenBudget != DefaultWorkerTokenBudget || cfg.TurnWorkerTokenBudget != DefaultTurnWorkerTokenBudget {
-		t.Fatalf("worker defaults = %+v", cfg)
-	}
-	if cfg.Sandbox != "off" || !cfg.Checkpoints || !cfg.RequireVerification || !cfg.Writers {
-		t.Fatalf("safety defaults = %+v", cfg)
-	}
-	if cfg.MaxParallelWriters != DefaultMaxParallelWriters || cfg.WriterMaxSteps != DefaultWriterMaxSteps || cfg.WriterTokenBudget != DefaultWriterTokenBudget {
-		t.Fatalf("writer defaults = %+v", cfg)
+	if cfg.Mode != "create" {
+		t.Fatalf("mode = %q", cfg.Mode)
 	}
 	if _, ok := cfg.Providers["ollama"]; !ok {
 		t.Fatalf("ollama preset missing")
 	}
-	if cfg.Permission("bash") != "ask" || cfg.Permission("read") != "ask" {
-		t.Fatalf("default permissions wrong")
+	for _, kind := range []string{"bash", "write", "edit", "network", "outside"} {
+		if got := cfg.Permission(kind); got != "allow" {
+			t.Errorf("default permission %s = %q, want allow", kind, got)
+		}
 	}
 }
 
@@ -46,11 +42,6 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	cfg.Providers["ollama"].NumCtx = 16384
 	cfg.Permissions["bash"] = "deny"
 	cfg.Orchestrator = false
-	cfg.MaxDelegations = 7
-	cfg.MaxParallelScouts = 2
-	cfg.WorkerMaxSteps = 11
-	cfg.WorkerTokenBudget = 50000
-	cfg.TurnWorkerTokenBudget = 90000
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -76,11 +67,8 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	if reloaded.Permission("bash") != "deny" {
 		t.Errorf("permission not persisted")
 	}
-	if reloaded.Orchestrator || reloaded.MaxDelegations != 7 || reloaded.WorkerMaxSteps != 11 {
+	if reloaded.Orchestrator {
 		t.Errorf("orchestrator config not persisted: %+v", reloaded)
-	}
-	if reloaded.MaxParallelScouts != 2 || reloaded.WorkerTokenBudget != 50000 || reloaded.TurnWorkerTokenBudget != 90000 {
-		t.Errorf("worker config not persisted: %+v", reloaded)
 	}
 }
 
@@ -103,5 +91,44 @@ func TestAPIKeyResolution(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "sk-or")
 	if got := cfg.APIKey("openrouter", cfg.Providers["openrouter"]); got != "sk-or" {
 		t.Errorf("preset env key should be used, got %q", got)
+	}
+}
+
+func TestLoadMigratesLegacyAskDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	t.Setenv("WOMBAT_CONFIG", "")
+	legacy := `{"version":1,"provider":"openai","permissions":{"bash":"ask","write":"ask","edit":"ask"}}`
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"bash", "write", "edit", "network", "outside"} {
+		if got := cfg.Permission(kind); got != "allow" {
+			t.Errorf("%s = %q, want allow", kind, got)
+		}
+	}
+	if cfg.Version != configVersion {
+		t.Errorf("version = %d, want %d", cfg.Version, configVersion)
+	}
+}
+
+func TestLoadKeepsExplicitDenyDuringMigration(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	t.Setenv("WOMBAT_CONFIG", "")
+	legacy := `{"version":1,"provider":"openai","permissions":{"bash":"ask","write":"deny","edit":"ask"}}`
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Permission("write") != "deny" {
+		t.Errorf("explicit deny was overwritten: %q", cfg.Permission("write"))
 	}
 }

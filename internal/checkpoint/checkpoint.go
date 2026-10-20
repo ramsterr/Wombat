@@ -16,12 +16,6 @@ import (
 	"time"
 )
 
-const (
-	maxFiles      = 5000
-	maxFileBytes  = 16 << 20
-	maxTotalBytes = 128 << 20
-)
-
 var ErrPathOutside = errors.New("checkpoint path is outside the workspace")
 
 type File struct {
@@ -103,7 +97,6 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 		return "", err
 	}
 	manifest := Manifest{ID: id, Reason: reason, Workspace: m.workspace, Created: time.Now().UTC()}
-	var total int64
 	var add func(path string) error
 	add = func(path string) error {
 		abs := path
@@ -163,36 +156,12 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 				return add(p)
 			})
 		}
-		if len(manifest.Files) >= maxFiles {
-			// Too many files: keep what we have and stop walking. The
-			// snapshot stays useful, and a restore only touches what it
-			// captured.
-			if !manifest.Partial {
-				manifest.Skipped = append(manifest.Skipped, rel+" (over the file limit)")
-			}
-			manifest.Partial = true
-			return nil
-		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			manifest.Skipped = append(manifest.Skipped, rel+" (symlink)")
 			return nil
 		}
 		if !info.Mode().IsRegular() {
 			manifest.Skipped = append(manifest.Skipped, rel+" (non-regular)")
-			return nil
-		}
-		if info.Size() > maxFileBytes {
-			manifest.Skipped = append(manifest.Skipped, rel+" (large)")
-			return nil
-		}
-		total += info.Size()
-		if total > maxTotalBytes {
-			// Too big: stop capturing, but do not fail. A huge workspace
-			// should not stop the agent from working.
-			if !manifest.Partial {
-				manifest.Skipped = append(manifest.Skipped, rel+" (over the size limit)")
-			}
-			manifest.Partial = true
 			return nil
 		}
 		dst := filepath.Join(dir, "files", filepath.FromSlash(rel))

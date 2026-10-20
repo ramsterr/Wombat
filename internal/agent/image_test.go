@@ -59,8 +59,7 @@ func TestImageReachesTheModel(t *testing.T) {
 		Env: &tools.Env{Dir: dir, Permit: func(string, string) tools.Decision {
 			return tools.Decision{Allow: true}
 		}},
-		Sess:     sess,
-		MaxSteps: 4,
+		Sess: sess,
 	}
 	if err := a.Run(context.Background(), "look at the cat"); err != nil {
 		t.Fatal(err)

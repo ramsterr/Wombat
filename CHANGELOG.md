@@ -6,6 +6,45 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- **The OS sandbox is gone.** `sandbox-exec`/`bwrap` policies, sandbox
+  modes, network gating, and the `/sandbox` command are removed. Commands
+  run with the user's own permissions; the permission layer is the gate.
+- **No workflow limits.** `max_steps`, `max_delegations`,
+  `max_parallel_scouts`, worker/writer step and token budgets, turn budgets,
+  worker/writer timeouts, fleet size caps, plan step/fact/check caps, and the
+  default bash timeout are removed. A turn ends when the model stops calling
+  tools, the user interrupts, or the provider fails.
+
+### Changed
+
+- Permissions default to `allow` for bash, write, edit, network, and outside
+  paths, so a headless run works without `--yolo`. A version-1 config with the
+  old ask-by-default permissions is migrated automatically; an explicit deny
+  or allow is left alone.
+- Checkpoints no longer snapshot the whole workspace before a mutating bash
+  command; only the file a write, edit, or multi-edit is about to touch is
+  snapshotted. Paths outside the workspace are skipped instead of failing the
+  write. Checkpoint file/size caps are removed.
+
+### Fixed
+
+- Read-only workers now get `websearch` and `webfetch`, so delegated research
+  can actually reach the network.
+- Thinking-mode providers no longer reject a worker after several tool turns:
+  reasoning is kept on every assistant turn that has tool calls.
+- `delegate_many` accepts several scouts that share one ledger step instead of
+  rejecting the whole fleet.
+- `run_checks` goes through the same permission gate as bash instead of
+  running arbitrary commands with no approval.
+- The line CLI hides reasoning when `show_thinking` is false, and a headless
+  run prints a "still working" line during long silent model turns.
+- `question` fails loudly instead of reading garbage from stdin in a
+  non-interactive run.
+- `wombat --version` and `wombat -v` work.
+
+
 ### Added
 
 - **A scratch directory per session** (`~/.wombat/tmp/<session>`, also in

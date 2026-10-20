@@ -84,6 +84,8 @@ func cmdRun(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	stopHeartbeat := r.startHeartbeat(ctx, 10*time.Second)
+	defer stopHeartbeat()
 	start := time.Now()
 	runErr := ag.RunWithAttachments(ctx, task, atts)
 	r.breakLine()

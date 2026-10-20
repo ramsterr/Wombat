@@ -30,7 +30,6 @@ type Agent struct {
 	Tools         []tools.Tool
 	Env           *tools.Env
 	Sess          *session.Session
-	MaxSteps      int
 	Compact       bool
 	ContextWindow int
 	NumCtx        int
@@ -39,9 +38,8 @@ type Agent struct {
 	Hooks         Hooks
 	Trace         *trace.Logger
 
-	SandboxNote string
-	ModeNote    string
-	TmpNote     string
+	ModeNote string
+	TmpNote  string
 	// Reasoning asks the provider to think less or more: off, low, medium,
 	// high, or "" for the provider default.
 	Reasoning string
@@ -74,7 +72,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	a.markStarted()
 	traceStart := time.Now()
 	traceUsage := a.Usage()
-	a.Trace.Emit("run_start", map[string]any{"model": a.Model, "max_steps": a.MaxSteps})
+	a.Trace.Emit("run_start", map[string]any{"model": a.Model})
 	defer func() {
 		u := a.Usage()
 		a.Trace.Emit("run_end", map[string]any{
@@ -94,10 +92,6 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 	}
-	maxSteps := a.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = 64
-	}
 	// Files a tool hands over (an image the agent downloaded) are attached to
 	// the next user message so the model can actually look at them.
 	var media []tools.Media
@@ -106,7 +100,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		a.Env.SetSpillDir(a.spillDir())
 	}
 	// Repeating the same call with the same arguments means the model is
-	// stuck; stop it before it burns the budget.
+	// stuck; stop it before it burns the turn.
 	calls := map[string]int{}
 	system := buildSystem(a.Env.Dir)
 	if note := strings.TrimSpace(a.ModeNote); note != "" {
@@ -115,25 +109,17 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	if note := strings.TrimSpace(a.TmpNote); note != "" {
 		system += "\n\n" + note
 	}
-	if note := strings.TrimSpace(a.SandboxNote); note != "" {
-		system += "\n\n" + note
-	}
 	if a.SystemExtra != nil {
 		if extra := strings.TrimSpace(a.SystemExtra()); extra != "" {
 			system += "\n\n" + extra
 		}
 	}
-	for step := 0; step < maxSteps; step++ {
+	for step := 0; ; step++ {
 		if a.Compact {
 			a.maybeCompact(ctx)
 		}
 		a.Trace.Emit("model_start", map[string]any{"step": step + 1})
-		// On the last step the model gets no tools, so it has to answer in
-		// text instead of running out of steps mid-thought.
 		defs := a.toolDefs()
-		if step == maxSteps-1 {
-			defs = nil
-		}
 		res, err := a.Provider.Chat(ctx, llm.Request{
 			Model:       a.Model,
 			System:      system,
@@ -199,9 +185,6 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 	}
-	// The step limit is not a failure: the model got its last word in
-	// without tools, so the turn ends normally.
-	return nil
 }
 
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }

@@ -47,9 +47,8 @@ func TestFleetRunsInParallel(t *testing.T) {
 	prov := &fleetProvider{}
 	ag := &agent.Agent{Provider: prov, Model: "mock", Tools: tools.Registry(),
 		Env:  &tools.Env{Dir: sess.Meta.Cwd, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
-		Sess: sess, MaxSteps: 8}
-	o, err := Attach(ag, Config{MaxDelegations: 6, MaxParallelScouts: 5, WorkerMaxSteps: 16,
-		WorkerTokenBudget: 50000, TurnWorkerTokenBudget: 260000, WorkerTimeout: 2 * time.Minute})
+		Sess: sess}
+	o, err := Attach(ag, Config{ScoutModel: "cheap-model"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,9 +107,8 @@ func TestScoutsUseTheirOwnModel(t *testing.T) {
 	prov := &fleetProvider{}
 	ag := &agent.Agent{Provider: prov, Model: "lead-model", Tools: tools.Registry(),
 		Env:  &tools.Env{Dir: sess.Meta.Cwd, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
-		Sess: sess, MaxSteps: 8}
-	o, err := Attach(ag, Config{MaxDelegations: 6, MaxParallelScouts: 5, WorkerMaxSteps: 4,
-		WorkerTokenBudget: 50000, TurnWorkerTokenBudget: 260000, ScoutModel: "cheap-model"})
+		Sess: sess}
+	o, err := Attach(ag, Config{ScoutModel: "cheap-model"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,5 +136,71 @@ func TestScoutsUseTheirOwnModel(t *testing.T) {
 		if m != "cheap-model" {
 			t.Errorf("a worker used %q, want cheap-model", m)
 		}
+	}
+}
+
+func TestWorkerToolsIncludeWeb(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	sess, err := session.CreateAt(home, t.TempDir(), "mock", "mock", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := &agent.Agent{Provider: &fleetProvider{}, Model: "mock", Tools: tools.Registry(),
+		Env:  &tools.Env{Dir: sess.Meta.Cwd},
+		Sess: sess}
+	o, err := Attach(ag, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, tool := range o.workerTools {
+		names[tool.Name()] = true
+	}
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch"} {
+		if !names[want] {
+			t.Errorf("worker tools are missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestFleetHasNoTaskOrStepCap(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	sess, err := session.CreateAt(home, t.TempDir(), "mock", "mock", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := &agent.Agent{Provider: &fleetProvider{}, Model: "mock", Tools: tools.Registry(),
+		Env:  &tools.Env{Dir: sess.Meta.Cwd, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		Sess: sess}
+	o, err := Attach(ag, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var steps []Step
+	var tasks []delegateArgs
+	for i := 0; i < 10; i++ {
+		id := fmt.Sprintf("s%d", i)
+		steps = append(steps, Step{ID: id, Title: "S", Status: StepInProgress})
+		tasks = append(tasks, delegateArgs{StepID: id, Title: "t", Objective: "angle"})
+	}
+	if _, err := o.updatePlan("research", nil, steps); err != nil {
+		t.Fatal(err)
+	}
+	batch, err := o.prepareDelegations(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.items) != 10 {
+		t.Fatalf("tasks = %d, want 10", len(batch.items))
+	}
+	// Several scouts may share one ledger step; that must not reject the fleet.
+	dupes := []delegateArgs{
+		{StepID: "s0", Title: "a", Objective: "one"},
+		{StepID: "s0", Title: "b", Objective: "two"},
+	}
+	if _, err := o.prepareDelegations(dupes); err != nil {
+		t.Fatalf("duplicate step id rejected the fleet: %v", err)
 	}
 }

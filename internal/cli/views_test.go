@@ -29,7 +29,6 @@ func TestReplModeCommand(t *testing.T) {
 		Provider:  "openai",
 		Model:     "test-model",
 		Mode:      "create",
-		Sandbox:   "off",
 		Providers: map[string]*config.Provider{"openai": {Kind: "openai", BaseURL: "http://127.0.0.1:1/v1"}},
 	}
 	sess, err := session.CreateAt(home, t.TempDir(), "openai", "test-model", "test")
@@ -66,7 +65,6 @@ func TestReplViewCommands(t *testing.T) {
 		Provider:  "openai",
 		Model:     "test-model",
 		Mode:      "create",
-		Sandbox:   "off",
 		Providers: map[string]*config.Provider{"openai": {Kind: "openai", BaseURL: "http://127.0.0.1:1/v1"}},
 	}
 	sess, err := session.CreateAt(home, t.TempDir(), "openai", "test-model", "test")
@@ -87,7 +85,7 @@ func TestReplViewCommands(t *testing.T) {
 
 func TestHelpListsCommands(t *testing.T) {
 	help := helpText()
-	for _, want := range []string{"/mode", "/sandbox", "/toolset", "/sources", "/history"} {
+	for _, want := range []string{"/mode", "/thinking", "/toolset", "/sources", "/history"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("help is missing %s", want)
 		}

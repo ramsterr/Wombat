@@ -12,6 +12,10 @@ import (
 func Main() {
 	llm.UserAgent = "wombat/" + Version
 	args := os.Args[1:]
+	if len(args) > 0 && (args[0] == "--version" || args[0] == "-v" || args[0] == "-version") {
+		fmt.Println("wombat " + VersionString())
+		return
+	}
 	cmd := ""
 	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
 		cmd = args[0]

@@ -50,9 +50,6 @@ func (t *WebFetch) Run(ctx context.Context, raw json.RawMessage, env *Env) (stri
 	if err != nil {
 		return "", fmt.Errorf("bad url: %w", err)
 	}
-	if err := env.AskNetwork(target); err != nil {
-		return "", err
-	}
 	if err := env.Check("network", target); err != nil {
 		return "", err
 	}

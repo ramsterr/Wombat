@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
-	"github.com/ramsterr/Wombat/internal/llm"
-	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/worktree"
@@ -28,7 +26,6 @@ type writerTask struct {
 	Role        string   `json:"role"`
 	Deliverable string   `json:"deliverable"`
 	Files       []string `json:"files"`
-	MaxSteps    int      `json:"max_steps"`
 }
 
 type delegateWriteArgs struct {
@@ -51,7 +48,6 @@ func (t *delegateWriteTool) Schema() map[string]any {
 			"role":        map[string]any{"type": "string", "description": "optional role, e.g. implementer"},
 			"deliverable": map[string]any{"type": "string", "description": "exact output and behavior expected"},
 			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "every file the writer is allowed to change (repo-relative; no globs)"},
-			"max_steps":   map[string]any{"type": "integer", "description": "optional writer step budget (default from config, max 100)"},
 		},
 		"required": []string{"step_id", "title", "objective", "files"},
 	}
@@ -62,7 +58,6 @@ func (t *delegateWriteTool) Schema() map[string]any {
 				"type":        "array",
 				"description": "independent writers with disjoint file ownership (1-6)",
 				"minItems":    1,
-				"maxItems":    maxFleetTasks,
 				"items":       task,
 			},
 		},
@@ -100,15 +95,12 @@ type writeBatchResult struct {
 }
 
 type writerRun struct {
-	task      writerTask
-	step      *Step
-	maxSteps  int
-	tokens    int
-	context   string
-	worktree  *worktree.Worktree
-	patch     string
-	outcome   writerOutcome
-	tokenUsed int
+	task     writerTask
+	step     *Step
+	context  string
+	worktree *worktree.Worktree
+	patch    string
+	outcome  writerOutcome
 }
 
 func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (string, error) {
@@ -118,18 +110,11 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 	if len(a.Tasks) == 0 {
 		return "", fmt.Errorf("delegate_write needs at least one task")
 	}
-	if len(a.Tasks) > maxFleetTasks {
-		return "", fmt.Errorf("too many writers: %d (max %d)", len(a.Tasks), maxFleetTasks)
-	}
 	if err := validateWriters(a.Tasks); err != nil {
 		return "", err
 	}
 	o.mu.Lock()
 	cfg := o.cfg
-	if left := cfg.MaxParallelWriters - o.writers; len(a.Tasks) > left {
-		o.mu.Unlock()
-		return "", fmt.Errorf("writer budget exhausted: need %d, only %d remain this turn", len(a.Tasks), left)
-	}
 	if o.ledger == nil {
 		o.mu.Unlock()
 		return "", fmt.Errorf("no ledger")
@@ -141,10 +126,6 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 			o.mu.Unlock()
 			return "", fmt.Errorf("task %d: unknown step id %q", i+1, task.StepID)
 		}
-		if cfg.RequireVerification && len(step.Checks) == 0 {
-			o.mu.Unlock()
-			return "", fmt.Errorf("task %d: step %q has no checks; add at least one check before using a writer", i+1, task.StepID)
-		}
 		for _, dep := range step.DependsOn {
 			d := o.ledger.Find(dep)
 			if d == nil || d.Status != StepCompleted {
@@ -152,38 +133,13 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 				return "", fmt.Errorf("task %d: step %q depends on %q which is not completed", i+1, task.StepID, dep)
 			}
 		}
-		maxSteps := task.MaxSteps
-		if maxSteps <= 0 {
-			maxSteps = cfg.WriterMaxSteps
-		}
-		if maxSteps > maxWorkerStepsCap {
-			maxSteps = maxWorkerStepsCap
-		}
 		copyStep := *step
 		runs[i] = writerRun{
-			task:     task,
-			step:     &copyStep,
-			maxSteps: maxSteps,
-			outcome:  writerOutcome{StepID: task.StepID, Title: task.Title},
+			task:    task,
+			step:    &copyStep,
+			outcome: writerOutcome{StepID: task.StepID, Title: task.Title},
 		}
 	}
-	remaining := cfg.TurnWriterTokenBudget - o.writerTokens
-	if remaining <= 0 {
-		o.mu.Unlock()
-		return "", fmt.Errorf("writer token budget exhausted for this turn (%d tokens)", cfg.TurnWriterTokenBudget)
-	}
-	perWriter := remaining / len(runs)
-	if perWriter > cfg.WriterTokenBudget {
-		perWriter = cfg.WriterTokenBudget
-	}
-	if perWriter < minWorkerTokenBudget {
-		o.mu.Unlock()
-		return "", fmt.Errorf("not enough writer token budget for %d writers: %d each (min %d)", len(runs), perWriter, minWorkerTokenBudget)
-	}
-	for i := range runs {
-		runs[i].tokens = perWriter
-	}
-	o.writers += len(runs)
 	o.totalDelegations += len(runs)
 	goal := o.ledger.Goal
 	facts := append([]string(nil), o.ledger.Facts...)
@@ -200,24 +156,13 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 		runs[i].context = pack
 	}
 
-	parallel := cfg.MaxParallelWriters
-	if parallel < 1 {
-		parallel = 1
-	}
-	if parallel > len(runs) {
-		parallel = len(runs)
-	}
-	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for i := range runs {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				runs[i].outcome.Error = ctx.Err().Error()
+			if err := ctx.Err(); err != nil {
+				runs[i].outcome.Error = err.Error()
 				return
 			}
 			o.runWriter(ctx, &runs[i], goal, facts)
@@ -258,7 +203,6 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 	}
 
 	o.mu.Lock()
-	o.writerTokens += result.Usage.In + result.Usage.Out
 	o.ledger.Updated = time.Now()
 	saveErr := o.ledger.Save(o.ledgerPath)
 	result.Ledger = o.ledger.View()
@@ -267,20 +211,6 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 		result.Warning = "could not persist ledger: " + saveErr.Error()
 	}
 	return jsonMarshalIndent(result)
-}
-
-// writerSandboxMode picks the sandbox mode for a writer: writers need write
-// access, so a read-only lead becomes workspace-write, and the rest is
-// inherited.
-func writerSandboxMode(lead sandbox.Mode) sandbox.Mode {
-	switch lead {
-	case sandbox.Off, sandbox.DangerFullAccess:
-		return lead
-	case sandbox.ReadOnly:
-		return sandbox.WorkspaceWrite
-	default:
-		return sandbox.WorkspaceWrite
-	}
 }
 
 func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string, facts []string) {
@@ -307,44 +237,23 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	env.DenyGit = true
 	env.DenyOutside = true
 	env.AllowOutside = false
-	// Writers never ask the user anything and never reach the network.
-	env.SandboxAsk = nil
-	env.SandboxState = sandbox.NewState(sandbox.Settings{
-		Mode:    writerSandboxMode(o.lead.Env.Sandbox.Mode),
-		Network: false,
-	})
-	env.Sandbox = env.SandboxState.Policy(wt.Path)
-	runCtx, cancel := context.WithTimeout(ctx, cfg.WriterTimeout)
-	defer cancel()
-	budgetCtx, cancelBudget := context.WithCancel(runCtx)
-	defer cancelBudget()
-	budget := &workerTokenBudget{limit: r.tokens}
 	hooks := workerHooks(o.lead.Hooks, r.task.Title, &o.hooksMu)
-	parentUsage := hooks.OnUsage
-	hooks.OnUsage = func(u llm.Usage, history int) {
-		if budget.add(u) {
-			cancelBudget()
-		}
-		if parentUsage != nil {
-			parentUsage(u, history)
-		}
-	}
 	writer := &agent.Agent{
 		Provider:      o.lead.Provider,
 		Model:         o.lead.Model,
 		Tools:         o.writerTools,
 		Env:           &env,
 		Sess:          ws,
-		MaxSteps:      r.maxSteps,
 		Compact:       o.lead.Compact && o.lead.ContextWindow > 0,
 		ContextWindow: o.lead.ContextWindow,
 		NumCtx:        o.lead.NumCtx,
 		SystemExtra: func() string {
 			return writerSystemPrompt(r.task, r.step, goal, facts, r.context)
 		},
-		Hooks: hooks,
+		Hooks:     hooks,
+		Reasoning: "off",
 	}
-	runErr := writer.Run(budgetCtx, writerBriefWriter(r.task, goal, facts))
+	runErr := writer.Run(ctx, writerBriefWriter(r.task, goal, facts))
 	stats := writer.Usage()
 	r.outcome.Usage = usageFrom(stats)
 	content := lastAssistantContent(ws)
@@ -354,12 +263,6 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	}
 	report.Usage = r.outcome.Usage
 	r.outcome.Report = report
-	if budget.exceeded {
-		runErr = fmt.Errorf("writer exceeded token budget (%d/%d tokens)", budget.used, budget.limit)
-		report.Status = "failed"
-	} else if runCtx.Err() == context.DeadlineExceeded {
-		runErr = fmt.Errorf("writer timed out after %s", cfg.WriterTimeout)
-	}
 	if runErr != nil {
 		r.outcome.Status = "failed"
 		r.outcome.Error = runErr.Error()
@@ -473,9 +376,6 @@ func (o *Orchestrator) mergeWriter(ctx context.Context, r *writerRun, result *wr
 }
 
 func runCheckCommands(ctx context.Context, env *tools.Env, checks []Check, defaultTimeout time.Duration) []checkOutcome {
-	if defaultTimeout <= 0 {
-		defaultTimeout = 120 * time.Second
-	}
 	out := make([]checkOutcome, 0, len(checks))
 	for _, c := range checks {
 		timeout := defaultTimeout

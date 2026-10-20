@@ -9,8 +9,6 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/ramsterr/Wombat/internal/sandbox"
 )
 
 type CommandResult struct {
@@ -20,26 +18,16 @@ type CommandResult struct {
 	Err      error
 }
 
+// RunCommand runs a shell command. A timeout <= 0 means no timeout: the
+// command runs until it exits or the caller's context is cancelled.
 func RunCommand(ctx context.Context, env *Env, command string, timeout time.Duration) CommandResult {
-	return RunCommandWithPolicy(ctx, env, command, timeout, env.sandboxPolicy())
-}
-
-// RunCommandWithPolicy runs a command under a specific sandbox policy.
-func RunCommandWithPolicy(ctx context.Context, env *Env, command string, timeout time.Duration, policy sandbox.Policy) CommandResult {
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+	runCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	name, args := "sh", []string{"-c", command}
-	if env != nil {
-		var err error
-		name, args, err = policy.Command(command)
-		if err != nil {
-			return CommandResult{Err: fmt.Errorf("sandbox: %w", err)}
-		}
-	}
-	cmd := exec.CommandContext(runCtx, name, args...)
+	cmd := exec.CommandContext(runCtx, "sh", "-c", command)
 	if env != nil {
 		cmd.Dir = env.Dir
 	}

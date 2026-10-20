@@ -62,3 +62,20 @@ func TestThinkingBudget(t *testing.T) {
 		t.Error("an empty level should not set a budget")
 	}
 }
+
+func TestTrimStaleReasoningKeepsToolCallReasoning(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "go"},
+		{Role: "assistant", Content: "a1", Reasoning: "call one", ToolCalls: []ToolCall{{ID: "1", Name: "read"}}},
+		{Role: "tool", Content: "r1", ToolCallID: "1"},
+		{Role: "assistant", Content: "a2", Reasoning: "call two", ToolCalls: []ToolCall{{ID: "2", Name: "read"}}},
+		{Role: "tool", Content: "r2", ToolCallID: "2"},
+	}
+	trimmed := TrimStaleReasoning(msgs)
+	if trimmed[1].Reasoning != "call one" {
+		t.Fatalf("reasoning on a tool-call turn was dropped: %+v", trimmed[1])
+	}
+	if trimmed[3].Reasoning != "call two" {
+		t.Fatalf("newest reasoning was dropped: %+v", trimmed[3])
+	}
+}

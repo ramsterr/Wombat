@@ -75,7 +75,6 @@ func TestToolCallsRunInParallel(t *testing.T) {
 		Tools:    []tools.Tool{read},
 		Env:      &tools.Env{Dir: t.TempDir()},
 		Sess:     sess,
-		MaxSteps: 3,
 	}
 	start := time.Now()
 	if err := a.Run(context.Background(), "read four files"); err != nil {
@@ -122,7 +121,6 @@ func TestRepeatedCallsAreStopped(t *testing.T) {
 		Tools:    []tools.Tool{read},
 		Env:      &tools.Env{Dir: t.TempDir()},
 		Sess:     sess,
-		MaxSteps: 8,
 	}
 	if err := a.Run(context.Background(), "read the same file over and over"); err != nil {
 		t.Fatal(err)

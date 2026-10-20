@@ -18,17 +18,6 @@ func helpText() string {
 }
 
 // toolsetText lists the tools the session can use.
-// agentSandbox describes the sandbox in force for a session.
-func agentSandbox(ag *agent.Agent) string {
-	if ag == nil || ag.Env == nil {
-		return "off"
-	}
-	if ag.Env.SandboxState != nil {
-		return ag.Env.SandboxState.Settings().Summary()
-	}
-	return string(ag.Env.Sandbox.Mode)
-}
-
 func toolsetText(ag *agent.Agent, current mode.Mode) string {
 	if ag == nil {
 		return "no tools yet"

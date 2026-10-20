@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
@@ -66,8 +65,7 @@ func newTestAgent(t *testing.T, permit bool) (*Agent, *fakeProvider, string, *[]
 			Dir:    workdir,
 			Permit: func(kind, detail string) tools.Decision { return tools.Decision{Allow: permit} },
 		},
-		Sess:     sess,
-		MaxSteps: 8,
+		Sess: sess,
 		Hooks: Hooks{
 			OnText:  func(s string) { texts = append(texts, s) },
 			OnUsage: func(u llm.Usage, history int) { usage = append(usage, u.In+u.Out) },
@@ -195,13 +193,13 @@ func TestAgentPermissionDenied(t *testing.T) {
 	}
 }
 
-func TestAgentStopsAfterMaxSteps(t *testing.T) {
+func TestAgentHasNoStepLimit(t *testing.T) {
 	t.Setenv("WOMBAT_HOME", t.TempDir())
 	sess, err := session.Create(t.TempDir(), "fake", "m", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	looper := &loopProvider{}
+	looper := &loopProvider{stopAfter: 70}
 	a := &Agent{
 		Provider: looper,
 		Model:    "m",
@@ -210,23 +208,20 @@ func TestAgentStopsAfterMaxSteps(t *testing.T) {
 			Dir:    t.TempDir(),
 			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
 		},
-		Sess:     sess,
-		MaxSteps: 3,
+		Sess: sess,
 	}
-	start := time.Now()
-	err = a.Run(context.Background(), "loop forever")
-	if err != nil {
-		t.Fatalf("hitting the step limit is not an error, got %v", err)
+	if err := a.Run(context.Background(), "keep working"); err != nil {
+		t.Fatal(err)
 	}
-	if time.Since(start) > 5*time.Second {
-		t.Fatalf("loop took too long")
-	}
-	if looper.calls != 3 {
-		t.Fatalf("provider calls = %d, want 3", looper.calls)
+	if looper.calls != 70 {
+		t.Fatalf("provider calls = %d, want 70 (no step cap)", looper.calls)
 	}
 }
 
-type loopProvider struct{ calls int }
+type loopProvider struct {
+	calls     int
+	stopAfter int
+}
 
 func (l *loopProvider) Name() string { return "loop" }
 func (l *loopProvider) ListModels(context.Context) ([]string, error) {
@@ -234,8 +229,11 @@ func (l *loopProvider) ListModels(context.Context) ([]string, error) {
 }
 func (l *loopProvider) Chat(context.Context, llm.Request, func(string)) (*llm.Result, error) {
 	l.calls++
+	if l.stopAfter > 0 && l.calls >= l.stopAfter {
+		return &llm.Result{Content: "done"}, nil
+	}
 	return &llm.Result{
-		ToolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", l.calls), Name: "bash", Arguments: `{"command":"true"}`}},
+		ToolCalls: []llm.ToolCall{{ID: fmt.Sprintf("c%d", l.calls), Name: "bash", Arguments: fmt.Sprintf(`{"command":"true #%d"}`, l.calls)}},
 	}, nil
 }
 
@@ -275,8 +273,7 @@ func TestAgentRejectsUnregisteredTool(t *testing.T) {
 			Dir:    workdir,
 			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
 		},
-		Sess:     sess,
-		MaxSteps: 4,
+		Sess: sess,
 	}
 	if err := a.Run(context.Background(), "do it"); err != nil {
 		t.Fatal(err)
@@ -289,32 +286,5 @@ func TestAgentRejectsUnregisteredTool(t *testing.T) {
 	}
 	if got := a.Sess.Messages[3].Content; !strings.Contains(got, `unknown tool "bash"`) {
 		t.Fatalf("tool result = %q", got)
-	}
-}
-
-// TestStepLimitEndsWithText checks that running out of steps is not an error:
-// the model gets a last word without tools and the turn ends normally.
-func TestStepLimitEndsWithText(t *testing.T) {
-	sess, err := session.Create(t.TempDir(), "fake", "m", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	prov := &loopProvider{}
-	a := &Agent{
-		Provider: prov,
-		Model:    "m",
-		Tools:    tools.Registry(),
-		Env: &tools.Env{
-			Dir:    t.TempDir(),
-			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
-		},
-		Sess:     sess,
-		MaxSteps: 3,
-	}
-	if err := a.Run(context.Background(), "loop forever"); err != nil {
-		t.Fatalf("hitting the step limit is not an error: %v", err)
-	}
-	if prov.calls != 3 {
-		t.Fatalf("provider calls = %d, want 3", prov.calls)
 	}
 }
