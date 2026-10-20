@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -105,5 +106,64 @@ func TestPaletteClosesOnSubmit(t *testing.T) {
 	c.submit("/help")
 	if c.paletteOpen() {
 		t.Error("the palette should close after a message is sent")
+	}
+}
+
+// TestPaletteArrowsMoveSelection drives the real key handler: the arrow keys
+// must move the highlight while the palette is open.
+func TestPaletteArrowsMoveSelection(t *testing.T) {
+	c := newPaletteChat()
+	c.ta.Focus()
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !c.paletteOpen() {
+		t.Fatal("the palette did not open")
+	}
+	first := c.cmdList[0].Name
+
+	c.key(tea.KeyMsg{Type: tea.KeyDown})
+	if c.cmdSel != 1 {
+		t.Fatalf("cmdSel = %d, want 1", c.cmdSel)
+	}
+	if c.cmdList[c.cmdSel].Name == first {
+		t.Error("the selection did not move")
+	}
+
+	c.key(tea.KeyMsg{Type: tea.KeyUp})
+	if c.cmdSel != 0 {
+		t.Fatalf("cmdSel = %d, want 0", c.cmdSel)
+	}
+	// it must not go past the ends
+	c.key(tea.KeyMsg{Type: tea.KeyUp})
+	if c.cmdSel != 0 {
+		t.Fatalf("cmdSel = %d, want 0", c.cmdSel)
+	}
+	for i := 0; i < len(c.cmdList)+3; i++ {
+		c.key(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if c.cmdSel != len(c.cmdList)-1 {
+		t.Fatalf("cmdSel = %d, want %d", c.cmdSel, len(c.cmdList)-1)
+	}
+}
+
+// TestPaletteTabCompletesAndEscCloses covers the rest of the palette keys.
+func TestPaletteTabCompletesAndEscCloses(t *testing.T) {
+	c := newPaletteChat()
+	c.ta.Focus()
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	c.key(tea.KeyMsg{Type: tea.KeyTab})
+	if c.paletteOpen() {
+		t.Error("tab should complete and close the palette")
+	}
+	if !strings.HasPrefix(c.ta.Value(), "/") {
+		t.Errorf("input = %q", c.ta.Value())
+	}
+
+	c.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !c.paletteOpen() {
+		t.Fatal("the palette did not reopen")
+	}
+	c.key(tea.KeyMsg{Type: tea.KeyEsc})
+	if c.paletteOpen() {
+		t.Error("esc should close the palette")
 	}
 }

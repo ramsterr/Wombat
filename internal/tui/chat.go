@@ -1280,6 +1280,37 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	}
+	// The command palette takes over the arrow keys while it is open, so the
+	// list can be walked without moving the cursor in the input.
+	if c.paletteOpen() && !c.streaming {
+		switch msg.String() {
+		case "up", "ctrl+p":
+			if c.cmdSel > 0 {
+				c.cmdSel--
+			}
+			c.layout()
+			c.refresh()
+			return nil
+		case "down", "ctrl+n":
+			if c.cmdSel < len(c.cmdList)-1 {
+				c.cmdSel++
+			}
+			c.layout()
+			c.refresh()
+			return nil
+		case "tab":
+			c.completeCommand()
+			c.layout()
+			c.refresh()
+			return nil
+		case "esc":
+			c.cmdList = nil
+			c.cmdSel = 0
+			c.layout()
+			c.refresh()
+			return nil
+		}
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		if c.streaming {
