@@ -354,6 +354,9 @@ tip: write @path/to/file (or @"path with spaces") to attach an image,
 		if err != nil {
 			return false, nil, nil, err
 		}
+		if ag != nil && ag.Env != nil && ag.Env.SandboxState != nil {
+			current = ag.Env.SandboxState.Settings()
+		}
 		newSettings, msg, changed, err := sandbox.ApplyCommand(line, current)
 		if err != nil {
 			return false, nil, nil, err
@@ -364,6 +367,9 @@ tip: write @path/to/file (or @"path with spaces") to attach an image,
 		}
 		opts.sandbox = newSettings
 		opts.sandboxSet = true
+		if ag != nil && ag.Env != nil && ag.Env.SandboxState != nil {
+			opts.state = ag.Env.SandboxState
+		}
 		na, _, _, err := rebuild(cfg, *opts, sess, p, r)
 		if err != nil {
 			return false, nil, nil, err

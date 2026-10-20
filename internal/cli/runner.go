@@ -28,9 +28,11 @@ type runOpts struct {
 	quiet    bool
 
 	// sandbox overrides the configured sandbox for this session when
-	// sandboxSet is true (the /sandbox command).
+	// sandboxSet is true (the /sandbox command). state keeps the live
+	// settings so runtime approvals survive a rebuild.
 	sandbox    sandbox.Settings
 	sandboxSet bool
+	state      *sandbox.State
 }
 
 func BuildProvider(ctx context.Context, cfg *config.Config, name, modelOverride string) (llm.Provider, string, string, error) {
@@ -100,11 +102,25 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	if opts.sandboxSet {
 		settings = opts.sandbox
 	}
+	state := opts.state
+	if state == nil {
+		state = sandbox.NewState(settings)
+	} else if opts.sandboxSet {
+		// Only an explicit /sandbox change overwrites the live settings, so
+		// approvals granted during the session survive a rebuild.
+		state.Update(func(s *sandbox.Settings) { *s = settings })
+	}
 	env := &tools.Env{
-		Dir:         cwd,
-		Permit:      p.Permit,
-		Sandbox:     settings.Policy(cwd),
-		DenyNetwork: !settings.Network,
+		Dir:          cwd,
+		Permit:       p.Permit,
+		Sandbox:      settings.Policy(cwd),
+		SandboxState: state,
+		DenyNetwork:  !settings.Network,
+	}
+	if p != nil {
+		env.SandboxAsk = func(kind, command string) tools.SandboxDecision {
+			return p.AskSandbox(kind, command)
+		}
 	}
 	if cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(sess.Path()), cwd)

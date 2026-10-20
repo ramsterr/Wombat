@@ -14,6 +14,10 @@ All notable changes to Wombat are recorded here. The format follows
 - Commands that need the network now fail with a message that says how to
   enable it, instead of an opaque DNS error, and the model is told to ask
   the user instead of working around the restriction.
+- The sandbox asks for permission instead of dead-ending: when a command is
+  blocked, Wombat prompts you to allow it once, for the session, or not at
+  all, and the command runs when you allow it. The same applies to writes
+  outside the workspace.
 
 ## [0.2.5] — 2026-10-20
 

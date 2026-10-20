@@ -131,7 +131,8 @@ type chat struct {
 	provName  string
 	modelName string
 
-	sandbox sandbox.Settings
+	sandbox      sandbox.Settings
+	sandboxState *sandbox.State
 
 	vp viewport.Model
 	ta textarea.Model
@@ -304,12 +305,17 @@ func (c *chat) rebuild(reset bool) error {
 		}
 		c.sandbox = sandbox.Settings{Mode: mode, Network: c.cfg.SandboxNetwork}
 	}
-	env := &tools.Env{
-		Dir:         cwd,
-		Permit:      c.permit,
-		Sandbox:     c.sandbox.Policy(cwd),
-		DenyNetwork: !c.sandbox.Network,
+	if c.sandboxState == nil {
+		c.sandboxState = sandbox.NewState(c.sandbox)
 	}
+	env := &tools.Env{
+		Dir:          cwd,
+		Permit:       c.permit,
+		Sandbox:      c.sandbox.Policy(cwd),
+		SandboxState: c.sandboxState,
+		DenyNetwork:  !c.sandbox.Network,
+	}
+	env.SandboxAsk = c.askSandbox
 	if c.cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(c.sess.Path()), cwd)
 		if err != nil {
@@ -420,6 +426,43 @@ func (c *chat) permit(kind, detail string) tools.Decision {
 		return d
 	case <-time.After(10 * time.Minute):
 		return tools.Decision{}
+	}
+}
+
+// currentSandbox returns the live sandbox settings of the session.
+func (c *chat) currentSandbox() sandbox.Settings {
+	if c.sandboxState != nil {
+		return c.sandboxState.Settings()
+	}
+	return c.sandbox
+}
+
+// askSandbox asks the user whether a command blocked by the sandbox may run.
+func (c *chat) askSandbox(kind, command string) tools.SandboxDecision {
+	if c.send == nil {
+		return tools.SandboxDeny
+	}
+	what := "network access"
+	if kind == tools.SandboxWrite {
+		what = "write access outside the sandbox"
+	}
+	reply := make(chan tools.Decision, 1)
+	c.emit(permAskMsg{
+		kind:   "sandbox: " + what,
+		detail: "the sandbox blocked this command — " + command,
+		reply:  reply,
+	})
+	select {
+	case d := <-reply:
+		switch {
+		case d.Allow && d.Always:
+			return tools.SandboxAllowSession
+		case d.Allow:
+			return tools.SandboxAllowOnce
+		}
+		return tools.SandboxDeny
+	case <-time.After(10 * time.Minute):
+		return tools.SandboxDeny
 	}
 }
 
@@ -907,12 +950,16 @@ func (c *chat) command(line string) tea.Cmd {
 			cwd = c.sess.Meta.Cwd
 		}
 		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nauto-approve=%v\nsandbox: %s",
-			c.provName, c.modelName, c.sessionID(), cwd, c.auto, c.sandbox.Status()), false)
+			c.provName, c.modelName, c.sessionID(), cwd, c.auto, c.currentSandbox().Status()), false)
 	case "/yolo":
 		c.auto = !c.auto
 		c.note(fmt.Sprintf("auto-approve: %v", c.auto), false)
 	case "/sandbox":
-		settings, msg, changed, err := sandbox.ApplyCommand(line, c.sandbox)
+		current := c.sandbox
+		if c.sandboxState != nil {
+			current = c.sandboxState.Settings()
+		}
+		settings, msg, changed, err := sandbox.ApplyCommand(line, current)
 		if err != nil {
 			c.note(err.Error(), true)
 			return nil
@@ -922,6 +969,9 @@ func (c *chat) command(line string) tea.Cmd {
 			return nil
 		}
 		c.sandbox = settings
+		if c.sandboxState != nil {
+			c.sandboxState.Update(func(s *sandbox.Settings) { *s = settings })
+		}
 		if err := c.rebuild(false); err != nil {
 			c.note("could not apply the sandbox change: "+err.Error(), true)
 			return nil

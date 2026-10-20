@@ -143,6 +143,33 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 	}
 }
 
+// AskSandbox asks the user whether a command blocked by the sandbox may run.
+func (p *Prompter) AskSandbox(kind, command string) tools.SandboxDecision {
+	if !p.tty {
+		fmt.Fprintln(os.Stderr, dim("[sandbox] "+kind+" access is needed: "+clipLine(command, 120)+" — denied (non-interactive)"))
+		return tools.SandboxDeny
+	}
+	what := "network access"
+	if kind == tools.SandboxWrite {
+		what = "write access outside the sandbox"
+	}
+	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s: ",
+		yellow("?"), "the sandbox blocked "+what, clipLine(command, 200),
+		bold("y")+"es, once", bold("a")+"lways, this session", bold("n")+"o")
+	line, err := p.in.ReadString('\n')
+	if err != nil {
+		return tools.SandboxDeny
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return tools.SandboxAllowOnce
+	case "a", "always":
+		return tools.SandboxAllowSession
+	default:
+		return tools.SandboxDeny
+	}
+}
+
 func clipLine(s string, n int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	if len(s) > n {

@@ -371,9 +371,25 @@ The sandbox is yours to change, at any time, without restarting.
 Set the defaults for new sessions with `wombat config set sandbox workspace-write`
 and `wombat config set sandbox_network true`.
 
-When the network is off, a command that needs it fails with a clear message
-instead of a DNS error, and the agent is told to ask you rather than work
-around it:
+### It asks before it gives up
+
+When the sandbox stops a command, Wombat asks you instead of failing quietly.
+You get the same prompt you know from tool permissions:
+
+```
+╭─ permission  sandbox: network access ─────────────────────╮
+│  the sandbox blocked this command — git fetch origin         │
+│                                                              │
+│  y  allow   a  always sandbox: network access   n  deny      │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+- **y** — run this one command with the network allowed, then keep the sandbox as it was
+- **a** — turn the network on for the rest of the session
+- **n** — refuse it; the agent is told the answer and moves on
+
+The same prompt appears when a command tried to write outside the workspace.
+A refused command comes back to the model as a clear message, not a DNS error:
 
 ```
 network access is blocked by the sandbox: git fetch origin

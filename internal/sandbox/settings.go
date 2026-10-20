@@ -60,9 +60,10 @@ func (s Settings) Note() string {
 		b.WriteString(" This host cannot enforce that mode, so commands run without a sandbox.")
 	}
 	if !s.Network {
-		b.WriteString(" The network is unavailable: commands that need it will fail.")
+		b.WriteString(" The network is unavailable: commands that need it are stopped by the sandbox.")
 		b.WriteString(" If a task genuinely needs the network, say so and ask the user to enable it")
-		b.WriteString(" (they can run `/sandbox network on`); do not work around it.")
+		b.WriteString(" (they approve the request when prompted, or run `/sandbox network on`);")
+		b.WriteString(" do not work around it.")
 	}
 	return b.String()
 }

@@ -30,6 +30,59 @@ type Env struct {
 	DenyOutside   bool
 	Sandbox       sandbox.Policy
 	Checkpoint    Checkpointer
+
+	// SandboxState is the session's live sandbox configuration. When set it
+	// overrides Sandbox, so a change made mid-session takes effect at once.
+	SandboxState *sandbox.State
+
+	// SandboxAsk asks the user whether a command blocked by the sandbox may
+	// run anyway. It returns SandboxDeny when the user declines.
+	SandboxAsk func(kind, command string) SandboxDecision
+}
+
+// SandboxDecision is the user's answer to a sandbox escalation request.
+type SandboxDecision int
+
+const (
+	// SandboxDeny keeps the sandbox in place and refuses the command.
+	SandboxDeny SandboxDecision = iota
+	// SandboxAllowOnce runs this one command with the restriction lifted.
+	SandboxAllowOnce
+	// SandboxAllowSession widens the sandbox for the rest of the session.
+	SandboxAllowSession
+)
+
+// Sandbox escalation kinds.
+const (
+	SandboxNetwork = "network"
+	SandboxWrite   = "write"
+)
+
+// sandboxPolicy returns the policy in force for this environment.
+func (e *Env) sandboxPolicy() sandbox.Policy {
+	if e == nil {
+		return sandbox.Policy{}
+	}
+	if e.SandboxState != nil {
+		return e.SandboxState.Policy(e.Dir)
+	}
+	return e.Sandbox
+}
+
+// askSandbox asks the user about a blocked command.
+func (e *Env) askSandbox(kind, command string) SandboxDecision {
+	if e == nil || e.SandboxAsk == nil {
+		return SandboxDeny
+	}
+	return e.SandboxAsk(kind, command)
+}
+
+// widenSandbox changes the session sandbox settings.
+func (e *Env) widenSandbox(fn func(*sandbox.Settings)) {
+	if e == nil || e.SandboxState == nil {
+		return
+	}
+	e.SandboxState.Update(fn)
 }
 
 func (e *Env) Snapshot(reason string, paths ...string) error {
