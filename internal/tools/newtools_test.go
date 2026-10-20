@@ -99,7 +99,7 @@ func TestSpillWritesBigOutputToAFile(t *testing.T) {
 	dir := t.TempDir()
 	env := &Env{Dir: dir}
 	env.SetSpillDir(filepath.Join(dir, "spill"))
-	big := strings.Repeat("line of output\n", 4000)
+	big := strings.Repeat("line of output\n", 20000)
 	out, ok := env.Spill("grep-output.txt", big)
 	if !ok {
 		t.Fatal("the big output should have been spilled")

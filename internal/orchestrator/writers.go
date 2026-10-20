@@ -12,7 +12,6 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/llm"
-	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/worktree"
@@ -269,20 +268,6 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 	return jsonMarshalIndent(result)
 }
 
-// writerSandboxMode picks the sandbox mode for a writer: writers need write
-// access, so a read-only lead becomes workspace-write, and the rest is
-// inherited.
-func writerSandboxMode(lead sandbox.Mode) sandbox.Mode {
-	switch lead {
-	case sandbox.Off, sandbox.DangerFullAccess:
-		return lead
-	case sandbox.ReadOnly:
-		return sandbox.WorkspaceWrite
-	default:
-		return sandbox.WorkspaceWrite
-	}
-}
-
 func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string, facts []string) {
 	cfg := o.cfg
 	o.worktreeMu.Lock()
@@ -308,12 +293,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	env.DenyOutside = true
 	env.AllowOutside = false
 	// Writers never ask the user anything and never reach the network.
-	env.SandboxAsk = nil
-	env.SandboxState = sandbox.NewState(sandbox.Settings{
-		Mode:    writerSandboxMode(o.lead.Env.Sandbox.Mode),
-		Network: false,
-	})
-	env.Sandbox = env.SandboxState.Policy(wt.Path)
+	env.DenyNetwork = true
 	runCtx, cancel := context.WithTimeout(ctx, cfg.WriterTimeout)
 	defer cancel()
 	budgetCtx, cancelBudget := context.WithCancel(runCtx)

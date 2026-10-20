@@ -30,34 +30,25 @@ const (
 )
 
 type Config struct {
-	Version               int                  `json:"version"`
-	Provider              string               `json:"provider"`
-	Model                 string               `json:"model"`
-	Providers             map[string]*Provider `json:"providers"`
-	Permissions           map[string]string    `json:"permissions,omitempty"`
-	MaxSteps              int                  `json:"max_steps,omitempty"`
-	Orchestrator          bool                 `json:"orchestrator"`
-	MaxDelegations        int                  `json:"max_delegations"`
-	MaxParallelScouts     int                  `json:"max_parallel_scouts"`
-	WorkerMaxSteps        int                  `json:"worker_max_steps"`
-	WorkerTokenBudget     int                  `json:"worker_token_budget"`
-	TurnWorkerTokenBudget int                  `json:"turn_worker_token_budget"`
-	MaxParallelWriters    int                  `json:"max_parallel_writers"`
-	WriterMaxSteps        int                  `json:"writer_max_steps"`
-	WriterTokenBudget     int                  `json:"writer_token_budget"`
-	TurnWriterTokenBudget int                  `json:"turn_writer_token_budget"`
-	Mode                  string               `json:"mode"`
-	Reasoning             string               `json:"reasoning,omitempty"`
-	ShowThinking          bool                 `json:"show_thinking"`
-	ParallelAgents        bool                 `json:"parallel_agents"`
-	ScoutModel            string               `json:"scout_model,omitempty"`
-	Sandbox               string               `json:"sandbox"`
-	SandboxNetwork        bool                 `json:"sandbox_network"`
-	Checkpoints           bool                 `json:"checkpoints"`
-	RequireVerification   bool                 `json:"require_verification"`
-	Writers               bool                 `json:"writers"`
-	KeepWorktrees         bool                 `json:"keep_worktrees,omitempty"`
-	Mouse                 bool                 `json:"mouse,omitempty"`
+	Version             int                  `json:"version"`
+	Provider            string               `json:"provider"`
+	Model               string               `json:"model"`
+	Providers           map[string]*Provider `json:"providers"`
+	Permissions         map[string]string    `json:"permissions,omitempty"`
+	MaxSteps            int                  `json:"max_steps,omitempty"`
+	Orchestrator        bool                 `json:"orchestrator"`
+	MaxParallelScouts   int                  `json:"max_parallel_scouts"`
+	MaxParallelWriters  int                  `json:"max_parallel_writers"`
+	Mode                string               `json:"mode"`
+	Reasoning           string               `json:"reasoning,omitempty"`
+	ShowThinking        bool                 `json:"show_thinking"`
+	ParallelAgents      bool                 `json:"parallel_agents"`
+	ScoutModel          string               `json:"scout_model,omitempty"`
+	Checkpoints         bool                 `json:"checkpoints"`
+	RequireVerification bool                 `json:"require_verification"`
+	Writers             bool                 `json:"writers"`
+	KeepWorktrees       bool                 `json:"keep_worktrees,omitempty"`
+	Mouse               bool                 `json:"mouse,omitempty"`
 }
 
 type Preset struct {
@@ -129,28 +120,22 @@ func Defaults() *Config {
 		Provider:  "openai",
 		Model:     "",
 		Providers: map[string]*Provider{},
+		// Simple by default: the agent works without stopping to ask. Set a
+		// class back to "ask" to be consulted before it is used.
 		Permissions: map[string]string{
-			"bash":  "ask",
-			"write": "ask",
-			"edit":  "ask",
+			"bash":    "allow",
+			"write":   "allow",
+			"edit":    "allow",
+			"network": "allow",
 		},
-		MaxSteps:              64,
-		Orchestrator:          true,
-		MaxDelegations:        DefaultMaxDelegations,
-		MaxParallelScouts:     DefaultMaxParallelScouts,
-		WorkerMaxSteps:        DefaultWorkerMaxSteps,
-		WorkerTokenBudget:     DefaultWorkerTokenBudget,
-		TurnWorkerTokenBudget: DefaultTurnWorkerTokenBudget,
-		MaxParallelWriters:    DefaultMaxParallelWriters,
-		WriterMaxSteps:        DefaultWriterMaxSteps,
-		WriterTokenBudget:     DefaultWriterTokenBudget,
-		TurnWriterTokenBudget: DefaultTurnWriterTokenBudget,
-		Mode:                  "create",
-		ParallelAgents:        true,
-		Sandbox:               "off",
-		Checkpoints:           true,
-		RequireVerification:   true,
-		Writers:               true,
+		Orchestrator:        true,
+		MaxParallelScouts:   DefaultMaxParallelScouts,
+		MaxParallelWriters:  DefaultMaxParallelWriters,
+		Mode:                "create",
+		ParallelAgents:      true,
+		Checkpoints:         true,
+		RequireVerification: false,
+		Writers:             true,
 	}
 	for _, p := range Presets {
 		c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}
@@ -181,38 +166,11 @@ func Load() (*Config, error) {
 			c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}
 		}
 	}
-	if c.MaxSteps <= 0 {
-		c.MaxSteps = 64
-	}
-	if c.MaxDelegations <= 0 {
-		c.MaxDelegations = DefaultMaxDelegations
-	}
-	if c.WorkerMaxSteps <= 0 {
-		c.WorkerMaxSteps = DefaultWorkerMaxSteps
-	}
 	if c.MaxParallelScouts <= 0 {
 		c.MaxParallelScouts = DefaultMaxParallelScouts
 	}
-	if c.WorkerTokenBudget <= 0 {
-		c.WorkerTokenBudget = DefaultWorkerTokenBudget
-	}
-	if c.TurnWorkerTokenBudget <= 0 {
-		c.TurnWorkerTokenBudget = DefaultTurnWorkerTokenBudget
-	}
 	if c.MaxParallelWriters <= 0 {
 		c.MaxParallelWriters = DefaultMaxParallelWriters
-	}
-	if c.WriterMaxSteps <= 0 {
-		c.WriterMaxSteps = DefaultWriterMaxSteps
-	}
-	if c.WriterTokenBudget <= 0 {
-		c.WriterTokenBudget = DefaultWriterTokenBudget
-	}
-	if c.TurnWriterTokenBudget <= 0 {
-		c.TurnWriterTokenBudget = DefaultTurnWriterTokenBudget
-	}
-	if strings.TrimSpace(c.Sandbox) == "" {
-		c.Sandbox = "off"
 	}
 	if strings.TrimSpace(c.Mode) == "" {
 		c.Mode = "create"

@@ -13,26 +13,29 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Provider != "openai" || cfg.MaxSteps != 64 {
+	if cfg.Provider != "openai" {
 		t.Fatalf("defaults = %+v", cfg)
 	}
-	if !cfg.Orchestrator || cfg.MaxDelegations != DefaultMaxDelegations || cfg.WorkerMaxSteps != DefaultWorkerMaxSteps {
+	if !cfg.Orchestrator {
 		t.Fatalf("orchestrator defaults = %+v", cfg)
 	}
-	if cfg.MaxParallelScouts != DefaultMaxParallelScouts || cfg.WorkerTokenBudget != DefaultWorkerTokenBudget || cfg.TurnWorkerTokenBudget != DefaultTurnWorkerTokenBudget {
+	if cfg.MaxParallelScouts != DefaultMaxParallelScouts {
 		t.Fatalf("worker defaults = %+v", cfg)
 	}
-	if cfg.Sandbox != "off" || !cfg.Checkpoints || !cfg.RequireVerification || !cfg.Writers {
+	if !cfg.Checkpoints || cfg.RequireVerification {
 		t.Fatalf("safety defaults = %+v", cfg)
 	}
-	if cfg.MaxParallelWriters != DefaultMaxParallelWriters || cfg.WriterMaxSteps != DefaultWriterMaxSteps || cfg.WriterTokenBudget != DefaultWriterTokenBudget {
+	if cfg.Permissions["bash"] != "allow" || cfg.Permissions["write"] != "allow" {
+		t.Fatalf("permissions should default to allow: %+v", cfg.Permissions)
+	}
+	if cfg.MaxParallelWriters != DefaultMaxParallelWriters {
 		t.Fatalf("writer defaults = %+v", cfg)
 	}
 	if _, ok := cfg.Providers["ollama"]; !ok {
 		t.Fatalf("ollama preset missing")
 	}
-	if cfg.Permission("bash") != "ask" || cfg.Permission("read") != "ask" {
-		t.Fatalf("default permissions wrong")
+	if cfg.Permission("bash") != "allow" || cfg.Permission("write") != "allow" {
+		t.Fatalf("default permissions wrong: %+v", cfg.Permissions)
 	}
 }
 
@@ -46,11 +49,7 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	cfg.Providers["ollama"].NumCtx = 16384
 	cfg.Permissions["bash"] = "deny"
 	cfg.Orchestrator = false
-	cfg.MaxDelegations = 7
 	cfg.MaxParallelScouts = 2
-	cfg.WorkerMaxSteps = 11
-	cfg.WorkerTokenBudget = 50000
-	cfg.TurnWorkerTokenBudget = 90000
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -76,10 +75,10 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	if reloaded.Permission("bash") != "deny" {
 		t.Errorf("permission not persisted")
 	}
-	if reloaded.Orchestrator || reloaded.MaxDelegations != 7 || reloaded.WorkerMaxSteps != 11 {
+	if reloaded.Orchestrator || reloaded.MaxParallelScouts != 2 {
 		t.Errorf("orchestrator config not persisted: %+v", reloaded)
 	}
-	if reloaded.MaxParallelScouts != 2 || reloaded.WorkerTokenBudget != 50000 || reloaded.TurnWorkerTokenBudget != 90000 {
+	if reloaded.MaxParallelScouts != 2 {
 		t.Errorf("worker config not persisted: %+v", reloaded)
 	}
 }

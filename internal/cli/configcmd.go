@@ -8,7 +8,6 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/mode"
-	"github.com/ramsterr/Wombat/internal/sandbox"
 )
 
 func cmdConfig(args []string) error {
@@ -21,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, parallel_agents, scout_model, reasoning, show_thinking, max_steps, orchestrator, sandbox, sandbox_network, checkpoints, require_verification, writers, keep_worktrees, max_delegations, max_parallel_scouts, worker_max_steps, worker_token_budget, turn_worker_token_budget, max_parallel_writers, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, parallel_agents, scout_model, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, permissions.<bash|write|edit|outside|network>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -32,12 +31,6 @@ func cmdConfig(args []string) error {
 		cfg.Provider = val
 	case key == "model":
 		cfg.Model = val
-	case key == "max_steps":
-		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 {
-			return fmt.Errorf("max_steps must be a positive integer")
-		}
-		cfg.MaxSteps = n
 	case key == "orchestrator":
 		v, err := parseBool(key, val)
 		if err != nil {
@@ -71,18 +64,6 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg.Mode = string(m)
-	case key == "sandbox":
-		mode, err := sandbox.Parse(val)
-		if err != nil {
-			return err
-		}
-		cfg.Sandbox = string(mode)
-	case key == "sandbox_network":
-		v, err := parseBool(key, val)
-		if err != nil {
-			return err
-		}
-		cfg.SandboxNetwork = v
 	case key == "checkpoints":
 		v, err := parseBool(key, val)
 		if err != nil {
@@ -115,57 +96,7 @@ func cmdConfig(args []string) error {
 		switch key {
 		case "max_parallel_writers":
 			cfg.MaxParallelWriters = n
-		case "writer_max_steps":
-			cfg.WriterMaxSteps = n
-		case "writer_token_budget":
-			cfg.WriterTokenBudget = n
-		case "turn_writer_token_budget":
-			cfg.TurnWriterTokenBudget = n
 		}
-	case key == "max_delegations":
-		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 {
-			return fmt.Errorf("max_delegations must be a positive integer")
-		}
-		cfg.MaxDelegations = n
-	case key == "max_parallel_scouts":
-		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 {
-			return fmt.Errorf("max_parallel_scouts must be a positive integer")
-		}
-		cfg.MaxParallelScouts = n
-	case key == "worker_max_steps":
-		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 {
-			return fmt.Errorf("worker_max_steps must be a positive integer")
-		}
-		cfg.WorkerMaxSteps = n
-	case key == "worker_token_budget":
-		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 {
-			return fmt.Errorf("worker_token_budget must be a positive integer")
-		}
-		cfg.WorkerTokenBudget = n
-	case key == "turn_worker_token_budget":
-		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 {
-			return fmt.Errorf("turn_worker_token_budget must be a positive integer")
-		}
-		cfg.TurnWorkerTokenBudget = n
-	case strings.HasPrefix(key, "permissions."):
-		kind := strings.TrimPrefix(key, "permissions.")
-		if kind != "bash" && kind != "write" && kind != "edit" {
-			return fmt.Errorf("unknown permission class %q (bash, write, edit)", kind)
-		}
-		if val != "ask" && val != "allow" && val != "deny" {
-			return fmt.Errorf("permission must be ask, allow, or deny")
-		}
-		if cfg.Permissions == nil {
-			cfg.Permissions = map[string]string{}
-		}
-		cfg.Permissions[kind] = val
-	default:
-		return fmt.Errorf("unknown key %q", key)
 	}
 	if err := cfg.Save(); err != nil {
 		return err

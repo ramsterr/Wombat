@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/ramsterr/Wombat/internal/sandbox"
 )
 
 func TestCommandClassification(t *testing.T) {
@@ -135,38 +133,23 @@ func TestWriteToolCannotEscapeWorkspace(t *testing.T) {
 	}
 }
 
-func TestBashPolicyDeniesDangerousAndNetwork(t *testing.T) {
+func TestBashPolicyAllowsDangerousAndNetwork(t *testing.T) {
+	// Nothing is blocked by default any more: the sandbox is gone and the
+	// permission classes decide.
 	env := &Env{
-		Dir:           t.TempDir(),
-		Permit:        func(string, string) Decision { return Decision{Allow: true} },
-		DenyDangerous: true,
-		DenyNetwork:   true,
+		Dir:    t.TempDir(),
+		Permit: func(string, string) Decision { return Decision{Allow: true} },
 	}
-	if _, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"sudo true"}`), env); err == nil || !strings.Contains(err.Error(), "dangerous") {
-		t.Errorf("dangerous command should be blocked: %v", err)
+	if _, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"echo hi"}`), env); err != nil {
+		t.Errorf("a plain command should run: %v", err)
 	}
-	if _, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"curl https://example.com"}`), env); err == nil || !strings.Contains(err.Error(), "network") {
-		t.Errorf("network command should be blocked: %v", err)
+	// A deny rule still stops the call.
+	env2 := &Env{
+		Dir:    t.TempDir(),
+		Permit: func(kind, detail string) Decision { return Decision{} },
 	}
-}
-
-func TestNetworkBlockedMessage(t *testing.T) {
-	env := &Env{Dir: t.TempDir(), Sandbox: sandbox.Policy{Mode: sandbox.WorkspaceWrite, Workspace: t.TempDir()}}
-	_, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"curl https://example.com"}`), env)
-	if err == nil {
-		t.Fatal("expected the network command to be blocked")
-	}
-	if !strings.Contains(err.Error(), "/sandbox network on") {
-		t.Errorf("error should explain how to enable the network: %v", err)
-	}
-	env.Sandbox.AllowNetwork = true
-	env.DenyNetwork = false
-	out, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"echo ok"}`), env)
-	if err != nil {
-		t.Fatalf("a normal command should run: %v", err)
-	}
-	if !strings.Contains(out, "ok") {
-		t.Errorf("out = %q", out)
+	if _, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"echo hi"}`), env2); err == nil {
+		t.Error("a denied command should not run")
 	}
 }
 

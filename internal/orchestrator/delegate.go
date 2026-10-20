@@ -100,8 +100,11 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if left := o.cfg.MaxDelegations - o.delegations; len(args) > left {
-		return nil, fmt.Errorf("delegation budget exhausted: need %d, only %d remain this turn", len(args), left)
+	// No delegation cap: a turn may spawn as many workers as it needs.
+	if o.cfg.MaxDelegations > 0 {
+		if left := o.cfg.MaxDelegations - o.delegations; len(args) > left {
+			return nil, fmt.Errorf("delegation budget exhausted: need %d, only %d remain this turn", len(args), left)
+		}
 	}
 	ids := make(map[string]bool, len(args))
 	for _, a := range args {
@@ -145,9 +148,6 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 		if maxSteps <= 0 {
 			maxSteps = o.cfg.WorkerMaxSteps
 		}
-		if maxSteps > maxWorkerStepsCap {
-			maxSteps = maxWorkerStepsCap
-		}
 		batch.items = append(batch.items, delegation{
 			args:     a,
 			step:     stepCopy,
@@ -155,16 +155,20 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 		})
 	}
 
-	remainingTokens := o.cfg.TurnWorkerTokenBudget - o.workerTokens
-	if remainingTokens <= 0 {
-		return nil, fmt.Errorf("worker token budget exhausted for this turn (%d tokens)", o.cfg.TurnWorkerTokenBudget)
-	}
-	perWorker := remainingTokens / len(args)
-	if perWorker > o.cfg.WorkerTokenBudget {
-		perWorker = o.cfg.WorkerTokenBudget
-	}
-	if perWorker < minWorkerTokenBudget {
-		return nil, fmt.Errorf("not enough worker token budget for %d scouts: %d tokens each (min %d)", len(args), perWorker, minWorkerTokenBudget)
+	// No token budget: workers run until they are done.
+	perWorker := 0
+	if o.cfg.TurnWorkerTokenBudget > 0 {
+		remainingTokens := o.cfg.TurnWorkerTokenBudget - o.workerTokens
+		if remainingTokens <= 0 {
+			return nil, fmt.Errorf("worker token budget exhausted for this turn (%d tokens)", o.cfg.TurnWorkerTokenBudget)
+		}
+		perWorker = remainingTokens / len(args)
+		if o.cfg.WorkerTokenBudget > 0 && perWorker > o.cfg.WorkerTokenBudget {
+			perWorker = o.cfg.WorkerTokenBudget
+		}
+		if perWorker < minWorkerTokenBudget {
+			return nil, fmt.Errorf("not enough worker token budget for %d scouts: %d tokens each (min %d)", len(args), perWorker, minWorkerTokenBudget)
+		}
 	}
 	for i := range batch.items {
 		batch.items[i].tokenBudget = perWorker

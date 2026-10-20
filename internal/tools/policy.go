@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/ramsterr/Wombat/internal/sandbox"
 )
 
 var dangerousCommandPatterns = []*regexp.Regexp{
@@ -48,15 +46,6 @@ func IsNetworkCommand(command string) bool {
 		}
 	}
 	return false
-}
-
-// describeNetworkBlock explains that a command needs the network and how to
-// turn it on.
-func describeNetworkBlock(command string, e *Env) error {
-	if e != nil && e.Sandbox.Enabled() && !e.Sandbox.AllowNetwork {
-		return fmt.Errorf("network access is blocked by the sandbox: %s\n  %s", command, sandbox.NetworkHint())
-	}
-	return fmt.Errorf("network access is disabled: %s\n  %s", command, sandbox.NetworkHint())
 }
 
 func (e *Env) ResolvePath(path string) (string, error) {

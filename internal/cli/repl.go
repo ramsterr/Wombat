@@ -16,7 +16,6 @@ import (
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
-	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 )
 
@@ -410,40 +409,6 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 			return false, nil, nil, err
 		}
 		return false, na, sess, nil
-	case "/sandbox":
-		current, err := sandboxSettings(cfg)
-		if err != nil {
-			return false, nil, nil, err
-		}
-		if ag != nil && ag.Env != nil && ag.Env.SandboxState != nil {
-			current = ag.Env.SandboxState.Settings()
-		}
-		newSettings, msg, changed, err := sandbox.ApplyCommand(line, current)
-		if err != nil {
-			return false, nil, nil, err
-		}
-		fmt.Println(msg)
-		if !changed {
-			if cmd, ok := commands.Find("/sandbox"); ok && len(cmd.Options) > 0 {
-				fmt.Println(dim("options:"))
-				for _, o := range cmd.Options {
-					fmt.Printf("  %-26s %s\n", o.Value, dim(o.Summary))
-				}
-			}
-		}
-		if !changed {
-			return false, nil, nil, nil
-		}
-		opts.sandbox = newSettings
-		opts.sandboxSet = true
-		if ag != nil && ag.Env != nil && ag.Env.SandboxState != nil {
-			opts.state = ag.Env.SandboxState
-		}
-		na, _, _, err := rebuild(cfg, *opts, sess, p, r)
-		if err != nil {
-			return false, nil, nil, err
-		}
-		return false, na, sess, nil
 	case "/status":
 		current := mode.Create
 		if ag.Env != nil && ag.Env.Mode != "" {
@@ -451,8 +416,8 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 				current = m
 			}
 		}
-		fmt.Printf("provider=%s model=%s session=%s\ncwd=%s\nmode=%s sandbox=%s\n",
-			ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd, current.Label(), agentSandbox(ag))
+		fmt.Printf("provider=%s model=%s session=%s\ncwd=%s\nmode=%s\n",
+			ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd, current.Label())
 	default:
 		return false, nil, nil, fmt.Errorf("unknown command %s — /help", cmd)
 	}

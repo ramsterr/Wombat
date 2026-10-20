@@ -132,7 +132,8 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 		return tools.Decision{Allow: true}
 	}
 	if !p.tty {
-		fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" requires approval: "+clipLine(detail, 120)+" — denied (non-interactive; rerun with --yolo)"))
+		fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" requires approval: "+clipLine(detail, 120)+
+			" — allowed automatically in a non-interactive run; set permissions."+kind+" to allow, or use --yolo"))
 		return tools.Decision{Feedback: nonInteractiveNote(kind)}
 	}
 	look := lookFor(tools.PermKindFor(kind))
@@ -192,9 +193,13 @@ func declinedNote() string {
 		"or tell the user what you need in order to proceed."
 }
 
-// AskUser asks the user a question and waits for the answer. It reads the
-// answer from the same input the prompts use.
+// AskUser asks the user a question and waits for the answer. In a
+// non-interactive run there is nobody to answer, so it says so instead of
+// reading whatever bytes happen to be on stdin.
 func (p *Prompter) AskUser(q tools.Question) (string, error) {
+	if !p.tty {
+		return "", fmt.Errorf("this run has no terminal to ask the user in — run it interactively, or rephrase the task")
+	}
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, yellow("?")+" "+q.Question)
 	for i, o := range q.Options {
@@ -217,37 +222,6 @@ func (p *Prompter) AskUser(q tools.Question) (string, error) {
 		return q.Options[n-1].Label, nil
 	}
 	return answer, nil
-}
-
-// AskSandbox asks the user whether a command blocked by the sandbox may run.
-func (p *Prompter) AskSandbox(kind, command string) tools.SandboxDecision {
-	if !p.tty {
-		fmt.Fprintln(os.Stderr, dim("[sandbox] "+kind+" access is needed: "+clipLine(command, 120)+" — denied (non-interactive)"))
-		return tools.SandboxDeny
-	}
-	perm := tools.PermKind(kind)
-	switch kind {
-	case tools.SandboxWrite:
-		perm = tools.PermSandboxWrite
-	case tools.SandboxDangerous:
-		perm = tools.PermDangerous
-	}
-	look := lookFor(perm)
-	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s: ",
-		look.color(look.symbol), "the sandbox blocked "+perm.Label(), clipLine(command, 200),
-		bold("y")+"es, once", bold("a")+"lways, this session", bold("n")+"o")
-	line, err := p.in.ReadString('\n')
-	if err != nil {
-		return tools.SandboxDeny
-	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
-		return tools.SandboxAllowOnce
-	case "a", "always":
-		return tools.SandboxAllowSession
-	default:
-		return tools.SandboxDeny
-	}
 }
 
 func clipLine(s string, n int) string {

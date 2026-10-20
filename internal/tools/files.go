@@ -118,7 +118,7 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	for i := offset; i <= end; i++ {
 		fmt.Fprintf(&b, "%*d| %s\n", width, i, lines[i-1])
 	}
-	return Truncate(strings.TrimSuffix(b.String(), "\n"), 0, 0, 48*1024), nil
+	return Truncate(strings.TrimSuffix(b.String(), "\n"), 0, 0, 400*1024), nil
 }
 
 type Write struct{}

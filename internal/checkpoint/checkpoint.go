@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	maxFiles      = 5000
-	maxFileBytes  = 16 << 20
-	maxTotalBytes = 128 << 20
+	maxFiles      = 500000
+	maxFileBytes  = 512 << 20
+	maxTotalBytes = 8 << 30
 )
 
 var ErrPathOutside = errors.New("checkpoint path is outside the workspace")

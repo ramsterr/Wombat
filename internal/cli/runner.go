@@ -15,7 +15,6 @@ import (
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
-	"github.com/ramsterr/Wombat/internal/sandbox"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
@@ -27,13 +26,6 @@ type runOpts struct {
 	provider string
 	yolo     bool
 	quiet    bool
-
-	// sandbox overrides the configured sandbox for this session when
-	// sandboxSet is true (the /sandbox command). state keeps the live
-	// settings so runtime approvals survive a rebuild.
-	sandbox    sandbox.Settings
-	sandboxSet bool
-	state      *sandbox.State
 
 	// mode overrides the configured mode for this session when modeSet is
 	// true (the /mode command).
@@ -101,21 +93,6 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		cwd, _ = os.Getwd()
 		sess.Meta.Cwd = cwd
 	}
-	settings, err := sandboxSettings(cfg)
-	if err != nil {
-		return nil, err
-	}
-	if opts.sandboxSet {
-		settings = opts.sandbox
-	}
-	state := opts.state
-	if state == nil {
-		state = sandbox.NewState(settings)
-	} else if opts.sandboxSet {
-		// Only an explicit /sandbox change overwrites the live settings, so
-		// approvals granted during the session survive a rebuild.
-		state.Update(func(s *sandbox.Settings) { *s = settings })
-	}
 	sessionMode, err := mode.Parse(cfg.Mode)
 	if err != nil {
 		return nil, err
@@ -124,18 +101,12 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		sessionMode = opts.mode
 	}
 	env := &tools.Env{
-		Dir:           cwd,
-		Permit:        p.Permit,
-		Sandbox:       settings.Policy(cwd),
-		SandboxState:  state,
-		DenyDangerous: true,
-		DenyMutate:    !sessionMode.AllowsWrite(),
-		Mode:          sessionMode.Label(),
+		Dir:        cwd,
+		Permit:     p.Permit,
+		Mode:       sessionMode.Label(),
+		DenyMutate: !sessionMode.AllowsWrite(),
 	}
 	if p != nil {
-		env.SandboxAsk = func(kind, command string) tools.SandboxDecision {
-			return p.AskSandbox(kind, command)
-		}
 		env.AskUser = func(q tools.Question) (string, error) {
 			return p.AskUser(q)
 		}
@@ -153,12 +124,10 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Tools:         tools.RegistryWithQuestion(),
 		Env:           env,
 		Sess:          sess,
-		MaxSteps:      cfg.MaxSteps,
 		Compact:       true,
 		ContextWindow: tokens.Window(model),
 		NumCtx:        pc.NumCtx,
 		Reasoning:     cfg.Reasoning,
-		SandboxNote:   settings.Note(),
 		ModeNote:      sessionMode.Note(),
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
@@ -166,20 +135,13 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	}
 	if cfg.Orchestrator {
 		if _, err := orchestrator.Attach(ag, orchestrator.Config{
-			MaxDelegations:        cfg.MaxDelegations,
-			MaxParallelScouts:     cfg.MaxParallelScouts,
-			WorkerMaxSteps:        cfg.WorkerMaxSteps,
-			ScoutModel:            cfg.ScoutModel,
-			ParallelAgents:        cfg.ParallelAgents,
-			WorkerTokenBudget:     cfg.WorkerTokenBudget,
-			TurnWorkerTokenBudget: cfg.TurnWorkerTokenBudget,
-			MaxParallelWriters:    cfg.MaxParallelWriters,
-			WriterMaxSteps:        cfg.WriterMaxSteps,
-			WriterTokenBudget:     cfg.WriterTokenBudget,
-			TurnWriterTokenBudget: cfg.TurnWriterTokenBudget,
-			RequireVerification:   cfg.RequireVerification,
-			EnableWriters:         cfg.Writers,
-			KeepWorktrees:         cfg.KeepWorktrees,
+			MaxParallelScouts:   cfg.MaxParallelScouts,
+			ScoutModel:          cfg.ScoutModel,
+			ParallelAgents:      cfg.ParallelAgents,
+			MaxParallelWriters:  cfg.MaxParallelWriters,
+			RequireVerification: cfg.RequireVerification,
+			EnableWriters:       cfg.Writers,
+			KeepWorktrees:       cfg.KeepWorktrees,
 		}); err != nil {
 			return nil, err
 		}

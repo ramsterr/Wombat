@@ -39,9 +39,8 @@ type Agent struct {
 	Hooks         Hooks
 	Trace         *trace.Logger
 
-	SandboxNote string
-	ModeNote    string
-	TmpNote     string
+	ModeNote string
+	TmpNote  string
 	// Reasoning asks the provider to think less or more: off, low, medium,
 	// high, or "" for the provider default.
 	Reasoning string
@@ -94,10 +93,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 	}
+	// No step limit: the agent works until it is done or the doom-loop
+	// guard stops it.
 	maxSteps := a.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = 64
-	}
 	// Files a tool hands over (an image the agent downloaded) are attached to
 	// the next user message so the model can actually look at them.
 	var media []tools.Media
@@ -115,15 +113,12 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	if note := strings.TrimSpace(a.TmpNote); note != "" {
 		system += "\n\n" + note
 	}
-	if note := strings.TrimSpace(a.SandboxNote); note != "" {
-		system += "\n\n" + note
-	}
 	if a.SystemExtra != nil {
 		if extra := strings.TrimSpace(a.SystemExtra()); extra != "" {
 			system += "\n\n" + extra
 		}
 	}
-	for step := 0; step < maxSteps; step++ {
+	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if a.Compact {
 			a.maybeCompact(ctx)
 		}
@@ -131,7 +126,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		// On the last step the model gets no tools, so it has to answer in
 		// text instead of running out of steps mid-thought.
 		defs := a.toolDefs()
-		if step == maxSteps-1 {
+		if maxSteps > 0 && step == maxSteps-1 {
 			defs = nil
 		}
 		res, err := a.Provider.Chat(ctx, llm.Request{

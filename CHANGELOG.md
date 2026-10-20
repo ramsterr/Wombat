@@ -6,6 +6,25 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- The OS sandbox, entirely. There is no jail for commands any more: the agent
+  works with your own permissions, and the permission classes are the only
+  gate. `sandbox` and `sandbox_network` are gone from the config.
+- Every cap that was holding the agent back: `max_steps`, the turn budgets,
+  the worker and writer token budgets, the delegation cap, and the step caps.
+  The agent works until the task is done; the doom-loop guard is the only backstop.
+- The context and output limits: tool output is no longer trimmed to a
+  fraction of what it used to be, and the history keeps far more.
+
+### Changed
+
+- Permissions default to `allow` for `bash`, `write`, `edit` and `network`,
+  so a headless `wombat run` actually does the work instead of refusing
+  every call. Set a class to `ask` to be consulted first.
+- Parallel workers stay on: the agent fans out two to five workers for
+  anything past two steps.
+
 ### Added
 
 - **A scratch directory per session** (`~/.wombat/tmp/<session>`, also in
