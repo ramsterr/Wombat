@@ -8,6 +8,17 @@ All notable changes to Wombat are recorded here. The format follows
 
 Nothing yet.
 
+## [0.2.1] — 2026-10-20
+
+### Fixed
+
+- The sandbox now falls back to `off` on hosts that cannot enforce it, so
+  writers keep working on Linux without `bwrap`.
+- The release workflow no longer uses the `secrets` context in a step
+  condition, which made GitHub reject the workflow file.
+- Binaries installed with `go install` now report the module version instead
+  of `dev`.
+
 ## [0.2.0] — 2026-10-20
 
 Reliability, verification, parallel writers, and the release pipeline.
@@ -47,5 +58,6 @@ Reliability, verification, parallel writers, and the release pipeline.
 - Bash runs through a shared command runner with a bounded output buffer.
 - The version string is stamped at build time instead of being hardcoded.
 
-[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.0

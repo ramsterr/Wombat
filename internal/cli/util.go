@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -19,6 +20,31 @@ var (
 	Commit  = "none"
 	Date    = "unknown"
 )
+
+func init() {
+	if Version != "dev" {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	if v := strings.TrimSpace(info.Main.Version); v != "" && v != "(devel)" {
+		Version = strings.TrimPrefix(v, "v")
+	}
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			if Commit == "none" {
+				Commit = setting.Value
+			}
+		case "vcs.time":
+			if Date == "unknown" {
+				Date = setting.Value
+			}
+		}
+	}
+}
 
 // VersionString is the human readable build description.
 func VersionString() string {
