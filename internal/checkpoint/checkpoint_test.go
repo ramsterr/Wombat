@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSnapshotAndRestore(t *testing.T) {
@@ -146,5 +147,85 @@ func TestSkipListHidesSystemDirectories(t *testing.T) {
 		if !skipDir(name) {
 			t.Errorf("%s should be skipped", name)
 		}
+	}
+}
+
+// TestSnapshotSurvivesTooMuchData makes sure a workspace bigger than the
+// snapshot limit does not fail the snapshot: it captures what it can and
+// carries on.
+func TestSnapshotSurvivesTooMuchData(t *testing.T) {
+	ws := t.TempDir()
+	// A file just over the per-file limit is skipped, and the total limit
+	// stops the capture instead of failing it.
+	big := make([]byte, 3<<20)
+	for i := range big {
+		big[i] = byte(i % 251)
+	}
+	for i := 0; i < 3; i++ {
+		name := filepath.Join(ws, "big"+string(rune('a'+i))+".bin")
+		if err := os.WriteFile(name, big, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(ws, "small.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(t.TempDir(), ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := m.Snapshot("test", nil)
+	if err != nil {
+		t.Fatalf("the snapshot must not fail on a big workspace: %v", err)
+	}
+	list, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) == 0 {
+		t.Fatal("no checkpoint was written")
+	}
+	// a restore of a partial snapshot must not delete what it did not capture
+	if err := m.Restore(id); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "small.txt")); err != nil {
+		t.Fatalf("a captured file was lost: %v", err)
+	}
+}
+
+// TestBigWorkspaceIsPartialAndFast mimics a home directory: more data than
+// the snapshot can hold. It must not fail, must stop early, and a restore
+// must not delete the files it never captured.
+func TestBigWorkspaceIsPartialAndFast(t *testing.T) {
+	ws := t.TempDir()
+	data := make([]byte, 1<<20)
+	for i := 0; i < 300; i++ {
+		name := filepath.Join(ws, "f"+string(rune('a'+i%26))+string(rune('a'+i/26))+".bin")
+		if err := os.WriteFile(name, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, err := New(t.TempDir(), ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	id, err := m.Snapshot("test", nil)
+	if err != nil {
+		t.Fatalf("the snapshot must not fail on a big workspace: %v", err)
+	}
+	if took := time.Since(start); took > 30*time.Second {
+		t.Errorf("the snapshot took %s, it should stop early", took)
+	}
+	if err := m.Restore(id); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	entries, err := os.ReadDir(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 300 {
+		t.Errorf("a partial restore deleted files: %d left", len(entries))
 	}
 }

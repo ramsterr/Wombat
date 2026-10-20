@@ -15,11 +15,35 @@ func IsGitMutatingCommand(command string) bool {
 
 func MayMutate(command string) bool {
 	cmd := strings.ToLower(command)
-	if strings.Contains(cmd, ">") {
+	if writesAFile(cmd) {
 		return true
 	}
 	if strings.Contains(cmd, "sed -i") || strings.Contains(cmd, "perl -i") {
 		return true
 	}
 	return mutatingCommand.MatchString(cmd)
+}
+
+// writesAFile reports whether the command redirects output into a real file.
+// A redirect to /dev/null, or a copy of one file descriptor to another,
+// changes nothing on disk and must not trigger a checkpoint.
+func writesAFile(cmd string) bool {
+	for i := 0; i < len(cmd); i++ {
+		if cmd[i] != '>' {
+			continue
+		}
+		if i > 0 && cmd[i-1] == '<' {
+			continue
+		}
+		rest := strings.TrimSpace(cmd[i+1:])
+		if strings.HasPrefix(rest, "&") {
+			// 2>&1 and friends
+			continue
+		}
+		if strings.HasPrefix(rest, "/dev/null") {
+			continue
+		}
+		return true
+	}
+	return false
 }

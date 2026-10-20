@@ -484,10 +484,14 @@ usually worse than one question.
 
 Checkpoints walk the working directory. If your workspace is `~`, that walk
 meets directories macOS hides from ordinary processes (`.Trash`, `Library`),
-which used to fail the whole snapshot and block the command. Now those
-directories are skipped, and an unreadable directory is recorded as skipped
-instead of failing the snapshot. Point Wombat at a project directory rather
-than your home directory when you can.
+and the home directory holds far more than a checkpoint can hold. Neither
+stops you now: hidden directories are skipped, an unreadable directory is
+recorded as skipped, and a snapshot that outgrows its limits captures what it
+can and stops early instead of failing. A restore only puts back the files it
+captured, so nothing is lost.
+
+Point Wombat at a project directory rather than your home directory when you
+can - it is faster and the checkpoints stay meaningful.
 
 ## Showing or hiding the thinking
 

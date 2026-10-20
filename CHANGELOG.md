@@ -24,6 +24,12 @@ All notable changes to Wombat are recorded here. The format follows
   skipped now, and an unreadable directory is recorded as skipped rather than
   failing the snapshot or the restore.
 - Pressing Enter in the question prompt now takes the highlighted option.
+- The snapshot no longer fails when the workspace is too big. It captures what
+  it can, stops early instead of walking gigabytes, and a restore only puts
+  back the files it captured, so nothing is deleted. The old "checkpoint is
+  too large" and "too many files" errors are gone.
+- A redirect to /dev/null or a file-descriptor copy no longer counts as a
+  mutation, so read-only commands no longer trigger a checkpoint at all.
 - Running out of steps is no longer an error. The last step gives the model no
   tools, so it has to answer in text, and the turn ends normally instead of
   failing with "stopped after N steps without completing".

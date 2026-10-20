@@ -41,6 +41,9 @@ type Manifest struct {
 	Scope     []string  `json:"scope,omitempty"`
 	Files     []File    `json:"files"`
 	Skipped   []string  `json:"skipped,omitempty"`
+	// Partial marks a snapshot that hit the size limits: it holds what it
+	// could capture, and a restore only puts back those files.
+	Partial bool `json:"partial,omitempty"`
 }
 
 type Manager struct {
@@ -129,6 +132,11 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 		}
 		if info.IsDir() {
 			return filepath.WalkDir(abs, func(p string, entry os.DirEntry, err error) error {
+				if manifest.Partial {
+					// The limits are reached: stop walking, there is no
+					// point enumerating the rest of a huge directory.
+					return filepath.SkipAll
+				}
 				if err != nil {
 					// One unreadable directory (a protected trash, another
 					// user's folder) must not fail the whole snapshot.
@@ -156,7 +164,14 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 			})
 		}
 		if len(manifest.Files) >= maxFiles {
-			return fmt.Errorf("checkpoint has too many files (max %d)", maxFiles)
+			// Too many files: keep what we have and stop walking. The
+			// snapshot stays useful, and a restore only touches what it
+			// captured.
+			if !manifest.Partial {
+				manifest.Skipped = append(manifest.Skipped, rel+" (over the file limit)")
+			}
+			manifest.Partial = true
+			return nil
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			manifest.Skipped = append(manifest.Skipped, rel+" (symlink)")
@@ -172,7 +187,13 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 		}
 		total += info.Size()
 		if total > maxTotalBytes {
-			return fmt.Errorf("checkpoint is too large (max %d bytes)", maxTotalBytes)
+			// Too big: stop capturing, but do not fail. A huge workspace
+			// should not stop the agent from working.
+			if !manifest.Partial {
+				manifest.Skipped = append(manifest.Skipped, rel+" (over the size limit)")
+			}
+			manifest.Partial = true
+			return nil
 		}
 		dst := filepath.Join(dir, "files", filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
@@ -314,6 +335,11 @@ func (m *Manager) Restore(id string) error {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		// A partial snapshot only knows about the files it captured, so it
+		// must not delete anything else.
+		if manifest.Partial {
+			return nil
+		}
 		if !keep[rel] && (manifest.Full || inScope(rel, manifest.Scope)) {
 			remove = append(remove, path)
 		}
