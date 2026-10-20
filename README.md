@@ -2,7 +2,7 @@
 <img width="2872" height="676" alt="Wombat" src="https://github.com/user-attachments/assets/53857c41-0947-4be9-b90f-72dd92ab9f99" />
 
 [![CI](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg)](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.2.2-blue)](https://github.com/ramsterr/Wombat)
+[![Version](https://img.shields.io/badge/version-0.2.3-blue)](https://github.com/ramsterr/Wombat)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#install)
 [![Binary](https://img.shields.io/badge/binary-~11%20MB-brightgreen)](#install)
@@ -104,7 +104,7 @@ go build -o ~/.local/bin/wombat ./cmd/wombat
 Builds are silent on success — no output is expected. Verify:
 
 ```sh
-wombat version        # wombat 0.2.2
+wombat version        # wombat 0.2.3
 ```
 
 To uninstall, delete the binary (`rm ~/.local/bin/wombat`) and, if you want, `~/.wombat/`.
