@@ -116,7 +116,7 @@ func Path() string {
 
 func Defaults() *Config {
 	c := &Config{
-		Version:   1,
+		Version:   2,
 		Provider:  "openai",
 		Model:     "",
 		Providers: map[string]*Provider{},
@@ -157,6 +157,13 @@ func Load() (*Config, error) {
 	c := Defaults()
 	if err := json.Unmarshal(raw, c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", Path(), err)
+	}
+	// A config written before the simple defaults still carries the old
+	// "ask" permissions and the removed keys. Move it forward so the agent
+	// actually works, without touching the user's model or provider setup.
+	if c.Version < 2 {
+		c.Permissions = Defaults().Permissions
+		c.Version = 2
 	}
 	if c.Providers == nil {
 		c.Providers = map[string]*Provider{}

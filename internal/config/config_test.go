@@ -104,3 +104,24 @@ func TestAPIKeyResolution(t *testing.T) {
 		t.Errorf("preset env key should be used, got %q", got)
 	}
 }
+
+func TestOldConfigGetsSimplePermissions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	t.Setenv("WOMBAT_CONFIG", "")
+	path := Path()
+	old := `{"version":1,"provider":"openai","model":"m","permissions":{"bash":"ask","write":"ask","edit":"ask"}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Permissions["bash"] != "allow" || cfg.Permissions["write"] != "allow" {
+		t.Errorf("an old config should get the simple permissions: %+v", cfg.Permissions)
+	}
+	if cfg.Model != "m" {
+		t.Errorf("the migration must not touch the model: %q", cfg.Model)
+	}
+}

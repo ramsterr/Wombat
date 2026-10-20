@@ -112,7 +112,9 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 			continue
 		}
 		if ids[a.StepID] {
-			return nil, fmt.Errorf("step %q appears twice in one fleet", a.StepID)
+			// Several workers may work on the same step: that is how a
+			// step gets researched from different angles at once.
+			continue
 		}
 		ids[a.StepID] = true
 	}
