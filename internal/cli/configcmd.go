@@ -45,6 +45,12 @@ func cmdConfig(args []string) error {
 		cfg.ParallelAgents = v
 	case key == "scout_model":
 		cfg.ScoutModel = val
+	case key == "trim_reasoning":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.TrimReasoning = v
 	case key == "show_thinking":
 		v, err := parseBool(key, val)
 		if err != nil {

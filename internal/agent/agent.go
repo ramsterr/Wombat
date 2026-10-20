@@ -41,6 +41,9 @@ type Agent struct {
 
 	ModeNote string
 	TmpNote  string
+	// TrimReasoning drops the reasoning of older turns from the request.
+	// Some gateways require it to be passed back, so it is off by default.
+	TrimReasoning bool
 	// Reasoning asks the provider to think less or more: off, low, medium,
 	// high, or "" for the provider default.
 	Reasoning string
@@ -132,7 +135,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		res, err := a.Provider.Chat(ctx, llm.Request{
 			Model:       a.Model,
 			System:      system,
-			Messages:    llm.TrimStaleReasoning(a.Sess.Messages),
+			Messages:    a.requestMessages(),
 			Tools:       defs,
 			NumCtx:      a.NumCtx,
 			Reasoning:   a.Reasoning,
@@ -315,6 +318,16 @@ func (a *Agent) spillDir() string {
 		return ""
 	}
 	return filepath.Join(a.Env.Dir, ".wombat", "spill")
+}
+
+// requestMessages returns the history to send. The reasoning of older turns
+// is only dropped when the user asked for it: some gateways reject a
+// request whose thinking turns are missing their reasoning.
+func (a *Agent) requestMessages() []llm.Message {
+	if !a.TrimReasoning {
+		return a.Sess.Messages
+	}
+	return llm.TrimStaleReasoning(a.Sess.Messages)
 }
 
 // appendMedia attaches files a tool produced to a user message, so the model
