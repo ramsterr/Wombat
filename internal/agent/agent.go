@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -314,12 +315,12 @@ func (a *Agent) callTool(ctx context.Context, tc llm.ToolCall, blocked bool) too
 	start := time.Now()
 	var content string
 	if ctx.Err() != nil {
-		content = "error: interrupted by user"
+		content = "error: " + interruptionMessage(ctx)
 	} else {
 		out, err := a.execTool(ctx, tc)
 		switch {
 		case ctx.Err() != nil:
-			content = "error: interrupted by user"
+			content = "error: " + interruptionMessage(ctx)
 		case err != nil:
 			content = "error: " + err.Error()
 		default:
@@ -568,4 +569,14 @@ func toolDetail(tc llm.ToolCall) string {
 	default:
 		return ""
 	}
+}
+
+// interruptionMessage distinguishes a real user interrupt from a worker
+// timeout or a budget-driven cancellation.
+func interruptionMessage(ctx context.Context) string {
+	cause := context.Cause(ctx)
+	if cause == nil || errors.Is(cause, context.Canceled) {
+		return "interrupted by user"
+	}
+	return cause.Error()
 }
