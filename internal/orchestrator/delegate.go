@@ -480,7 +480,7 @@ func workerSystemPromptAccess(a delegateArgs, step *Step, goal string, facts []s
 		b.WriteString("You are a full-access worker for a coding agent. You cannot see the lead conversation. ")
 		b.WriteString("You may read, write, edit, run bash, use the network, and use every available tool in your workspace (a worktree when available). Fetch any local or web docs, skills, and references you need, and cite what you use. ")
 		b.WriteString("Your changes are committed, reviewed, and merged into the lead workspace; keep them scoped to the objective. ")
-		b.WriteString("Stay inside the slice and output file in your brief; do not re-derive the whole dataset or repeat the same reads. ")
+		b.WriteString("Stay inside the slice and output file in your brief; do not re-derive the whole dataset or repeat the same reads. Research only unknown external facts; after at most four sources, write the partial file and finish. Never run find / or root recursive searches. ")
 		b.WriteString("Do not ask the user questions or delegate further. Make reasonable assumptions, state them in risks, and prefer evidence.\n\n")
 	} else {
 		b.WriteString("You are a read-only research worker for a coding agent. You cannot see the lead conversation. ")
@@ -489,7 +489,7 @@ func workerSystemPromptAccess(a delegateArgs, step *Step, goal string, facts []s
 		b.WriteString("Bash is read-only: ls, which, grep, and curl or HTTP to stdout are fine, but mkdir, redirection, " +
 			"downloads to disk, ffmpeg output, git mutations, and file writes are refused. ")
 		b.WriteString("If the task needs a file created or downloaded, return status=blocked with the exact command the lead should run. ")
-		b.WriteString("Use one batch or command for related reads; do not inspect the same dataset repeatedly. ")
+		b.WriteString("Use one batch or command for related reads; do not inspect the same dataset repeatedly. Research only unknown external facts; after at most four sources, write the partial report and finish. Never run find / or root recursive searches. ")
 		b.WriteString("Make reasonable assumptions when context is missing, state them in risks, and prefer evidence over speculation.\n\n")
 	}
 	if goal != "" {

@@ -311,14 +311,13 @@ func (o *Orchestrator) systemPrompt() string {
 	}
 	b.WriteString("### Delegation\n")
 	if o.cfg.ParallelAgents {
-		b.WriteString("Parallel work is the default, not the exception. For anything past two steps - research, ")
-		b.WriteString("comparison, a task spanning several parts of the codebase - dispatch a fleet with delegate_many: ")
-		b.WriteString("two to five independent workers at the same time, each on a different angle, then synthesize. ")
-		b.WriteString("That is faster and costs you far fewer tokens than one thread at a time. ")
+		b.WriteString("Parallel work is the default. For anything past two steps, dispatch delegate_many: ")
+		b.WriteString("two to five independent workers at the same time, each on a different angle. ")
+		b.WriteString("It is faster and uses fewer tokens than one thread at a time. ")
 	}
-	b.WriteString("When two or more independent files, categories, pages, or audits exist, call delegate_many or use run_plan before doing them serially. Workers can fetch docs, skills, and references with websearch, webfetch, browser, or curl; give them the exact output path. ")
+	b.WriteString("Use workers for two or more independent files, categories, pages, or audits; they can fetch docs and skills with web tools. Give each an exact output path. ")
 	b.WriteString("Use delegate for a single investigation. ")
-	b.WriteString("Never put dependent steps in one fleet. Use one script for scraping, data transforms, and repeated shell work; agents are for independent reasoning, not plumbing. Give each worker a disjoint slice and output file, never the same dataset. Use run_plan for dependencies; delegate_many only for one independent wave. Stop when the artifact exists and its checks pass. ")
+	b.WriteString("Never put dependent steps in one fleet. Use one script for scraping, data transforms, and repeated shell work; agents are for independent reasoning, not plumbing. Give each worker a disjoint slice and output file, never the same dataset. Use run_plan for dependencies; delegate_many only for one independent wave. Treat research as optional: never gate build or verification on it, and make a stalled worker return a partial file. Stop when the artifact and checks pass. ")
 	if maxDelegations > 0 {
 		fmt.Fprintf(&b, "At most %d delegations per turn and %d workers at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
 	} else {

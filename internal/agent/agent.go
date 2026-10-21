@@ -300,6 +300,11 @@ func (a *Agent) runToolCalls(ctx context.Context, toolCalls []llm.ToolCall, seen
 // exclusiveTool reports whether a call must run on its own. Anything that can
 // change the filesystem or the repository is exclusive.
 func (a *Agent) exclusiveTool(tc llm.ToolCall) bool {
+	switch tc.Name {
+	case "websearch", "webfetch":
+		// Network reads have no shared state; run them alongside other reads.
+		return false
+	}
 	if tc.Name == "bash" {
 		// A bash call that only inspects is safe to run alongside others.
 		return tools.MayMutate(toolArg(tc, "command"))

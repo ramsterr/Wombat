@@ -20,7 +20,7 @@ type bashArgs struct {
 func (t *Bash) Name() string  { return "bash" }
 func (t *Bash) Class() string { return "bash" }
 func (t *Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and exit code. Use background for a server, watcher, or long test run: it returns a job id immediately, and jobs, job_output, and job_kill manage it. There is no default timeout: pass timeout_ms only when a command should be stopped."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and exit code. Use background for a server, watcher, or long test run: it returns a job id immediately, and jobs, job_output, and job_kill manage it. There is no default timeout: pass timeout_ms for slow commands. Never scan / or the home directory recursively; use focused paths."
 }
 func (t *Bash) Schema() map[string]any {
 	return obj(map[string]any{

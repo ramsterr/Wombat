@@ -199,7 +199,23 @@ Show the current configuration:
 wombat config
 ```
 
-Change common settings:
+### Web search and fetch
+
+`websearch` queries search backends in parallel, caches results for ten minutes,
+and can use a search API when one is configured. Set one of these environment
+variables before starting Wombat:
+
+```sh
+export BRAVE_API_KEY=...
+export TAVILY_API_KEY=...
+export SERPER_API_KEY=...
+```
+
+Without an API key it uses Bing RSS and DuckDuckGo HTML in parallel. `webfetch`
+extracts the main article text when possible, caches responses for repeated
+reads, retries transient connection failures, and uses a 12-second HTTP client.
+
+### Common settings
 
 ```sh
 wombat config set provider openai

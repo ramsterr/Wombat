@@ -18,7 +18,7 @@ type webSearchArgs struct {
 func (t *WebSearch) Name() string  { return "websearch" }
 func (t *WebSearch) Class() string { return "network" }
 func (t *WebSearch) Description() string {
-	return "Search the web and get ranked results with titles, URLs, and snippets. Use it to find documentation, examples, and reference material."
+	return "Search the web for targeted external facts and get ranked titles, URLs, and snippets. Results are cached and backends run in parallel. Prefer known documentation URLs with webfetch when you already know the source; do not search for stable domain knowledge you already have."
 }
 func (t *WebSearch) Schema() map[string]any {
 	return obj(map[string]any{
@@ -61,23 +61,4 @@ func (t *WebSearch) Run(ctx context.Context, raw json.RawMessage, env *Env) (str
 		}
 	}
 	return strings.TrimSpace(b.String()), nil
-}
-
-// searchWeb tries the search backends in order until one returns results.
-func searchWeb(ctx context.Context, query string, limit int) ([]SearchResult, error) {
-	var lastErr error
-	for _, engine := range searchEngines {
-		results, err := engine.query(ctx, query, limit)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if len(results) > 0 {
-			return results, nil
-		}
-	}
-	if lastErr != nil {
-		return nil, fmt.Errorf("search failed: %w", lastErr)
-	}
-	return nil, nil
 }

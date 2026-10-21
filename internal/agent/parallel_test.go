@@ -140,3 +140,12 @@ func TestRepeatedCallsAreStopped(t *testing.T) {
 		t.Error("the model was not told to stop repeating the call")
 	}
 }
+
+func TestWebToolsAreParallelReads(t *testing.T) {
+	a := &Agent{Tools: []tools.Tool{&tools.WebSearch{}, &tools.WebFetch{}}}
+	for _, name := range []string{"websearch", "webfetch"} {
+		if a.exclusiveTool(llm.ToolCall{Name: name}) {
+			t.Errorf("%s should run alongside other reads", name)
+		}
+	}
+}
