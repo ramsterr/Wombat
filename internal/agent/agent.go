@@ -145,6 +145,20 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 				var note string
 				if attempt == 0 {
 					repaired, note = a.repairHistory()
+					if reasoningRejected(err) {
+						// The provider requires reasoning replay. Stop trimming
+						// older turns for this session and repair any turns
+						// whose reasoning was never captured.
+						a.TrimReasoning = false
+						repaired = true
+						note = joinNotes(note, "The provider requires reasoning replay, so I stopped trimming older reasoning. Please continue.")
+						if r, n := a.repairMissingReasoning(); r {
+							note = joinNotes(note, n)
+						}
+					}
+					if !repaired {
+						repaired, note = a.dropLastExchange()
+					}
 				} else {
 					repaired, note = a.dropLastExchange()
 				}
@@ -362,6 +376,59 @@ func (a *Agent) request(system string, tools []llm.Tool) llm.Request {
 		Reasoning:   a.Reasoning,
 		SessionID:   a.Sess.ID(),
 		OnReasoning: a.Hooks.OnReasoning,
+	}
+}
+
+// reasoningRejected reports whether the provider rejected the request
+// because an assistant turn is missing reasoning_content. This is specific to
+// thinking-mode APIs; not every provider needs it.
+func reasoningRejected(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return (strings.Contains(msg, "reasoning_content") || strings.Contains(msg, "reasoning content")) &&
+		(strings.Contains(msg, "must be passed back") || strings.Contains(msg, "thinking mode"))
+}
+
+// repairMissingReasoning removes assistant turns that have no reasoning text.
+// Some thinking-mode gateways require the original reasoning to be replayed
+// and cannot accept a turn without it. Removing the turn (and any tool results
+// belonging to it) is the only safe repair when the text was never captured.
+func (a *Agent) repairMissingReasoning() (bool, string) {
+	msgs := a.Sess.Messages
+	removedCalls := map[string]bool{}
+	kept := make([]llm.Message, 0, len(msgs))
+	removed := 0
+	for _, m := range msgs {
+		if m.Role == "assistant" && strings.TrimSpace(m.Reasoning) == "" && len(m.ReasoningItems) == 0 {
+			removed++
+			for _, tc := range m.ToolCalls {
+				removedCalls[tc.ID] = true
+			}
+			continue
+		}
+		if m.Role == "tool" && removedCalls[m.ToolCallID] {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if removed == 0 {
+		return false, ""
+	}
+	a.Sess.Messages = kept
+	_ = a.Sess.Flush()
+	return true, fmt.Sprintf("The provider requires reasoning_content to be replayed, so I removed %d assistant turn(s) whose reasoning was not captured. Please continue.", removed)
+}
+
+func joinNotes(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + " " + b
 	}
 }
 

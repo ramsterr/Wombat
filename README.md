@@ -358,7 +358,7 @@ API keys resolve in order: config file → preset environment variable (`OPENAI_
 
 For thinking models, reasoning is streamed into the UI and saved with the assistant turn. When a provider requires it, Wombat replays that reasoning in follow-up requests: `reasoning_content` for OpenAI-compatible thinking APIs (GLM, DeepSeek), encrypted reasoning items for the OpenAI Responses API, and thought signatures attached to Gemini tool calls. This keeps multi-step tool loops valid without leaking reasoning into later prompts when a model does not need it.
 
-Tool signatures and reasoning items are stored in the session JSONL, so a resumed session can continue a thinking-mode tool loop without a 400 from the provider.
+Tool signatures and reasoning items are stored in the session JSONL, so a resumed session can continue a thinking-mode tool loop without a 400 from the provider. If a provider still rejects the history because `reasoning_content` must be replayed, Wombat automatically disables older-reasoning trimming for that session and removes any assistant turns whose reasoning was never captured, then retries instead of stopping. `trim_reasoning` remains opt-in and is never allowed to break a thinking-mode request.
 
 ### OpenCode Zen and Go
 

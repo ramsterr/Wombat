@@ -99,6 +99,11 @@ All notable changes to Wombat are recorded here. The format follows
   `worker_full_access false` restores read-only scouts. Worker and writer token
   budgets default to unlimited; `worker_token_budget` and the turn caps can be
   set to a positive number to opt back into limits.
+- **Reasoning-replay recovery.** If a thinking-mode provider rejects a request
+  because `reasoning_content` must be passed back, Wombat now disables
+  older-reasoning trimming for that session, repairs assistant turns whose
+  reasoning was never captured, and retries instead of failing. Providers that
+  do not require replay are unaffected.
 - **Provider fallback.** `fallback_models` tries the next model on a
   rate-limit, outage, or server error, but never after output has streamed.
 - **Binary and image safety.** `read` refuses binary files and attaches images

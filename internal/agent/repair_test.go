@@ -129,3 +129,101 @@ func TestInvalidRequestDetection(t *testing.T) {
 	}
 	fmt.Println("classification ok")
 }
+
+type reasoningProvider struct {
+	calls    int
+	rejected int
+}
+
+func (p *reasoningProvider) Name() string { return "reasoning-mock" }
+func (p *reasoningProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"reasoning-mock"}, nil
+}
+func (p *reasoningProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	p.calls++
+	for _, m := range req.Messages {
+		if m.Role == "assistant" && strings.TrimSpace(m.Reasoning) == "" && (m.Content != "" || len(m.ToolCalls) > 0) {
+			p.rejected++
+			return nil, &llm.HTTPError{
+				Provider:   "mock",
+				StatusCode: 400,
+				Body:       `{"error":{"type":"invalid_request_error","message":"The reasoning_content in the thinking mode must be passed back to the API."}}`,
+			}
+		}
+	}
+	return &llm.Result{Content: "ok"}, nil
+}
+
+func TestSessionRepairsMissingReasoning(t *testing.T) {
+	sess, err := session.Create(t.TempDir(), "reasoning-mock", "deepseek-v4.1-flash", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(llm.Message{Role: "user", Content: "run it"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(llm.Message{
+		Role: "assistant", Content: "calling", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "read", Arguments: `{"path":"a"}`}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(llm.Message{Role: "tool", ToolCallID: "c1", Name: "read", Content: "contents"}); err != nil {
+		t.Fatal(err)
+	}
+	prov := &reasoningProvider{}
+	a := &Agent{
+		Provider: prov,
+		Model:    "deepseek-v4.1-flash",
+		Tools:    tools.Registry(),
+		Env: &tools.Env{
+			Dir:    t.TempDir(),
+			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
+		},
+		Sess: sess,
+	}
+	if err := a.Run(context.Background(), "continue"); err != nil {
+		t.Fatalf("run should recover: %v", err)
+	}
+	if prov.rejected == 0 || prov.calls < 2 {
+		t.Fatalf("provider was not retried after repair: calls=%d rejected=%d", prov.calls, prov.rejected)
+	}
+	for _, m := range sess.Messages {
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 && m.Reasoning == "" {
+			t.Fatalf("missing-reasoning turn is still in history: %+v", m)
+		}
+	}
+}
+
+func TestReasoningRejectionDisablesTrimming(t *testing.T) {
+	sess, err := session.Create(t.TempDir(), "reasoning-mock", "deepseek-v4.1-flash", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(llm.Message{Role: "user", Content: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(llm.Message{Role: "assistant", Content: "old answer", Reasoning: "old thoughts"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(llm.Message{Role: "user", Content: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Append(llm.Message{Role: "assistant", Content: "newer answer", Reasoning: "newer thoughts"}); err != nil {
+		t.Fatal(err)
+	}
+	prov := &reasoningProvider{}
+	a := &Agent{
+		Provider:      prov,
+		Model:         "deepseek-v4.1-flash",
+		Tools:         tools.Registry(),
+		Env:           &tools.Env{Dir: t.TempDir(), Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		Sess:          sess,
+		TrimReasoning: true,
+	}
+	if err := a.Run(context.Background(), "third"); err != nil {
+		t.Fatalf("run should recover: %v", err)
+	}
+	if a.TrimReasoning {
+		t.Fatal("reasoning rejection should disable trimming for the session")
+	}
+}
