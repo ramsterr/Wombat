@@ -10,6 +10,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/tools"
 )
 
 type delegation struct {
@@ -305,10 +306,12 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 	if o.cfg.ScoutModel != "" {
 		model = o.cfg.ScoutModel
 	}
+	sink := &reportSink{}
+	workerTools := append(append([]tools.Tool{}, o.workerTools...), &submitReportTool{sink: sink})
 	worker := &agent.Agent{
 		Provider:      o.lead.Provider,
 		Model:         model,
-		Tools:         o.workerTools,
+		Tools:         workerTools,
 		Env:           &env,
 		Sess:          ws,
 		MaxSteps:      maxSteps,
@@ -325,9 +328,13 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 	stats := worker.Usage()
 	usage := usageFrom(stats)
 	content := lastAssistantContent(ws)
-	report, ok := parseReport(content)
-	if !ok {
-		report = fallbackReport(content)
+	report := sink.getReport()
+	if report == nil {
+		var ok bool
+		report, ok = parseReport(content)
+		if !ok {
+			report = fallbackReport(content)
+		}
 	}
 	report.Usage = usage
 	if budget.exceeded {
@@ -446,7 +453,7 @@ func workerSystemPrompt(a delegateArgs, step *Step, goal string, facts []string)
 	if step != nil {
 		fmt.Fprintf(&b, "Ledger step: [%s] %s\n", step.ID, oneLine(step.Title, 200))
 	}
-	b.WriteString("\nReturn only a JSON object as your final answer, with this shape:\n")
+	b.WriteString("\nCall submit_report once with your final structured report. If you cannot call tools, return only a JSON object as your final answer, with this shape:\n")
 	b.WriteString(`{"status":"completed|partial|blocked|failed","summary":"...","findings":[{"claim":"...","evidence":"...","path":"...","lines":"..."}],"changes":[],"tests":[],"risks":[],"next_steps":[]}`)
 	b.WriteString("\n\nRules for the report:\n")
 	b.WriteString("- summary: what you established, in at most 6 sentences.\n")

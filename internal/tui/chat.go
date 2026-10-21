@@ -406,6 +406,8 @@ func (c *chat) rebuild(reset bool) error {
 			RequireVerification: c.cfg.RequireVerification,
 			EnableWriters:       c.cfg.Writers,
 			KeepWorktrees:       c.cfg.KeepWorktrees,
+			ReviewWriters:       c.cfg.ReviewWriters,
+			ReviewModel:         c.cfg.ReviewModel,
 		}); err != nil {
 			return err
 		}

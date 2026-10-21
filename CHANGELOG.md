@@ -85,6 +85,13 @@ All notable changes to Wombat are recorded here. The format follows
   updated incrementally. It uses any OpenAI-compatible embedding endpoint
   (`embedding_provider` / `embedding_model`, or `WOMBAT_EMBED_*`) and falls
   back to a deterministic offline embedder.
+- **Plan scheduler and reviewed delegation.** `run_plan` executes the ledger as
+  a dependency graph: ready steps run in parallel, write steps get worktrees,
+  declared file ownership, checks, an independent reviewer, and a three-way
+  merge, and a failure blocks only its dependents. Delegates now report through
+  a `submit_report` tool with a robust JSON fallback, and writers block on
+  reviewer verdicts when `review_writers` is enabled (the default). Successful
+  merges are applied with git's three-way fallback and left unstaged.
 - **Provider fallback.** `fallback_models` tries the next model on a
   rate-limit, outage, or server error, but never after output has streamed.
 - **Binary and image safety.** `read` refuses binary files and attaches images

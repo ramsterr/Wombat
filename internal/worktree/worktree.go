@@ -47,6 +47,14 @@ func New(repo, root string) (*Manager, error) {
 }
 
 func (m *Manager) Create(id string) (*Worktree, error) {
+	return m.CreateAt(id, "")
+}
+
+// CreateAt creates a worktree from base. An empty base means HEAD and
+// requires a clean main workspace. A non-empty base is a temporary commit
+// containing earlier writer merges, so later waves can build on them without
+// moving the user's branch.
+func (m *Manager) CreateAt(id, base string) (*Worktree, error) {
 	if m == nil {
 		return nil, errors.New("worktree manager is nil")
 	}
@@ -54,18 +62,20 @@ func (m *Manager) Create(id string) (*Worktree, error) {
 	if clean == "" {
 		clean = "writer"
 	}
-	status, err := gitOutput(m.Repo, "status", "--porcelain", "--untracked-files=no")
-	if err != nil {
-		return nil, err
+	if base == "" {
+		status, err := gitOutput(m.Repo, "status", "--porcelain", "--untracked-files=no")
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(status) != "" {
+			return nil, errors.New("main workspace has tracked changes; commit or stash them before starting writers")
+		}
+		head, err := gitOutput(m.Repo, "rev-parse", "HEAD")
+		if err != nil {
+			return nil, err
+		}
+		base = strings.TrimSpace(head)
 	}
-	if strings.TrimSpace(status) != "" {
-		return nil, errors.New("main workspace has tracked changes; commit or stash them before starting writers")
-	}
-	base, err := gitOutput(m.Repo, "rev-parse", "HEAD")
-	if err != nil {
-		return nil, err
-	}
-	base = strings.TrimSpace(base)
 	name := clean + "-" + randomSuffix()
 	branch := "wombat/" + name
 	path := filepath.Join(m.Root, name)
@@ -73,6 +83,32 @@ func (m *Manager) Create(id string) (*Worktree, error) {
 		return nil, fmt.Errorf("create worktree: %w", err)
 	}
 	return &Worktree{manager: m, Path: path, Branch: branch, Base: base}, nil
+}
+
+// SnapshotIndex writes a dangling commit from the staged index, without
+// moving any branch. Writer merges are staged while a plan runs, so this is
+// the merged state later waves should branch from.
+func (m *Manager) SnapshotIndex(message string) (string, error) {
+	if m == nil {
+		return "", errors.New("worktree manager is nil")
+	}
+	tree, err := gitOutput(m.Repo, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	parent, err := gitOutput(m.Repo, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "wombat merged writers"
+	}
+	commit, err := gitOutput(m.Repo, "-c", "user.name=Wombat", "-c", "user.email=wombat@localhost",
+		"commit-tree", strings.TrimSpace(tree), "-p", strings.TrimSpace(parent), "-m", message)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(commit), nil
 }
 
 func (w *Worktree) Status() (string, error) {
@@ -164,6 +200,137 @@ func (m *Manager) ApplyPatch(patch string) error {
 		return err
 	}
 	return runGitInput(m.Repo, patch, "apply", "--binary", "-")
+}
+
+// ApplyPatch3Way applies a patch using git's three-way fallback, so a writer
+// whose base predates another merge still applies cleanly when the changes do
+// not overlap. Git's --3way stages its result and leaves conflict markers on a
+// real conflict, so this snapshots the affected files, restores them on
+// failure, and unstages the result on success.
+func (m *Manager) ApplyPatch3Way(patch string) error {
+	if strings.TrimSpace(patch) == "" {
+		return errors.New("empty patch")
+	}
+	paths, err := m.patchPaths(patch)
+	if err != nil {
+		return err
+	}
+	if len(paths) == 0 {
+		return errors.New("patch names no files")
+	}
+	snaps := make([]fileSnapshot, 0, len(paths))
+	for _, path := range paths {
+		snap, err := snapshotFile(m.Repo, path)
+		if err != nil {
+			return err
+		}
+		snaps = append(snaps, snap)
+	}
+	if err := runGitInput(m.Repo, patch, "apply", "--3way", "--binary", "-"); err != nil {
+		_ = runGitInput(m.Repo, "", append([]string{"reset", "-q", "--"}, paths...)...)
+		for _, snap := range snaps {
+			_ = snap.restore()
+		}
+		// Keep the index aligned with the restored worktree; the whole merge
+		// batch is unstaged when it finishes.
+		_ = runGitInput(m.Repo, "", append([]string{"add", "-A", "--"}, paths...)...)
+		return err
+	}
+	return nil
+}
+
+// StagePatchPaths makes the index match the worktree for the files a patch
+// touches. It is used after a merge is reverted so the next three-way merge
+// sees a consistent index.
+func (m *Manager) StagePatchPaths(patch string) error {
+	paths, err := m.patchPaths(patch)
+	if err != nil || len(paths) == 0 {
+		return err
+	}
+	return runGitInput(m.Repo, "", append([]string{"add", "-A", "--"}, paths...)...)
+}
+
+// Unstage returns the index to HEAD while keeping the merged files in the
+// worktree. Writer merges are staged while a batch runs so later three-way
+// merges have an index that matches the worktree.
+func (m *Manager) Unstage() error {
+	if m == nil {
+		return nil
+	}
+	return runGitInput(m.Repo, "", "reset", "-q")
+}
+
+func (m *Manager) patchPaths(patch string) ([]string, error) {
+	cmd := exec.Command("git", "apply", "--numstat", "-z", "--binary", "-")
+	cmd.Dir = m.Repo
+	cmd.Stdin = strings.NewReader(patch)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git apply --numstat: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	fields := strings.Split(stdout.String(), "\x00")
+	seen := map[string]bool{}
+	var paths []string
+	for _, field := range fields {
+		if field == "" {
+			continue
+		}
+		// Each record starts with "<added>\t<deleted>\t"; renames put the
+		// old and new paths in separate NUL fields.
+		if i := strings.Index(field, "\t"); i >= 0 {
+			rest := field[i+1:]
+			if j := strings.Index(rest, "\t"); j >= 0 {
+				field = rest[j+1:]
+			}
+		}
+		for _, path := range strings.Split(field, "\x00") {
+			path = strings.TrimSpace(path)
+			if path != "" && !seen[path] {
+				seen[path] = true
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths, nil
+}
+
+type fileSnapshot struct {
+	path   string
+	data   []byte
+	mode   os.FileMode
+	exists bool
+}
+
+func snapshotFile(root, rel string) (fileSnapshot, error) {
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(root)+string(filepath.Separator)) && filepath.Clean(path) != filepath.Clean(root) {
+		return fileSnapshot{}, fmt.Errorf("patch path escapes the workspace: %s", rel)
+	}
+	st, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fileSnapshot{path: path}, nil
+	}
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	return fileSnapshot{path: path, data: data, mode: st.Mode().Perm(), exists: true}, nil
+}
+
+func (s fileSnapshot) restore() error {
+	if !s.exists {
+		err := os.Remove(s.path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return os.WriteFile(s.path, s.data, s.mode)
 }
 
 func (m *Manager) ReversePatch(patch string) error {

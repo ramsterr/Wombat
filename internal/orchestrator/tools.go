@@ -17,13 +17,16 @@ type updatePlanArgs struct {
 }
 
 type planStep struct {
-	ID        string      `json:"id"`
-	Title     string      `json:"title"`
-	Objective string      `json:"objective"`
-	Role      string      `json:"role"`
-	Status    string      `json:"status"`
-	DependsOn []string    `json:"depends_on"`
-	Checks    []planCheck `json:"checks"`
+	ID          string      `json:"id"`
+	Title       string      `json:"title"`
+	Objective   string      `json:"objective"`
+	Role        string      `json:"role"`
+	Kind        string      `json:"kind"`
+	Files       []string    `json:"files"`
+	Deliverable string      `json:"deliverable"`
+	Status      string      `json:"status"`
+	DependsOn   []string    `json:"depends_on"`
+	Checks      []planCheck `json:"checks"`
 }
 
 type planCheck struct {
@@ -41,12 +44,15 @@ func (t *updatePlanTool) Schema() map[string]any {
 	stepSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"id":         map[string]any{"type": "string", "description": "short stable id, e.g. survey or fix-parser"},
-			"title":      map[string]any{"type": "string", "description": "one-line task title"},
-			"objective":  map[string]any{"type": "string", "description": "concrete outcome and scope"},
-			"role":       map[string]any{"type": "string", "description": "optional role, e.g. explorer, implementer, verifier"},
-			"status":     map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "failed"}},
-			"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"id":          map[string]any{"type": "string", "description": "short stable id, e.g. survey or fix-parser"},
+			"title":       map[string]any{"type": "string", "description": "one-line task title"},
+			"objective":   map[string]any{"type": "string", "description": "concrete outcome and scope"},
+			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer, implementer, verifier"},
+			"kind":        map[string]any{"type": "string", "enum": []string{"scout", "write"}, "description": "scout (read-only research, default) or write (owned files in a worktree, then review and merge)"},
+			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "for kind=write: every repo-relative file the writer may change; tasks with overlapping files cannot run together"},
+			"deliverable": map[string]any{"type": "string", "description": "exact output expected from a scout or writer"},
+			"status":      map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "failed"}},
+			"depends_on":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"checks": map[string]any{
 				"type": "array",
 				"items": map[string]any{
@@ -85,12 +91,15 @@ func (t *updatePlanTool) Run(_ context.Context, raw json.RawMessage, _ *tools.En
 	steps := make([]Step, 0, len(a.Steps))
 	for _, s := range a.Steps {
 		step := Step{
-			ID:        s.ID,
-			Title:     s.Title,
-			Objective: s.Objective,
-			Role:      s.Role,
-			Status:    StepStatus(s.Status),
-			DependsOn: s.DependsOn,
+			ID:          s.ID,
+			Title:       s.Title,
+			Objective:   s.Objective,
+			Role:        s.Role,
+			Kind:        s.Kind,
+			Files:       s.Files,
+			Deliverable: s.Deliverable,
+			Status:      StepStatus(s.Status),
+			DependsOn:   s.DependsOn,
 		}
 		if s.Checks != nil {
 			step.Checks = make([]Check, 0, len(s.Checks))
@@ -126,7 +135,7 @@ func (t *delegateTool) Description() string {
 	return "Delegate one self-contained, read-only investigation to a fresh worker with its own context. " +
 		"Use when exploration would flood your context. For two or more independent angles, use delegate_many - that is " +
 		"the default for multi-step work. Do the work directly when it is small or requires edits. " +
-		"Workers cannot edit files, run mutating commands, or delegate. Returns a structured JSON report with evidence and usage."
+		"Scouts cannot edit files, run mutating commands, or delegate. If the task needs edits, use a write step in run_plan or delegate_write. Returns a structured JSON report with evidence and usage."
 }
 func (t *delegateTool) Schema() map[string]any {
 	return map[string]any{
@@ -165,8 +174,7 @@ func (t *delegateManyTool) Description() string {
 		"USE THIS BY DEFAULT: for any task with more than two steps, for research, for comparison, or for anything that " +
 		"spans several parts of the codebase, dispatch a fleet of workers with one call instead of exploring one thread at " +
 		"a time. It is faster and keeps your context small. Give each worker a distinct angle and a self-contained brief. " +
-		"Do not use it for dependent steps, edits, or work you can do directly. Returns one structured JSON report per " +
-		"worker plus total usage; reconcile conflicting reports yourself."
+		"Do not use it for dependent steps, edits, or work you can do directly; for edits use run_plan write steps or delegate_write. Returns one structured JSON report per worker plus total usage; reconcile conflicting reports yourself."
 }
 func (t *delegateManyTool) Schema() map[string]any {
 	taskSchema := map[string]any{

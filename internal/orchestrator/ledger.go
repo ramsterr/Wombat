@@ -59,16 +59,36 @@ type Check struct {
 	RanAt          time.Time   `json:"ran_at,omitempty"`
 }
 
+const (
+	StepScout = "scout"
+	StepWrite = "write"
+)
+
+func normalizeStepKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "", StepScout:
+		return StepScout
+	case StepWrite, "writer", "implement", "implementer":
+		return StepWrite
+	default:
+		return strings.ToLower(strings.TrimSpace(kind))
+	}
+}
+
 type Step struct {
-	ID        string        `json:"id"`
-	Title     string        `json:"title"`
-	Objective string        `json:"objective,omitempty"`
-	Role      string        `json:"role,omitempty"`
-	Status    StepStatus    `json:"status"`
-	DependsOn []string      `json:"depends_on,omitempty"`
-	Checks    []Check       `json:"checks,omitempty"`
-	Report    *WorkerReport `json:"report,omitempty"`
-	Updated   time.Time     `json:"updated,omitempty"`
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Objective   string        `json:"objective,omitempty"`
+	Role        string        `json:"role,omitempty"`
+	Kind        string        `json:"kind,omitempty"`
+	Files       []string      `json:"files,omitempty"`
+	Deliverable string        `json:"deliverable,omitempty"`
+	Status      StepStatus    `json:"status"`
+	DependsOn   []string      `json:"depends_on,omitempty"`
+	Checks      []Check       `json:"checks,omitempty"`
+	Report      *WorkerReport `json:"report,omitempty"`
+	Review      *Review       `json:"review,omitempty"`
+	Updated     time.Time     `json:"updated,omitempty"`
 }
 
 type Ledger struct {
@@ -160,6 +180,7 @@ func (l *Ledger) normalize() {
 		}
 		s.Report = trimReport(s.Report)
 		s.Checks = normalizeChecks(s.Checks)
+		s.Kind = normalizeStepKind(s.Kind)
 		out = append(out, s)
 	}
 	l.Steps = out
@@ -221,6 +242,20 @@ func (l *Ledger) Validate() error {
 		ids[s.ID] = i
 		if !s.Status.Valid() {
 			return fmt.Errorf("step %q: invalid status %q", s.ID, s.Status)
+		}
+		if kind := normalizeStepKind(s.Kind); kind != StepScout && kind != StepWrite {
+			return fmt.Errorf("step %q: kind must be scout or write", s.ID)
+		}
+		if len(s.Files) > 40 {
+			return fmt.Errorf("step %q: too many owned files: %d (max 40)", s.ID, len(s.Files))
+		}
+		if len(s.Deliverable) > 4000 {
+			return fmt.Errorf("step %q: deliverable is too long (max 4000 chars)", s.ID)
+		}
+		for _, f := range s.Files {
+			if _, err := cleanOwnedPath(f); err != nil {
+				return fmt.Errorf("step %q: %w", s.ID, err)
+			}
 		}
 		if len(s.Checks) > maxChecksPerStep {
 			return fmt.Errorf("step %q: too many checks: %d (max %d)", s.ID, len(s.Checks), maxChecksPerStep)
@@ -317,18 +352,25 @@ func (l *Ledger) PromptView() string {
 	}
 	b.WriteString("Steps:\n")
 	for _, s := range l.Steps {
-		fmt.Fprintf(&b, "- [%s] %s — %s", s.Status, s.ID, oneLine(s.Title, 160))
+		kind := normalizeStepKind(s.Kind)
+		fmt.Fprintf(&b, "- [%s] %s (%s) — %s", s.Status, s.ID, kind, oneLine(s.Title, 160))
 		if s.Objective != "" && s.Objective != s.Title {
 			fmt.Fprintf(&b, ": %s", oneLine(s.Objective, 300))
 		}
 		if len(s.DependsOn) > 0 {
 			fmt.Fprintf(&b, " (depends on: %s)", strings.Join(s.DependsOn, ", "))
 		}
+		if len(s.Files) > 0 {
+			fmt.Fprintf(&b, " (files: %s)", oneLine(strings.Join(s.Files, ", "), 300))
+		}
 		if len(s.Checks) > 0 {
 			fmt.Fprintf(&b, " (checks: %s)", checkSummary(s.Checks))
 		}
 		if s.Report != nil && s.Report.Summary != "" {
 			fmt.Fprintf(&b, "\n  result: %s", oneLine(s.Report.Summary, 400))
+		}
+		if s.Review != nil && s.Review.Verdict != "" {
+			fmt.Fprintf(&b, "\n  review: %s — %s", s.Review.Verdict, oneLine(s.Review.Summary, 300))
 		}
 		b.WriteByte('\n')
 	}
@@ -341,6 +383,8 @@ func (l *Ledger) View() LedgerView {
 		item := StepView{
 			ID:        s.ID,
 			Title:     s.Title,
+			Kind:      normalizeStepKind(s.Kind),
+			Files:     append([]string(nil), s.Files...),
 			Status:    s.Status,
 			DependsOn: append([]string(nil), s.DependsOn...),
 		}
@@ -350,6 +394,9 @@ func (l *Ledger) View() LedgerView {
 		if s.Report != nil {
 			item.Result = oneLine(s.Report.Summary, 500)
 			item.ReportStatus = s.Report.Status
+		}
+		if s.Review != nil {
+			item.ReviewVerdict = s.Review.Verdict
 		}
 		v.Steps = append(v.Steps, item)
 	}
@@ -363,13 +410,16 @@ type LedgerView struct {
 }
 
 type StepView struct {
-	ID           string      `json:"id"`
-	Title        string      `json:"title"`
-	Status       StepStatus  `json:"status"`
-	DependsOn    []string    `json:"depends_on,omitempty"`
-	Checks       []CheckView `json:"checks,omitempty"`
-	ReportStatus string      `json:"report_status,omitempty"`
-	Result       string      `json:"result,omitempty"`
+	ID            string      `json:"id"`
+	Title         string      `json:"title"`
+	Kind          string      `json:"kind,omitempty"`
+	Files         []string    `json:"files,omitempty"`
+	Status        StepStatus  `json:"status"`
+	DependsOn     []string    `json:"depends_on,omitempty"`
+	Checks        []CheckView `json:"checks,omitempty"`
+	ReportStatus  string      `json:"report_status,omitempty"`
+	ReviewVerdict string      `json:"review_verdict,omitempty"`
+	Result        string      `json:"result,omitempty"`
 }
 
 type CheckView struct {

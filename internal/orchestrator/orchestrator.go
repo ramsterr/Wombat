@@ -54,6 +54,11 @@ type Config struct {
 	RequireVerification   bool
 	EnableWriters         bool
 	KeepWorktrees         bool
+	// ReviewWriters runs an independent reviewer over each writer patch
+	// before merge. Nil means enabled.
+	ReviewWriters    *bool
+	ReviewModel      string
+	ReviewerMaxSteps int
 }
 
 func (c Config) withDefaults() Config {
@@ -96,7 +101,24 @@ func (c Config) withDefaults() Config {
 	if c.WorktreeRoot == "" {
 		c.WorktreeRoot = filepath.Join(config.Home(), "worktrees")
 	}
+	if c.ReviewerMaxSteps <= 0 {
+		c.ReviewerMaxSteps = 8
+	}
 	return c
+}
+
+func (c Config) reviewsWriters() bool {
+	return c.ReviewWriters == nil || *c.ReviewWriters
+}
+
+func (c Config) reviewerModel(lead string) string {
+	if c.ReviewModel != "" {
+		return c.ReviewModel
+	}
+	if c.ScoutModel != "" {
+		return c.ScoutModel
+	}
+	return lead
 }
 
 type Orchestrator struct {
@@ -118,7 +140,20 @@ type Orchestrator struct {
 	workerTokens     int
 	writers          int
 	writerTokens     int
+	writerBase       string
 	hooksMu          sync.Mutex
+}
+
+func (o *Orchestrator) currentWriterBase() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.writerBase
+}
+
+func (o *Orchestrator) setWriterBase(base string) {
+	o.mu.Lock()
+	o.writerBase = base
+	o.mu.Unlock()
 }
 
 func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
@@ -135,7 +170,8 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		return nil, errors.New("orchestrator: lead agent has no tool environment")
 	}
 	for _, t := range ag.Tools {
-		if t.Name() == "update_plan" || t.Name() == "delegate" || t.Name() == "delegate_many" {
+		switch t.Name() {
+		case "update_plan", "run_plan", "delegate", "delegate_many":
 			return nil, errors.New("orchestrator: lead agent is already attached")
 		}
 	}
@@ -164,7 +200,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 	}
 	for _, t := range ag.Tools {
 		switch t.Name() {
-		case "update_plan", "delegate", "delegate_many", "run_checks", "delegate_write", "question":
+		case "update_plan", "run_plan", "delegate", "delegate_many", "run_checks", "delegate_write", "question":
 			// Workers and writers have nobody to ask.
 			continue
 		}
@@ -198,7 +234,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		}
 		o.beginTurn()
 	}
-	ag.Tools = append(ag.Tools, &updatePlanTool{o: o}, &delegateTool{o: o}, &delegateManyTool{o: o}, &runChecksTool{o: o})
+	ag.Tools = append(ag.Tools, &updatePlanTool{o: o}, &runPlanTool{o: o}, &delegateTool{o: o}, &delegateManyTool{o: o}, &runChecksTool{o: o})
 	return o, nil
 }
 
@@ -208,6 +244,7 @@ func (o *Orchestrator) beginTurn() {
 	o.workerTokens = 0
 	o.writers = 0
 	o.writerTokens = 0
+	o.writerBase = ""
 	o.mu.Unlock()
 }
 
@@ -249,6 +286,12 @@ func (o *Orchestrator) systemPrompt() string {
 			fmt.Fprintf(&b, "Your plan has %d independent steps. Dispatch them as one fleet with delegate_many "+
 				"(one worker per step) instead of doing them one at a time.\n\n", n)
 		}
+	}
+	b.WriteString("### Running the plan\n")
+	if o.worktrees != nil {
+		b.WriteString("After update_plan, call run_plan to execute the dependency graph. Ready steps run in parallel; write steps are isolated in worktrees, independently reviewed, and merged only when their checks pass. Failed steps block only their dependents.\n\n")
+	} else {
+		b.WriteString("After update_plan, call run_plan to execute the dependency graph: ready scout steps run in parallel and failed steps block only their dependents.\n\n")
 	}
 	b.WriteString("### Delegation\n")
 	if o.cfg.ParallelAgents {
@@ -327,6 +370,8 @@ func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (st
 		steps[i].Title = strings.TrimSpace(steps[i].Title)
 		steps[i].Objective = strings.TrimSpace(steps[i].Objective)
 		steps[i].Role = strings.TrimSpace(steps[i].Role)
+		steps[i].Kind = strings.TrimSpace(steps[i].Kind)
+		steps[i].Deliverable = strings.TrimSpace(steps[i].Deliverable)
 		steps[i].Status = StepStatus(strings.ToLower(strings.TrimSpace(string(steps[i].Status))))
 		if steps[i].Status == "" {
 			steps[i].Status = StepPending
@@ -340,6 +385,20 @@ func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (st
 			} else {
 				steps[i].Checks = mergeChecks(prev.Checks, steps[i].Checks)
 			}
+			if len(steps[i].Files) == 0 {
+				steps[i].Files = prev.Files
+			}
+			if steps[i].Deliverable == "" {
+				steps[i].Deliverable = prev.Deliverable
+			}
+			if steps[i].Kind == "" && len(steps[i].Files) == 0 {
+				steps[i].Kind = prev.Kind
+			}
+		}
+		if strings.TrimSpace(steps[i].Kind) == "" && len(steps[i].Files) > 0 {
+			steps[i].Kind = StepWrite
+		} else {
+			steps[i].Kind = normalizeStepKind(steps[i].Kind)
 		}
 		steps[i].Updated = now
 	}

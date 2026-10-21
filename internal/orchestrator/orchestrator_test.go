@@ -188,8 +188,13 @@ func TestAttachToolsPromptAndTurnReset(t *testing.T) {
 		names = append(names, tool.Name())
 	}
 	joined := strings.Join(names, ",")
-	if !strings.Contains(joined, "update_plan") || !strings.Contains(joined, "delegate") {
+	if !strings.Contains(joined, "update_plan") || !strings.Contains(joined, "run_plan") || !strings.Contains(joined, "delegate") {
 		t.Fatalf("tools = %v", names)
+	}
+	for _, tool := range o.writerTools {
+		if tool.Name() == "update_plan" || tool.Name() == "run_plan" || tool.Name() == "delegate" {
+			t.Fatalf("writer tools contain lead-only %s", tool.Name())
+		}
 	}
 	if !strings.Contains(ag.SystemExtra(), "## Orchestration") {
 		t.Fatalf("missing orchestration prompt: %s", ag.SystemExtra())
@@ -474,6 +479,7 @@ func TestWriterMergesCheckGatedPatch(t *testing.T) {
 		EnableWriters:       true,
 		RequireVerification: true,
 		WorktreeRoot:        t.TempDir(),
+		ReviewWriters:       boolPtr(false),
 	})
 	if err != nil {
 		t.Fatal(err)

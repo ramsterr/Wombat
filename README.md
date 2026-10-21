@@ -403,6 +403,7 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `update_plan` | plan | create/replace the ledger, steps, and checks |
 | `run_checks` | verify | run a step's checks and record evidence |
 | `delegate` / `delegate_many` | delegate | read-only investigation workers |
+| `run_plan` | delegate | execute the ledger as a dependency graph: parallel scouts and reviewed writers |
 | `delegate_write` | write | isolated git worktree writers (opt-in in config) |
 
 `lsp` asks the server for definitions, references, diagnostics, completions, symbols, and outlines; `rename` and `refactor` apply the server's semantic edits. They use whichever language server is installed: `gopls` for Go, `typescript-language-server` for TypeScript/JavaScript, `pyright` or `pylsp` for Python, `rust-analyzer`, `clangd`, `jdtls`, `solargraph`, `intelephense`, `lua-language-server`, `csharp-ls`, `sourcekit-lsp`, `kotlin-language-server`, and `bash-language-server`. Override a server with `WOMBAT_LSP` or per language with `WOMBAT_LSP_GO`, `WOMBAT_LSP_PY`, and so on. If no server is installed the tool says so; `symbols` and `semantic_search` still work as fallbacks.
@@ -607,11 +608,15 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `semantic_search`, `browser`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Scouts are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `semantic_search`, `browser`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further. Workers report through a `submit_report` tool (with a robust JSON fallback) and return status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget.
+
+`run_plan` turns the ledger into the scheduler: it repeatedly finds ready steps, runs independent steps in parallel, waits for their wave to finish, then unlocks dependents. A step with `kind: write` gets the full writer pipeline — worktree, declared file ownership, checks, independent review, three-way merge — so delegates can write when the task needs it. A failed step blocks only its dependents; independent branches keep going. `run_plan` accepts a subset of step ids, a wave size, and `stop_on_failure` for a strict run.
 
 ### Checks, verification, and writers
 
-Steps can declare `checks` in `update_plan`. `run_checks` executes them in the lead workspace, records pass/fail output in the ledger, and the completion gate refuses to mark a step completed while a check is pending or failing. Writers (`delegate_write`) are available in git repositories when `writers` is enabled. Each writer gets a context pack and a temporary worktree, must declare the exact files it owns, runs the step checks, and is committed before merge. Merge is sequential: the patch is applied to the main workspace, checks run again, `git diff --check` runs, and a failing or conflicting patch is reverted while the worktree is kept for inspection. Writers cannot overlap file ownership; use them for independent implementation steps, not dependent edits.
+Steps can declare `checks` in `update_plan`. `run_checks` executes them in the lead workspace, records pass/fail output in the ledger, and the completion gate refuses to mark a step completed while a check is pending or failing. Writers (`delegate_write`, or `kind: write` steps in `run_plan`) are available in git repositories when `writers` is enabled. Each writer gets a context pack and a temporary worktree, must declare the exact files it owns, runs the step checks, and is committed before merge.
+
+Writers require a clean tracked working tree (commit or stash before starting). Every writer patch is independently reviewed by a separate reviewer agent (model via `review_model`, defaulting to the scout model) before merge. `review_writers` is on by default; set it to false to skip review. Merge uses git's three-way fallback, so a writer based on an older HEAD still lands when its changes do not overlap; an unresolvable conflict is reverted, the worktree is kept, and the error is reported. After a successful merge the checks run again, `git diff --check` runs, and a failing patch is reverted. Writers cannot overlap file ownership; use them for independent implementation steps, not dependent edits. Merged writer changes are left unstaged in the lead workspace for the lead to inspect and commit.
 
 ```sh
 wombat config set orchestrator false        # disable ledger + delegation
@@ -621,6 +626,8 @@ wombat config set turn_worker_token_budget 160000 # all workers per turn
 wombat config set permissions.bash ask     # ask before every command
 wombat config set checkpoints false            # disable snapshots
 wombat config set writers false                # disable worktree writers
+wombat config set review_writers false         # skip the independent patch reviewer
+wombat config set review_model gpt-5-mini      # reviewer model (default: scout model)
 ```
 
 Worker and writer transcripts are stored under `~/.wombat/workers/` for inspection. Writers run in `~/.wombat/worktrees/` by default; successful worktrees are removed, failures are kept. The lead remains the default writer and owns merge decisions.

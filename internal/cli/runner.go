@@ -153,6 +153,8 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			RequireVerification: cfg.RequireVerification,
 			EnableWriters:       cfg.Writers,
 			KeepWorktrees:       cfg.KeepWorktrees,
+			ReviewWriters:       cfg.ReviewWriters,
+			ReviewModel:         cfg.ReviewModel,
 		}); err != nil {
 			return nil, err
 		}

@@ -37,6 +37,8 @@ type Config struct {
 	ImageModel          string               `json:"image_model,omitempty"`
 	EmbeddingProvider   string               `json:"embedding_provider,omitempty"`
 	EmbeddingModel      string               `json:"embedding_model,omitempty"`
+	ReviewWriters       *bool                `json:"review_writers,omitempty"`
+	ReviewModel         string               `json:"review_model,omitempty"`
 	Providers           map[string]*Provider `json:"providers"`
 	Permissions         map[string]string    `json:"permissions,omitempty"`
 	Orchestrator        bool                 `json:"orchestrator"`
