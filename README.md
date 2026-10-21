@@ -304,6 +304,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat config set <key> <value>` | set `provider`, `model`, `mode`, `writers`, or a permission |
 | `wombat checkpoint list` | list snapshots for the latest session |
 | `wombat checkpoint restore <id>` | restore a snapshot (`--yes` for non-interactive use) |
+| `wombat checkpoint prune [--keep N]` | delete old snapshots, keeping the newest N (default 10) |
 | `wombat upgrade` | update wombat to the latest release (`--check` to only look) |
 | `wombat version` | print the version |
 
@@ -483,13 +484,10 @@ usually worse than one question.
 
 ## When the workspace is your home directory
 
-Checkpoints walk the working directory. If your workspace is `~`, that walk
-meets directories macOS hides from ordinary processes (`.Trash`, `Library`),
-and the home directory holds far more than a checkpoint can hold. Neither
-stops you now: hidden directories are skipped, an unreadable directory is
-recorded as skipped, and a snapshot that outgrows its limits captures what it
-can and stops early instead of failing. A restore only puts back the files it
-captured, so nothing is lost.
+Checkpoints only copy the file a write or edit is about to touch. They no
+longer snapshot the whole workspace before a bash command. Hidden directories
+such as `.Trash` and `Library` are skipped, and an unreadable directory is
+recorded rather than failing the snapshot.
 
 Point Wombat at a project directory rather than your home directory when you
 can - it is faster and the checkpoints stay meaningful.
@@ -606,6 +604,8 @@ Token usage, cache hits, and compaction events are reported live. Prompt caching
 ## Sessions
 
 Sessions are append-only JSONL files under `~/.wombat/sessions/<project-hash>/`, keyed to the working directory. Every run is resumable with `wombat resume` or `/sessions` inside the TUI; attachments live beside the session in `.attachments/`. Task ledgers live beside sessions as `<session>.ledger.json`, so a resumed run keeps its plan. Checkpoints live in `<session>.checkpoints/`, and structured run events are written to `<session>.events.jsonl`. Deleting a session file removes its history; delete the ledger and checkpoint directory too to reset the plan and rollback history.
+
+Checkpoints are automatic undo points, not project data. Before a `write` or `edit`, Wombat copies the target file into the session's `.checkpoints/` directory so `wombat checkpoint restore` can put it back. They are safe to delete at any time; your files, git history, and sessions are unaffected. `wombat checkpoint prune --keep 10` keeps the newest ten for the current session, and `wombat config set checkpoints false` disables snapshots entirely. A checkpoint that cannot be written (full disk, permissions) is reported as a warning and never blocks the edit.
 
 ## Configuration
 

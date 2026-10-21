@@ -229,3 +229,34 @@ func TestBigWorkspaceIsPartialAndFast(t *testing.T) {
 		t.Errorf("a partial restore deleted files: %d left", len(entries))
 	}
 }
+
+func TestPruneKeepsNewest(t *testing.T) {
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(t.TempDir(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		if _, err := m.Snapshot("test", nil); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	removed, err := m.Prune(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed = %d, want 2", removed)
+	}
+	list, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("list = %d, want 2", len(list))
+	}
+}

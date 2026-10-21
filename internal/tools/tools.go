@@ -38,6 +38,9 @@ type Env struct {
 	DenyMutate   bool
 	Mode         string
 	Checkpoint   Checkpointer
+	// Warn receives a non-fatal warning, such as a checkpoint that could not
+	// be written because the disk is full.
+	Warn func(string)
 
 	// media collects files a tool wants the model to look at, such as an
 	// image the agent downloaded. The agent owns the list.
@@ -106,7 +109,11 @@ func (e *Env) Snapshot(reason string, paths ...string) error {
 		return nil
 	}
 	if _, err := e.Checkpoint.Snapshot(reason, inside); err != nil {
-		return fmt.Errorf("checkpoint failed: %w", err)
+		// A checkpoint is a safety net, not a prerequisite. A full disk or a
+		// permission problem must never stop the edit the user asked for.
+		if e.Warn != nil {
+			e.Warn(err.Error())
+		}
 	}
 	return nil
 }

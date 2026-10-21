@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,5 +223,27 @@ func TestReadImageWithoutVisionDoesNotAttach(t *testing.T) {
 	}
 	if len(media) != 0 {
 		t.Fatalf("an image was attached to a text-only model: %+v", media)
+	}
+}
+
+type failingCheckpointer struct{}
+
+func (failingCheckpointer) Snapshot(string, []string) (string, error) {
+	return "", errors.New("no space left on device")
+}
+
+func TestCheckpointFailureDoesNotBlockWrite(t *testing.T) {
+	dir := t.TempDir()
+	env := testEnv(dir)
+	env.Checkpoint = failingCheckpointer{}
+	var warnings []string
+	env.Warn = func(s string) { warnings = append(warnings, s) }
+	run(t, &Write{}, env, `{"path":"a.txt","content":"kept"}`)
+	data, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil || string(data) != "kept" {
+		t.Fatalf("write was blocked by the checkpoint: %q err=%v", data, err)
+	}
+	if len(warnings) == 0 || !strings.Contains(warnings[0], "no space left") {
+		t.Fatalf("warnings = %v", warnings)
 	}
 }

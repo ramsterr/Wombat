@@ -107,6 +107,9 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		DenyMutate: !sessionMode.AllowsWrite(),
 		Mode:       sessionMode.Label(),
 		NoImages:   !vision,
+		Warn: func(s string) {
+			fmt.Fprintln(os.Stderr, dim("[checkpoint] "+s+" — continuing without a snapshot"))
+		},
 	}
 	if p != nil {
 		env.AskUser = func(q tools.Question) (string, error) {

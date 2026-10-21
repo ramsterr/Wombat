@@ -17,6 +17,7 @@ func cmdCheckpoint(args []string) error {
 	}
 	var sessionID, snapshotID string
 	yes := false
+	keep := 10
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--yes", "-y":
@@ -27,6 +28,14 @@ func cmdCheckpoint(args []string) error {
 			}
 			i++
 			sessionID = args[i]
+		case "--keep", "-k":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--keep needs a number")
+			}
+			i++
+			if _, err := fmt.Sscanf(args[i], "%d", &keep); err != nil || keep < 0 {
+				return fmt.Errorf("--keep must be a non-negative number")
+			}
 		default:
 			if strings.HasPrefix(args[i], "-") {
 				return fmt.Errorf("unknown flag %s", args[i])
@@ -74,6 +83,13 @@ func cmdCheckpoint(args []string) error {
 			fmt.Printf("%s  %-18s  %3d files  %s\n", m.ID, scope, len(m.Files), dim(m.Created.Local().Format("2006-01-02 15:04:05")))
 		}
 		return nil
+	case "prune":
+		removed, err := mgr.Prune(keep)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("removed %d checkpoint(s), kept the newest %d\n", removed, keep)
+		return nil
 	case "restore":
 		if snapshotID == "" {
 			return fmt.Errorf("usage: wombat checkpoint restore <snapshot-id> [--session id] [--yes]")
@@ -96,7 +112,7 @@ func cmdCheckpoint(args []string) error {
 		fmt.Println(green("restored ") + snapshotID)
 		return nil
 	default:
-		return fmt.Errorf("usage: wombat checkpoint [list|restore]")
+		return fmt.Errorf("usage: wombat checkpoint [list|restore|prune [--keep N]]")
 	}
 }
 

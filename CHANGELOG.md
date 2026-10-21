@@ -34,6 +34,10 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- A checkpoint failure (full disk, permissions) is now a warning and never
+  blocks the write or edit. Checkpoints are undo points, not a prerequisite.
+- Added `wombat checkpoint prune [--keep N]` to delete old snapshots without
+  touching the workspace. Checkpoints remain safe to delete at any time.
 - Read-only workers can now run non-mutating bash (for example `ls`,
   `which`, `yt-dlp --flat-playlist`, `curl` to stdout, and `ffmpeg -version`).
   Writes, redirects, downloads to disk, and ffmpeg output are still refused,

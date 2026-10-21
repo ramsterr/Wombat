@@ -359,6 +359,9 @@ func (c *chat) rebuild(reset bool) error {
 		DenyMutate: !c.mode.AllowsWrite(),
 		Mode:       c.mode.Label(),
 		NoImages:   !vision,
+		Warn: func(s string) {
+			c.emit(noteMsg{text: "checkpoint skipped: " + s})
+		},
 	}
 	env.AskUser = c.askUser
 	if c.cfg.Checkpoints {

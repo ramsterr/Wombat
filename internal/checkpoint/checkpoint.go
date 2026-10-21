@@ -220,6 +220,30 @@ func (m *Manager) Last() string {
 	return m.mu.last
 }
 
+// Prune removes all but the newest keep checkpoints and returns the number
+// removed. A checkpoint is only an undo point; pruning never touches the
+// workspace.
+func (m *Manager) Prune(keep int) (int, error) {
+	if keep < 0 {
+		keep = 0
+	}
+	list, err := m.List()
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for i, manifest := range list {
+		if i < keep {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(m.root, manifest.ID)); err != nil {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 func (m *Manager) List() ([]Manifest, error) {
 	entries, err := os.ReadDir(m.root)
 	if errors.Is(err, os.ErrNotExist) {
