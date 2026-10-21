@@ -19,6 +19,10 @@ var skipDirs = map[string]bool{
 	"node_modules": true,
 	".venv":        true,
 	"venv":         true,
+	".wombat":      true,
+	".ssh":         true,
+	".aws":         true,
+	".gnupg":       true,
 }
 
 func globToRegexp(pattern string) (*regexp.Regexp, error) {
@@ -201,6 +205,9 @@ func (t *Grep) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 		if includeRe != nil && !matchPath(includeRe, a.Include, rel) {
 			return nil
 		}
+		if isProtectedPath(path) {
+			return nil
+		}
 		info, err := d.Info()
 		if err != nil || info.Size() > 2<<20 {
 			return nil
@@ -244,5 +251,5 @@ func (t *Grep) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 		header = fmt.Sprintf("%d+ matches (capped) in %d+ files:\n", maxMatches, len(matchedFiles))
 	}
 	res := header + strings.Join(out, "\n")
-	return Truncate(res, 800, 0.9, 200*1024), nil
+	return RedactSecrets(Truncate(res, 800, 0.9, 200*1024)), nil
 }

@@ -44,6 +44,7 @@ type Config struct {
 	TrimReasoning       bool                 `json:"trim_reasoning,omitempty"`
 	ParallelAgents      bool                 `json:"parallel_agents"`
 	ScoutModel          string               `json:"scout_model,omitempty"`
+	FallbackModels      []string             `json:"fallback_models,omitempty"`
 	Checkpoints         bool                 `json:"checkpoints"`
 	RequireVerification bool                 `json:"require_verification"`
 	Writers             bool                 `json:"writers"`
@@ -123,10 +124,12 @@ func Defaults() *Config {
 		// Simple by default: the agent works without stopping to ask. Set a
 		// class back to "ask" to be consulted before it is used.
 		Permissions: map[string]string{
-			"bash":    "allow",
-			"write":   "allow",
-			"edit":    "allow",
-			"network": "allow",
+			"bash":           "allow",
+			"write":          "allow",
+			"edit":           "allow",
+			"network":        "allow",
+			"dangerous":      "ask",
+			"sensitive-read": "ask",
 		},
 		Orchestrator:        true,
 		MaxParallelScouts:   DefaultMaxParallelScouts,

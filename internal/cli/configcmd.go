@@ -20,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, parallel_agents, scout_model, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, permissions.<bash|write|edit|outside|network>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -45,6 +45,15 @@ func cmdConfig(args []string) error {
 		cfg.ParallelAgents = v
 	case key == "scout_model":
 		cfg.ScoutModel = val
+	case key == "fallback_models":
+		parts := strings.Split(val, ",")
+		models := make([]string, 0, len(parts))
+		for _, m := range parts {
+			if m = strings.TrimSpace(m); m != "" {
+				models = append(models, m)
+			}
+		}
+		cfg.FallbackModels = models
 	case key == "trim_reasoning":
 		v, err := parseBool(key, val)
 		if err != nil {

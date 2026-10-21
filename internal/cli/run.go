@@ -79,6 +79,7 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer ag.Env.JobManager().Close()
 	ag.Hooks = r.hooks()
 	r.windowFn = func() int { return ag.ContextWindow }
 

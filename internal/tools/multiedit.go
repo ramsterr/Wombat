@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 )
 
 // MultiEdit applies several edits to one file in a single call.
@@ -28,7 +27,7 @@ type multiEditItem struct {
 func (t *MultiEdit) Name() string  { return "multi_edit" }
 func (t *MultiEdit) Class() string { return "edit" }
 func (t *MultiEdit) Description() string {
-	return "Apply several edits to one file in a single call. Each edit replaces an exact, unique string. All edits are checked before anything is written, so the file is never half-edited."
+	return "Apply several edits to one file in a single call. Each edit replaces a unique string; matching tolerates CRLF and whitespace differences. All edits are checked before anything is written, so the file is never half-edited."
 }
 func (t *MultiEdit) Schema() map[string]any {
 	return obj(map[string]any{
@@ -40,7 +39,7 @@ func (t *MultiEdit) Schema() map[string]any {
 			"items": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"old_string":  map[string]any{"type": "string", "description": "the exact text to replace, with enough context to be unique"},
+					"old_string":  map[string]any{"type": "string", "description": "the text to replace, with enough context to be unique"},
 					"new_string":  map[string]any{"type": "string", "description": "the replacement text"},
 					"replace_all": map[string]any{"type": "boolean", "description": "replace every occurrence instead of requiring a unique one"},
 				},
@@ -58,47 +57,54 @@ func (t *MultiEdit) Run(_ context.Context, raw json.RawMessage, env *Env) (strin
 	if len(a.Edits) == 0 {
 		return "", fmt.Errorf("multi_edit needs at least one edit")
 	}
-	if err := env.CheckPath("edit", a.Path); err != nil {
-		return "", err
-	}
-	if err := env.Snapshot("before multi edit", a.Path); err != nil {
+	if err := env.checkPolicy("edit", a.Path); err != nil {
 		return "", err
 	}
 	path, err := env.ResolvePath(a.Path)
 	if err != nil {
 		return "", err
 	}
+	if err := env.checkOldContent(path); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
-	content := string(data)
-
-	// Check every edit first: the file is only written if all of them apply.
+	original := string(data)
+	content := original
+	fuzzy := false
+	total := 0
 	for i, e := range a.Edits {
 		if e.OldString == "" {
 			return "", fmt.Errorf("edit %d: old_string is required", i+1)
 		}
-		count := strings.Count(content, e.OldString)
-		if count == 0 {
-			return "", fmt.Errorf("edit %d: old_string not found in %s", i+1, a.Path)
+		var count int
+		var wasFuzzy bool
+		content, count, wasFuzzy, err = replaceTextIn(path, content, e.OldString, e.NewString, e.ReplaceAll)
+		if err != nil {
+			return "", fmt.Errorf("edit %d: %w", i+1, err)
 		}
-		if count > 1 && !e.ReplaceAll {
-			return "", fmt.Errorf("edit %d: old_string matches %d times in %s - include more context to make it unique", i+1, count, a.Path)
-		}
+		total += count
+		fuzzy = fuzzy || wasFuzzy
 	}
-	for i, e := range a.Edits {
-		if e.ReplaceAll {
-			content = strings.ReplaceAll(content, e.OldString, e.NewString)
-		} else {
-			content = strings.Replace(content, e.OldString, e.NewString, 1)
-		}
-		_ = i
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := env.CheckPathPreview("edit", a.Path, DiffPreview(a.Path, original, content)); err != nil {
 		return "", err
 	}
-	out := fmt.Sprintf("edited %s (%d edits)", a.Path, len(a.Edits))
+	if err := env.Snapshot("before multi edit", a.Path); err != nil {
+		return "", err
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(content), st.Mode().Perm()); err != nil {
+		return "", err
+	}
+	out := fmt.Sprintf("edited %s (%d edits, %d replacements)", a.Path, len(a.Edits), total)
+	if fuzzy {
+		out += " [some matches ignored whitespace/line endings]"
+	}
 	if w := secretWarning(env, path); w != "" {
 		out = w + "\n" + out
 	}

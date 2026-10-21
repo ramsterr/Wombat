@@ -56,6 +56,9 @@ func buildProvider(ctx context.Context, cfg *config.Config, name, modelOverride 
 	if err != nil {
 		return nil, "", "", err
 	}
+	if len(cfg.FallbackModels) > 0 {
+		prov = llm.WithFallback(prov, cfg.FallbackModels, nil)
+	}
 	model := modelOverride
 	if model == "" {
 		model = cfg.ActiveModel()
@@ -101,10 +104,11 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		sessionMode = opts.mode
 	}
 	env := &tools.Env{
-		Dir:        cwd,
-		Permit:     p.Permit,
-		Mode:       sessionMode.Label(),
-		DenyMutate: !sessionMode.AllowsWrite(),
+		Dir:           cwd,
+		Permit:        p.Permit,
+		PermitPreview: p.PermitPreview,
+		Mode:          sessionMode.Label(),
+		DenyMutate:    !sessionMode.AllowsWrite(),
 	}
 	if p != nil {
 		env.AskUser = func(q tools.Question) (string, error) {

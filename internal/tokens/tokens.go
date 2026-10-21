@@ -43,12 +43,33 @@ var modelWindows = []struct {
 const DefaultWindow = 128000
 const OutputReserve = 16000
 
-func Window(model string) int {
-	m := strings.ToLower(model)
+// Capabilities describes what a model can accept. It is derived from the
+// model name because providers do not expose a reliable capability endpoint;
+// an unknown model gets conservative text-only defaults.
+type Capabilities struct {
+	Context int
+	Vision  bool
+	Source  string
+}
+
+// Discover returns the detected capabilities for a model name.
+func Discover(model string) Capabilities {
+	m := strings.ToLower(strings.TrimSpace(model))
+	c := Capabilities{Context: DefaultWindow, Source: "default"}
+	if m == "" {
+		return c
+	}
 	for _, w := range modelWindows {
 		if strings.Contains(m, w.match) {
-			return w.ctx
+			c.Context = w.ctx
+			c.Source = "model-name"
+			break
 		}
 	}
-	return DefaultWindow
+	c.Vision = SupportsImages(m)
+	return c
+}
+
+func Window(model string) int {
+	return Discover(model).Context
 }

@@ -19,10 +19,15 @@ type CommandResult struct {
 }
 
 func RunCommand(ctx context.Context, env *Env, command string, timeout time.Duration) CommandResult {
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+	var runCtx context.Context
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		// No default timeout: a long build or test run finishes on its own.
+		// Use a background job if you want to keep working while it runs.
+		runCtx, cancel = context.WithCancel(ctx)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	name, args := "sh", []string{"-c", command}
 	cmd := exec.CommandContext(runCtx, name, args...)

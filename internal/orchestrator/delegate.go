@@ -280,6 +280,8 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 	env := *o.lead.Env
 	env.ReadOnly = true
 	env.Permit = nil
+	env.Isolate()
+	defer env.CloseJobs()
 
 	runCtx, cancel := context.WithTimeout(ctx, cfg.WorkerTimeout)
 	defer cancel()

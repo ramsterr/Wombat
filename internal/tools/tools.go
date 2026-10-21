@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type Checkpointer interface {
@@ -27,6 +28,7 @@ const toolsDeniedNote = "the user declined this call. Do not claim it was done. 
 type Env struct {
 	Dir           string
 	Permit        func(kind, detail string) Decision
+	PermitPreview func(kind, detail, preview string) Decision
 	ReadOnly      bool
 	AllowOutside  bool
 	DenyDangerous bool
@@ -39,16 +41,36 @@ type Env struct {
 
 	// media collects files a tool wants the model to look at, such as an
 	// image the agent downloaded. The agent owns the list.
-	media *[]Media
+	media *mediaSink
 
 	// spillDir is where a large tool result is written so the model can
 	// read the parts it needs instead of carrying the whole thing in its
 	// context. The agent sets it.
 	spillDir string
 
+	// jobs owns background processes started through this environment.
+	jobs *JobManager
+
 	// AskUser asks the user a question and waits for the answer. It is nil
 	// where nobody can answer, such as inside a worker.
 	AskUser func(q Question) (string, error)
+}
+
+// mediaSink is a pointer so copying an Env (the orchestrator does that for
+// workers) does not copy the mutex or accidentally share the collected list
+// between agents.
+type mediaSink struct {
+	mu   sync.Mutex
+	list *[]Media
+}
+
+func (s *mediaSink) add(m Media) {
+	if s == nil || s.list == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	*s.list = append(*s.list, m)
 }
 
 // SetSpillDir sets the directory large tool results are written to.
@@ -59,6 +81,14 @@ func (e *Env) SetSpillDir(dir string) {
 	e.spillDir = dir
 }
 
+// SpillDir is the directory large tool results and prepared images go to.
+func (e *Env) SpillDir() string {
+	if e == nil {
+		return ""
+	}
+	return e.spillDir
+}
+
 // Media is a file a tool produced for the model to look at.
 type Media struct {
 	// Path is the file on disk.
@@ -67,6 +97,8 @@ type Media struct {
 	MIME string
 	// Name is a friendly name for the model.
 	Name string
+	// Note describes a transformation, such as a downscale.
+	Note string
 }
 
 // SetMediaSink gives the environment the list that collects files for the
@@ -75,24 +107,73 @@ func (e *Env) SetMediaSink(m *[]Media) {
 	if e == nil {
 		return
 	}
-	e.media = m
+	if m == nil {
+		e.media = nil
+		return
+	}
+	e.media = &mediaSink{list: m}
 }
 
-// AddMedia hands a file to the model as an attachment.
+// AddMedia hands a file to the model as an attachment. It is safe to call
+// from parallel read-only tools.
 func (e *Env) AddMedia(m Media) {
 	if e == nil || e.media == nil {
 		return
 	}
-	*e.media = append(*e.media, m)
+	e.media.add(m)
 }
 
-// allowDangerous reports whether a command on the dangerous list may run.
-// It is a plain permission check: ask, allow, or deny.
-func (e *Env) allowDangerous(command string) bool {
-	if e == nil || !IsDangerousCommand(command) {
-		return true
+// Isolate gives a copied Env its own process and media state. Workers use
+// this so they cannot see, kill, or attach the lead's jobs and files.
+func (e *Env) Isolate() {
+	if e == nil {
+		return
 	}
-	return e.permit("dangerous", command) == nil
+	e.media = nil
+	e.jobs = nil
+	e.PermitPreview = nil
+}
+
+// jobManagerInit guards the one-time construction of an Env's manager:
+// background tools may be called concurrently.
+var jobManagerInit sync.Mutex
+
+// CloseJobs stops any background jobs this Env started. It is safe to call
+// when no job manager exists.
+func (e *Env) CloseJobs() {
+	if e == nil || e.jobs == nil {
+		return
+	}
+	e.jobs.Close()
+}
+
+// JobManager returns the background process manager, creating it on first
+// use.
+func (e *Env) JobManager() *JobManager {
+	if e == nil {
+		return nil
+	}
+	jobManagerInit.Lock()
+	defer jobManagerInit.Unlock()
+	if e.jobs == nil {
+		e.jobs = NewJobManager()
+	}
+	return e.jobs
+}
+
+// guardDangerous asks before a dangerous command runs. It never silently
+// allows one when nobody can approve it.
+func (e *Env) guardDangerous(command string) error {
+	if e == nil || !IsDangerousCommand(command) {
+		return nil
+	}
+	if e.DenyDangerous {
+		return fmt.Errorf("dangerous command refused: %s", command)
+	}
+	if e.Permit == nil {
+		return fmt.Errorf("dangerous command refused because no one is available to approve it: %s", command)
+	}
+	return e.permit("dangerous", command)
 }
 
 func (e *Env) Snapshot(reason string, paths ...string) error {
@@ -114,7 +195,12 @@ type Tool interface {
 }
 
 func Registry() []Tool {
-	return []Tool{&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &Glob{}, &Grep{}, &Batch{}, &WebFetch{}, &WebSearch{}}
+	return []Tool{
+		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{},
+		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &Verify{},
+		&WebFetch{}, &WebSearch{},
+		&Jobs{}, &JobOutput{}, &JobKill{},
+	}
 }
 
 // RegistryWithQuestion is the full tool set, including the question tool the
@@ -131,15 +217,17 @@ func (e *Env) Check(kind, detail string) error {
 }
 
 func (e *Env) checkPolicy(kind, detail string) error {
-	if kind == "read" {
-		return nil
-	}
 	if e.ReadOnly {
 		if kind == "write" || kind == "edit" {
 			return fmt.Errorf("read-only mode: %s is disabled", kind)
 		}
-		if kind == "bash" && MayMutate(detail) {
-			return fmt.Errorf("read-only mode: commands that change files are disabled: %s", detail)
+		if kind == "bash" {
+			if MayMutate(detail) {
+				return fmt.Errorf("read-only mode: commands that change files are disabled: %s", detail)
+			}
+			if IsDangerousCommand(detail) {
+				return fmt.Errorf("read-only mode: dangerous commands are disabled: %s", detail)
+			}
 		}
 	}
 	if e.DenyMutate && (kind == "write" || kind == "edit") {
@@ -154,10 +242,28 @@ func (e *Env) checkPolicy(kind, detail string) error {
 }
 
 func (e *Env) permit(kind, detail string) error {
-	if kind == "read" || e.Permit == nil {
+	return e.permitPreview(kind, detail, "")
+}
+
+func (e *Env) permitPreview(kind, detail, preview string) error {
+	if kind == "read" {
 		return nil
 	}
-	d := e.Permit(kind, detail)
+	if kind == "sensitive-read" && e.Permit == nil && e.PermitPreview == nil {
+		return fmt.Errorf("refusing to read a credentials file without approval: %s", detail)
+	}
+	if e.Permit == nil && e.PermitPreview == nil {
+		return nil
+	}
+	var d Decision
+	switch {
+	case preview != "" && e.PermitPreview != nil:
+		d = e.PermitPreview(kind, detail, preview)
+	case e.Permit != nil:
+		d = e.Permit(kind, detail)
+	case e.PermitPreview != nil:
+		d = e.PermitPreview(kind, detail, "")
+	}
 	if d.Allow {
 		return nil
 	}

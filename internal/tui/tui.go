@@ -208,6 +208,9 @@ func Run(opt Options) (Action, error) {
 	p := tea.NewProgram(m, opts...)
 	m.chat.send = p.Send
 	final, err := p.Run()
+	if ch.ag != nil && ch.ag.Env != nil {
+		ch.ag.Env.JobManager().Close()
+	}
 	if err != nil {
 		return Action{}, err
 	}

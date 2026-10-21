@@ -285,6 +285,8 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		return
 	}
 	env := *o.lead.Env
+	env.Isolate()
+	defer env.CloseJobs()
 	env.Dir = wt.Path
 	env.ReadOnly = false
 	env.Permit = nil

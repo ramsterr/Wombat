@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/term"
@@ -100,6 +101,7 @@ func wrap(s, code string) string {
 }
 
 type Prompter struct {
+	mu     sync.Mutex
 	always map[string]bool
 	in     *bufio.Reader
 	tty    bool
@@ -118,6 +120,20 @@ func newPrompter(tty, auto bool, cfg *config.Config) *Prompter {
 }
 
 func (p *Prompter) Permit(kind, detail string) tools.Decision {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.permit(kind, detail, "")
+}
+
+// PermitPreview shows the proposed change before asking. A path alone is
+// not enough to judge a write.
+func (p *Prompter) PermitPreview(kind, detail, preview string) tools.Decision {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.permit(kind, detail, preview)
+}
+
+func (p *Prompter) permit(kind, detail, preview string) tools.Decision {
 	if v, ok := p.perms[kind]; ok {
 		switch v {
 		case "allow":
@@ -132,9 +148,26 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 		return tools.Decision{Allow: true}
 	}
 	if !p.tty {
-		fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" requires approval: "+clipLine(detail, 120)+
-			" — allowed automatically in a non-interactive run; set permissions."+kind+" to allow, or use --yolo"))
+		fmt.Fprintln(os.Stderr, dim("[permission] "+kind+" requires approval and was refused in this non-interactive run: "+clipLine(detail, 120)+
+			" — rerun with --yolo, or set permissions."+kind+" to allow"))
 		return tools.Decision{Feedback: nonInteractiveNote(kind)}
+	}
+	if preview != "" {
+		fmt.Fprintln(os.Stderr, dim("proposed change:"))
+		for _, line := range strings.Split(preview, "\n") {
+			switch {
+			case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+				fmt.Fprintln(os.Stderr, dim("  "+line))
+			case strings.HasPrefix(line, "+"):
+				fmt.Fprintln(os.Stderr, green("  "+line))
+			case strings.HasPrefix(line, "-"):
+				fmt.Fprintln(os.Stderr, red("  "+line))
+			case strings.HasPrefix(line, "@@"):
+				fmt.Fprintln(os.Stderr, cyan("  "+line))
+			default:
+				fmt.Fprintln(os.Stderr, dim("  "+line))
+			}
+		}
 	}
 	look := lookFor(tools.PermKindFor(kind))
 	fmt.Fprintf(os.Stderr, "%s %s\n  %s\n  %s / %s / %s, or type instructions to deny with feedback: ",
@@ -173,6 +206,8 @@ func lookFor(kind tools.PermKind) permLook {
 		return permLook{symbol: "▲", color: magenta, title: "sandbox"}
 	case tools.PermDangerous:
 		return permLook{symbol: "!", color: red, title: "dangerous command"}
+	case tools.PermSensitive:
+		return permLook{symbol: "▲", color: red, title: "credentials file"}
 	case tools.PermOutside:
 		return permLook{symbol: "?", color: blue, title: "outside the workspace"}
 	}
@@ -197,6 +232,8 @@ func declinedNote() string {
 // non-interactive run there is nobody to answer, so it says so instead of
 // reading whatever bytes happen to be on stdin.
 func (p *Prompter) AskUser(q tools.Question) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if !p.tty {
 		return "", fmt.Errorf("this run has no terminal to ask the user in — run it interactively, or rephrase the task")
 	}

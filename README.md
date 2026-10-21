@@ -46,7 +46,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Multimodal input** — images, video, audio, and documents, wherever the selected model supports them.
 - **Resumable sessions** stored as JSONL, keyed to the working directory, with a browsable history and transcript previews.
 - **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.
-- **Useful tools** — `read`, `write`, `edit`, `bash`, `glob`, and `grep` — with per-class allow/deny/ask permissions.
+- **Useful tools** — read, write, edit, atomic patches, shell and background jobs, search, symbols, and project verification — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two working modes** — `chat` explores and explains without touching anything; `create` writes and edits. Switch with `/mode`.
 - **It just works** — no sandbox, no caps, no permission prompts by default: the agent reads, writes, and runs commands. Ask before you act by setting a permission to `ask`. File mutations are snapshotted, so you can undo with `wombat checkpoint restore`.
@@ -369,14 +369,18 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 
 | tool | class | notes |
 |---|---|---|
-| `read` | read | line-numbered, offset/limit, 8 MB cap |
-| `write` | write | creates parent directories |
-| `edit` | edit | exact-string replace; must match uniquely unless `replace_all` |
-| `bash` | bash | 120s timeout, large output, nothing blocked by default |
-| `glob` | read | `**` patterns; skips `.git` and `node_modules` |
-| `grep` | read | pure-Go regular-expression search |
-| `batch` | read | several `read`/`grep`/`glob` calls in one round-trip |
+| `read` | read | line-numbered, offset/limit; attaches images and refuses binary files |
+| `write` | write | creates parent directories; shows a diff before writing |
+| `edit` | edit | exact replace, then CRLF/whitespace-tolerant and code-token matching; shows a diff |
 | `multi_edit` | edit | several edits to one file, applied atomically |
+| `apply_patch` | edit | atomic multi-file patches, validated then rolled back on failure |
+| `bash` | bash | no default timeout; `background` starts a managed job |
+| `glob` | read | `**` patterns; skips `.git` and `node_modules` |
+| `grep` | read | pure-Go search; skips credentials files and redacts output |
+| `symbols` | read | Go AST definitions/references plus language-specific declarations |
+| `batch` | read | several `read`/`grep`/`glob` calls in one round-trip |
+| `verify` | bash | runs the project's own tests, build, typecheck, lint, and format |
+| `jobs` / `job_output` / `job_kill` | read/bash | list, stream, and stop background processes |
 | `webfetch` | network | fetch a URL and return readable text |
 | `websearch` | network | search the web and return ranked results |
 | `question` | ask | ask the user to choose, with 2-3 options or free text |
@@ -385,7 +389,7 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `delegate` / `delegate_many` | delegate | read-only investigation workers |
 | `delegate_write` | write | isolated git worktree writers (opt-in in config) |
 
-Permissions are set per class to `ask` (default), `allow`, or `deny`. Read is always allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed.
+Permissions are set per class to `ask`, `allow`, or `deny`. `bash`, `write`, `edit`, and `network` default to `allow`; `dangerous` and `sensitive-read` default to `ask`, so destructive commands and credentials files are never read automatically. Read is otherwise allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed. Credentials files are also skipped by `grep` and redacted from tool output.
 
 ## Craft standard
 
@@ -415,7 +419,8 @@ curl -sL -o /tmp/cat.png https://example.com/cat.png
 
 Reading an image attaches it to the agent's next message, so a
 vision-capable model actually sees it — the same path a pasted image takes.
-Text models simply get a note that the file is an image.
+A large image is downscaled before it is attached. Text models simply get a
+note that the file is an image.
 
 ## Speed
 
@@ -564,7 +569,8 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
       "num_ctx": 32768
     }
   },
-  "permissions": {"bash": "ask", "write": "ask", "edit": "ask"},
+  "permissions": {"bash": "allow", "write": "allow", "edit": "allow", "dangerous": "ask", "sensitive-read": "ask"},
+  "fallback_models": ["gpt-5-mini"],
   "orchestrator": true,
   "max_parallel_scouts": 3,
   "checkpoints": true,
@@ -577,11 +583,13 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 `mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. There are no step, token, or time caps: the agent works until the task is done. `max_parallel_scouts` and `max_parallel_writers` bound how many run at once (five and two). Checkpoints are on by default, so any change can be undone.
 
+`fallback_models` is an ordered list tried when the selected model is rate-limited, unavailable, or returns a server error. The model is only switched before any output has streamed, so a reply is never duplicated; an invalid request is reported instead of hidden by a fallback.
+
 ## Orchestration
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, and `grep`, cannot edit files, run mutating commands, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
 
 ### Checks, verification, and writers
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
@@ -20,6 +21,7 @@ import (
 )
 
 type renderer struct {
+	mu        sync.Mutex
 	cfg       *config.Config
 	sess      *session.Session
 	quiet     bool
@@ -33,76 +35,93 @@ type renderer struct {
 }
 
 func (r *renderer) hooks() agent.Hooks {
+	locked := func(fn func()) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		fn()
+	}
 	return agent.Hooks{
 		OnText: func(s string) {
-			if r.thinkOpen {
-				fmt.Fprintln(os.Stderr)
-				r.thinkOpen = false
-			}
-			if r.sp != nil && !r.textOpen {
-				r.sp.Stop()
-			}
-			r.textOpen = true
-			fmt.Print(s)
-		},
-		OnReasoning: func(s string) {
-			if r.quiet {
-				return
-			}
-			if !r.thinkOpen {
-				if r.sp != nil {
+			locked(func() {
+				if r.thinkOpen {
+					fmt.Fprintln(os.Stderr)
+					r.thinkOpen = false
+				}
+				if r.sp != nil && !r.textOpen {
 					r.sp.Stop()
 				}
-				if r.textOpen {
-					r.breakLine()
+				r.textOpen = true
+				fmt.Print(s)
+			})
+		},
+		OnReasoning: func(s string) {
+			locked(func() {
+				if r.quiet {
+					return
 				}
-				fmt.Fprintln(os.Stderr, dim("thinking:"))
-				r.thinkOpen = true
-			}
-			fmt.Fprint(os.Stderr, dim(s))
+				if !r.thinkOpen {
+					if r.sp != nil {
+						r.sp.Stop()
+					}
+					if r.textOpen {
+						r.breakLine()
+					}
+					fmt.Fprintln(os.Stderr, dim("thinking:"))
+					r.thinkOpen = true
+				}
+				fmt.Fprint(os.Stderr, dim(s))
+			})
 		},
 		OnTool: func(name, detail string) {
-			if r.quiet {
-				return
-			}
-			r.breakLine()
-			fmt.Fprintf(os.Stderr, "%s %s %s\n", dim("⚒"), bold(name), dim(clipLine(detail, 100)))
+			locked(func() {
+				if r.quiet {
+					return
+				}
+				r.breakLine()
+				fmt.Fprintf(os.Stderr, "%s %s %s\n", dim("⚒"), bold(name), dim(clipLine(detail, 100)))
+			})
 		},
 		OnToolResult: func(name, result string, dur time.Duration) {
-			if r.quiet {
-				return
-			}
-			preview := ""
-			if result != "" {
-				preview = dim(" · " + clipLine(result, 80))
-			}
-			mark := green("✓")
-			if strings.HasPrefix(result, "error:") {
-				mark = red("✗")
-			}
-			fmt.Fprintf(os.Stderr, "%s %s %s%s\n", mark, dim(name), dim(dur.Round(time.Millisecond).String()), preview)
+			locked(func() {
+				if r.quiet {
+					return
+				}
+				preview := ""
+				if result != "" {
+					preview = dim(" · " + clipLine(result, 80))
+				}
+				mark := green("✓")
+				if strings.HasPrefix(result, "error:") {
+					mark = red("✗")
+				}
+				fmt.Fprintf(os.Stderr, "%s %s %s%s\n", mark, dim(name), dim(dur.Round(time.Millisecond).String()), preview)
+			})
 		},
 		OnUsage: func(u llm.Usage, history int) {
-			r.cumIn += u.In
-			r.cumOut += u.Out
-			r.cumCached += u.Cached
-			if history < 0 || r.quiet || !colorEnabled {
-				return
-			}
-			cache := ""
-			if u.Cached > 0 {
-				cache = fmt.Sprintf(" (cache %s)", humanTokens(u.Cached))
-			}
-			fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("· in %s%s out %s · context %s/%s",
-				humanTokens(u.In), cache, humanTokens(u.Out),
-				humanTokens(history), humanTokens(r.window()))))
+			locked(func() {
+				r.cumIn += u.In
+				r.cumOut += u.Out
+				r.cumCached += u.Cached
+				if history < 0 || r.quiet || !colorEnabled {
+					return
+				}
+				cache := ""
+				if u.Cached > 0 {
+					cache = fmt.Sprintf(" (cache %s)", humanTokens(u.Cached))
+				}
+				fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("· in %s%s out %s · context %s/%s",
+					humanTokens(u.In), cache, humanTokens(u.Out),
+					humanTokens(history), humanTokens(r.window()))))
+			})
 		},
 		OnCompact: func(kind string, before, after int) {
-			if r.quiet {
-				return
-			}
-			fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("⟳ %s compaction: %s → %s tokens",
-				kind, humanTokens(before), humanTokens(after))))
+			locked(func() {
+				if r.quiet {
+					return
+				}
+				fmt.Fprintf(os.Stderr, "%s\n", dim(fmt.Sprintf("⟳ %s compaction: %s → %s tokens",
+					kind, humanTokens(before), humanTokens(after))))
+			})
 		},
 	}
 }
@@ -172,6 +191,7 @@ func cmdRepl(args []string, resume bool) error {
 	if err != nil {
 		return err
 	}
+	defer ag.Env.JobManager().Close()
 	ag.Hooks = r.hooks()
 	r.windowFn = func() int { return ag.ContextWindow }
 
@@ -215,6 +235,9 @@ func cmdRepl(args []string, resume bool) error {
 				return nil
 			}
 			if newAg != nil {
+				if ag.Env != nil {
+					ag.Env.JobManager().Close()
+				}
 				ag = newAg
 				sess = newSess
 				r.sess = newSess

@@ -27,6 +27,37 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Credentials are gated and redacted.** Reads of `.env`, `~/.ssh`, `~/.aws`,
+  `~/.wombat/config.json`, and other credentials files require a
+  `sensitive-read` decision; shell commands that name one require the same
+  approval. Tool output is redacted before it enters the model, and `grep`
+  skips credentials files. A `.env` written outside `.gitignore` gets a
+  warning.
+- **Dangerous commands are a separate permission.** `sudo`, recursive deletes
+  of `/` or `$HOME`, force pushes, `terraform destroy`, database drops, and
+  piping a download into a shell ask first; with nobody available to approve
+  them, they are refused.
+- **A diff before every write.** `write`, `edit`, `multi_edit`, and
+  `apply_patch` show the proposed change in the permission prompt.
+- **Fuzzy edits and atomic multi-file patches.** Edits retry with CRLF and
+  whitespace normalization, then match a unique code-token sequence so
+  reindented or reformatted blocks are found without matching the wrong one;
+  Go files use `go/scanner`, other files use a language-agnostic lexer.
+  `apply_patch` validates every hunk before writing and rolls back files it
+  already changed if a later write fails.
+- **Background jobs.** `bash background=true` starts a managed process;
+  `jobs`, `job_output` (`since`, `wait_ms`, `follow`), and `job_kill` manage
+  it, and jobs are stopped when the session ends.
+- **`verify` and project detection.** Wombat detects Go, Node, Python, Rust,
+  Maven, Gradle, Ruby, PHP, CMake, and Makefile projects and runs their own
+  test, build, typecheck, lint, and format commands.
+- **`symbols`.** Go definitions and references come from the AST, with
+  declaration patterns for other languages, so a comment is not mistaken for
+  code.
+- **Provider fallback.** `fallback_models` tries the next model on a
+  rate-limit, outage, or server error, but never after output has streamed.
+- **Binary and image safety.** `read` refuses binary files and attaches images
+  (downscaling a large one) instead of dumping bytes into the context.
 - **A scratch directory per session** (`~/.wombat/tmp/<session>`, also in
   `$WOMBAT_TMP`), so temporary files stay out of the project and out of the
   checkpoints.

@@ -9,6 +9,7 @@ import (
 
 var dangerousCommandPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(^|[;&|]\s*)sudo(\s|$)`),
+	regexp.MustCompile(`(?i)(^|[;&|]\s*)doas(\s|$)`),
 	regexp.MustCompile(`(?i)(^|[;&|]\s*)rm\s+(-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*)\s+(/|~|\$HOME|\.\.)(\s|$)`),
 	regexp.MustCompile(`(?i)(^|[;&|]\s*)mkfs(\.[a-z0-9]+)?(\s|$)`),
 	regexp.MustCompile(`(?i)\bdd\s+[^\n]*\bof=/dev/`),
@@ -18,6 +19,15 @@ var dangerousCommandPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bchown\s+-R\s+\S+\s+/`),
 	regexp.MustCompile(`(?i)\bkill\s+-9\s+-1(\s|$)`),
 	regexp.MustCompile(`(?i):\(\)\s*\{`),
+	// Piping a download straight into a shell, or running one through a
+	// process substitution: untrusted code with no review step.
+	regexp.MustCompile(`(?i)\b(curl|wget|fetch)\b[^\n|]*\|\s*(sudo\s+)?(sh|bash|zsh|fish|dash)(\s|$)`),
+	regexp.MustCompile(`(?i)\b(sh|bash|zsh|fish|dash)\s+<\(\s*(curl|wget|fetch)\b`),
+	regexp.MustCompile(`(?i)\beval\s+["']?\$\(\s*(curl|wget|fetch)\b`),
+	// Irreversible infrastructure and repository operations.
+	regexp.MustCompile(`(?i)\b(docker\s+(system|volume|network)\s+prune|docker\s+rm\s+-f|kubectl\s+delete|terraform\s+destroy|gh\s+repo\s+delete)\b`),
+	regexp.MustCompile(`(?i)\b(aws|gcloud|az)\b[^\n]*\b(delete|terminate|destroy)\b`),
+	regexp.MustCompile(`(?i)\b(drop\s+(database|schema|table)|truncate\s+table)\b`),
 }
 
 var networkCommandPatterns = []*regexp.Regexp{
@@ -58,38 +68,90 @@ func (e *Env) ResolvePath(path string) (string, error) {
 	return filepath.Join(e.Dir, path), nil
 }
 
+// CheckPath checks policy and permission for one path. Reads of credentials
+// files are approved explicitly; other reads are not gated.
 func (e *Env) CheckPath(kind, path string) error {
-	if kind != "read" && e.Dir != "" && !e.AllowOutside {
-		abs := path
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(e.Dir, abs)
+	return e.CheckPathPreview(kind, path, "")
+}
+
+// CheckPathPreview is CheckPath with the content or diff shown to the user
+// when the call is a write or an edit.
+func (e *Env) CheckPathPreview(kind, path, preview string) error {
+	if err := e.checkPolicy(kind, path); err != nil {
+		return err
+	}
+	if kind == "read" {
+		if isProtectedPath(path) {
+			return e.permitPreview("sensitive-read", path, "")
 		}
-		abs, err := filepath.Abs(abs)
-		if err != nil {
-			return err
+		return nil
+	}
+	outside, err := e.pathOutside(path)
+	if err != nil {
+		return err
+	}
+	if outside {
+		if e.DenyOutside {
+			return fmt.Errorf("path outside workspace is disabled: %s", path)
 		}
-		root, err := filepath.Abs(e.Dir)
-		if err != nil {
-			return err
+		if err := e.permit("outside", path); err != nil {
+			return fmt.Errorf("path outside workspace: %w", err)
 		}
-		rel, err := filepath.Rel(root, abs)
-		if err != nil {
-			return err
-		}
-		outside := rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel)
+		return nil
+	}
+	return e.permitPreview(kind, path, preview)
+}
+
+// CheckPaths asks for one permission decision covering several paths, so an
+// atomic patch is approved once with its complete diff.
+func (e *Env) CheckPaths(kind string, paths []string, preview string) error {
+	for _, path := range paths {
 		if err := e.checkPolicy(kind, path); err != nil {
 			return err
 		}
-		if outside {
-			if e.DenyOutside {
-				return fmt.Errorf("path outside workspace is disabled: %s", path)
-			}
-			if err := e.permit("outside", path); err != nil {
-				return fmt.Errorf("path outside workspace: %w", err)
-			}
-			return nil
-		}
-		return e.permit(kind, path)
 	}
-	return e.Check(kind, path)
+	outside := make([]string, 0, len(paths))
+	for _, path := range paths {
+		ok, err := e.pathOutside(path)
+		if err != nil {
+			return err
+		}
+		if ok {
+			outside = append(outside, path)
+		}
+	}
+	if len(outside) > 0 {
+		if e.DenyOutside {
+			return fmt.Errorf("path outside workspace is disabled: %s", strings.Join(outside, ", "))
+		}
+		if err := e.permit("outside", strings.Join(outside, ", ")); err != nil {
+			return fmt.Errorf("path outside workspace: %w", err)
+		}
+		return nil
+	}
+	return e.permitPreview(kind, strings.Join(paths, ", "), preview)
+}
+
+// pathOutside reports whether path is outside the workspace.
+func (e *Env) pathOutside(path string) (bool, error) {
+	if e == nil || e.Dir == "" || e.AllowOutside {
+		return false, nil
+	}
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(e.Dir, abs)
+	}
+	abs, err := filepath.Abs(abs)
+	if err != nil {
+		return false, err
+	}
+	root, err := filepath.Abs(e.Dir)
+	if err != nil {
+		return false, err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return false, err
+	}
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel), nil
 }

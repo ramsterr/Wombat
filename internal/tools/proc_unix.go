@@ -10,10 +10,16 @@ import (
 func prepareCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		return terminate(cmd)
+	}
+}
+
+func terminate(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+		return cmd.Process.Kill()
+	}
+	return nil
 }

@@ -12,19 +12,21 @@ import (
 type Bash struct{}
 
 type bashArgs struct {
-	Command   string `json:"command"`
-	TimeoutMS int    `json:"timeout_ms"`
+	Command    string `json:"command"`
+	TimeoutMS  int    `json:"timeout_ms"`
+	Background bool   `json:"background"`
 }
 
 func (t *Bash) Name() string  { return "bash" }
 func (t *Bash) Class() string { return "bash" }
 func (t *Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and exit code. Use for builds, tests, git, and listing files."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and exit code. Use background for a server, watcher, or long test run: it returns a job id immediately, and jobs, job_output, and job_kill manage it. There is no default timeout: pass timeout_ms only when a command should be stopped."
 }
 func (t *Bash) Schema() map[string]any {
 	return obj(map[string]any{
 		"command":    desc("shell command to run via sh -c"),
-		"timeout_ms": map[string]any{"type": "integer", "description": "timeout in milliseconds (default 120000)"},
+		"timeout_ms": map[string]any{"type": "integer", "description": "optional timeout in milliseconds; omitted means no timeout"},
+		"background": map[string]any{"type": "boolean", "description": "start the command as a background job and return its id immediately"},
 	}, "command")
 }
 
@@ -39,10 +41,18 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if err := env.checkPolicy("bash", a.Command); err != nil {
 		return "", err
 	}
+	if target := shellSecretTarget(a.Command); target != "" {
+		if err := env.permitPreview("sensitive-read", target, ""); err != nil {
+			return "", err
+		}
+	}
 	if env.DenyMutate && MayMutate(a.Command) {
 		return "", fmt.Errorf("chat mode: commands that change things are disabled — switch to create mode to run them")
 	}
 	if err := env.permit("bash", a.Command); err != nil {
+		return "", err
+	}
+	if err := env.guardDangerous(a.Command); err != nil {
 		return "", err
 	}
 	if MayMutate(a.Command) {
@@ -51,15 +61,15 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 		}
 	}
 	timeout := time.Duration(a.TimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+	if a.Background {
+		job, err := env.JobManager().Start(ctx, env, a.Command, timeout)
+		if err != nil {
+			return "", err
+		}
+		return job.StartSummary(), nil
 	}
 
 	result := RunCommand(ctx, env, a.Command, timeout)
-	if errors.Is(result.Err, context.Canceled) {
-		return "", result.Err
-	}
-
 	if errors.Is(result.Err, context.Canceled) {
 		return "", result.Err
 	}
@@ -68,7 +78,7 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if out == "" {
 		out = "(no output)"
 	}
-	return Truncate(out, 800, 0.3, 400*1024), nil
+	return RedactSecrets(Truncate(out, 800, 0.3, 400*1024)), nil
 }
 
 // looksLikePermissionDenied reports whether a command failed because the

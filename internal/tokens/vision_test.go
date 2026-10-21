@@ -24,3 +24,18 @@ func TestSupportsImages(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoverCapabilities(t *testing.T) {
+	c := Discover("claude-sonnet-4-5")
+	if c.Context != 200000 || !c.Vision || c.Source != "model-name" {
+		t.Fatalf("unexpected capabilities: %+v", c)
+	}
+	c = Discover("deepseek-v4.1-flash")
+	if c.Context != 128000 || c.Vision {
+		t.Fatalf("unexpected capabilities: %+v", c)
+	}
+	c = Discover("")
+	if c.Context != DefaultWindow || c.Vision || c.Source != "default" {
+		t.Fatalf("unexpected capabilities: %+v", c)
+	}
+}

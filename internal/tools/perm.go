@@ -21,6 +21,8 @@ const (
 	PermSandboxWrite PermKind = "sandbox-write"
 	// PermDangerous is a command on the dangerous list.
 	PermDangerous PermKind = "dangerous"
+	// PermSensitive is a read of a credentials file.
+	PermSensitive PermKind = "sensitive-read"
 )
 
 // Label is the short name shown in a prompt.
@@ -40,6 +42,8 @@ func (k PermKind) Label() string {
 		return "write access outside the sandbox"
 	case PermDangerous:
 		return "a dangerous command"
+	case PermSensitive:
+		return "a credentials file read"
 	}
 	return string(k)
 }
@@ -48,7 +52,7 @@ func (k PermKind) Label() string {
 // interface can mark it differently from ordinary tool permission.
 func (k PermKind) Outside() bool {
 	switch k {
-	case PermNetwork, PermSandboxWrite, PermDangerous, PermOutside:
+	case PermNetwork, PermSandboxWrite, PermDangerous, PermOutside, PermSensitive:
 		return true
 	}
 	return false
@@ -63,6 +67,14 @@ func PermKindFor(class string) PermKind {
 		return PermEdit
 	case PermOutside:
 		return PermOutside
+	case PermDangerous:
+		return PermDangerous
+	case PermSensitive:
+		return PermSensitive
+	case PermNetwork:
+		return PermNetwork
+	case PermBash:
+		return PermBash
 	}
 	return PermBash
 }

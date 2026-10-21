@@ -249,6 +249,15 @@ func (a *Agent) runToolCalls(ctx context.Context, toolCalls []llm.ToolCall, seen
 			blocked[i] = true
 		}
 	}
+	// Announce calls in the order the model asked for them. The calls
+	// themselves may finish out of order, but the hook stream stays ordered.
+	if a.Hooks.OnTool != nil {
+		for i, tc := range toolCalls {
+			if !blocked[i] {
+				a.Hooks.OnTool(tc.Name, toolDetail(tc))
+			}
+		}
+	}
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, parallelToolLimit)
 	for i, tc := range toolCalls {
@@ -276,12 +285,18 @@ func (a *Agent) runToolCalls(ctx context.Context, toolCalls []llm.ToolCall, seen
 // exclusiveTool reports whether a call must run on its own. Anything that can
 // change the filesystem or the repository is exclusive.
 func (a *Agent) exclusiveTool(tc llm.ToolCall) bool {
-	switch tc.Name {
-	case "read", "glob", "grep":
-		return false
-	case "bash":
+	if tc.Name == "bash" {
 		// A bash call that only inspects is safe to run alongside others.
 		return tools.MayMutate(toolArg(tc, "command"))
+	}
+	for _, t := range a.Tools {
+		if t.Name() != tc.Name {
+			continue
+		}
+		// Every read-only tool, including symbols, batch, and job_output,
+		// can run alongside the others. The prompt paths still serialize
+		// when a sensitive file needs approval.
+		return t.Class() != "read"
 	}
 	return true
 }
@@ -295,10 +310,7 @@ func (a *Agent) callTool(ctx context.Context, tc llm.ToolCall, blocked bool) too
 				tc.Name, maxRepeatedToolCall+1),
 		}
 	}
-	if a.Hooks.OnTool != nil {
-		a.Hooks.OnTool(tc.Name, toolDetail(tc))
-	}
-	a.Trace.Emit("tool_start", map[string]any{"name": tc.Name, "detail": tools.Truncate(toolDetail(tc), 0, 0, 500)})
+	a.Trace.Emit("tool_start", map[string]any{"name": tc.Name, "detail": tools.RedactSecrets(tools.Truncate(toolDetail(tc), 0, 0, 500))})
 	start := time.Now()
 	var content string
 	if ctx.Err() != nil {
@@ -314,6 +326,9 @@ func (a *Agent) callTool(ctx context.Context, tc llm.ToolCall, blocked bool) too
 			content = out
 		}
 	}
+	// Credentials never enter the conversation, even if a command printed
+	// them or the user approved a read of a secrets file.
+	content = tools.RedactSecrets(content)
 	return toolResult{content: tools.Truncate(content, 0, 0, 64*1024), duration: time.Since(start)}
 }
 
@@ -473,7 +488,11 @@ func (a *Agent) appendMedia(media []tools.Media) error {
 	if !tokens.SupportsImages(a.Model) {
 		parts := make([]string, 0, len(media))
 		for _, m := range media {
-			parts = append(parts, fmt.Sprintf("%s is an image (%s, %d bytes) at %s", m.Name, m.MIME, fileSize(m.Path), m.Path))
+			note := ""
+			if m.Note != "" {
+				note = " (" + m.Note + ")"
+			}
+			parts = append(parts, fmt.Sprintf("%s is an image (%s, %d bytes) at %s%s", m.Name, m.MIME, fileSize(m.Path), m.Path, note))
 		}
 		content := "I read " + strings.Join(parts, ", and ") + ". This model cannot see images, so I cannot " +
 			"look at them. Use the file directly (a tool that reads its metadata, or a command) if you need facts about it."
@@ -525,10 +544,15 @@ func toolDetail(tc llm.ToolCall) string {
 	switch tc.Name {
 	case "bash":
 		return pick("command")
-	case "write", "edit", "read":
-		return pick("path")
+	case "write", "edit", "read", "apply_patch", "symbols", "verify":
+		if v := pick("path"); v != "" {
+			return v
+		}
+		return pick("action", "kind", "name")
 	case "glob", "grep":
 		return pick("pattern")
+	case "job_output", "job_kill":
+		return pick("id")
 	default:
 		return ""
 	}

@@ -1,20 +1,22 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 const maxFileBytes = 8 << 20
 
 type Read struct{}
 
-// maxImageBytes caps an image the agent may look at.
-const maxImageBytes = 12 << 20
+// maxImageBytes caps an image the agent may look at before it is downscaled.
+const maxImageBytes = 24 << 20
 
 // imageMIME reports whether a path is an image the model can look at.
 func imageMIME(path string) (string, bool) {
@@ -34,7 +36,8 @@ func imageMIME(path string) (string, bool) {
 }
 
 // readImage hands an image to the model so it can look at it, instead of
-// returning the bytes as text.
+// returning the bytes as text. Large images are downscaled first: a camera
+// photo should not cost a quarter of the context window.
 func (t *Read) readImage(env *Env, path, mime string) (string, error) {
 	st, err := os.Stat(path)
 	if err != nil {
@@ -43,8 +46,16 @@ func (t *Read) readImage(env *Env, path, mime string) (string, error) {
 	if st.Size() > maxImageBytes {
 		return "", fmt.Errorf("image too large (%d bytes, max %d)", st.Size(), maxImageBytes)
 	}
-	env.AddMedia(Media{Path: path, MIME: mime, Name: filepath.Base(path)})
-	return fmt.Sprintf("image: %s (%s, %d bytes). It is attached to this message for you to look at.", path, mime, st.Size()), nil
+	prepared, note, err := prepareImage(env, path, mime)
+	if err != nil {
+		return "", err
+	}
+	env.AddMedia(Media{Path: prepared, MIME: mimeOf(prepared, mime), Name: filepath.Base(path), Note: note})
+	extra := ""
+	if note != "" {
+		extra = " " + note + "."
+	}
+	return fmt.Sprintf("image: %s (%s, %d bytes). It is attached to this message for you to look at.%s", path, mime, st.Size(), extra), nil
 }
 
 type readArgs struct {
@@ -56,7 +67,7 @@ type readArgs struct {
 func (t *Read) Name() string  { return "read" }
 func (t *Read) Class() string { return "read" }
 func (t *Read) Description() string {
-	return "Read a text file with line numbers. Use offset/limit for large files. Default reads up to 2000 lines."
+	return "Read a text file with line numbers. Use offset/limit for large files. Default reads up to 2000 lines. Images are attached for you to look at; binary files are refused instead of flooding the context."
 }
 func (t *Read) Schema() map[string]any {
 	return obj(map[string]any{
@@ -82,6 +93,9 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if err != nil {
 		return "", err
 	}
+	if st.IsDir() {
+		return "", fmt.Errorf("%s is a directory; use glob or grep", a.Path)
+	}
 	if st.Size() > maxFileBytes {
 		return "", fmt.Errorf("file too large (%d bytes)", st.Size())
 	}
@@ -91,6 +105,9 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
+	}
+	if isBinaryData(data) {
+		return "", fmt.Errorf("%s looks like a binary file (%d bytes, not UTF-8 text); read does not dump it into the context. Use bash with file, xxd, or strings if you need details", a.Path, len(data))
 	}
 	lines := strings.Split(string(data), "\n")
 	total := len(lines)
@@ -121,6 +138,44 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	return Truncate(strings.TrimSuffix(b.String(), "\n"), 0, 0, 400*1024), nil
 }
 
+// isBinaryData reports whether the bytes look like a binary file. NUL bytes
+// and a high share of invalid UTF-8 are the signals; ordinary source files,
+// including ones with unicode, pass.
+func isBinaryData(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	head := data
+	if len(head) > 8192 {
+		head = head[:8192]
+	}
+	if bytes.IndexByte(head, 0) >= 0 {
+		return true
+	}
+	if utf8.Valid(head) {
+		return false
+	}
+	invalid := 0
+	control := 0
+	for _, b := range head {
+		if b < 0x20 && b != '\n' && b != '\r' && b != '\t' && b != '\f' && b != '\b' {
+			control++
+		}
+	}
+	for len(head) > 0 {
+		_, size := utf8.DecodeRune(head)
+		if size == 1 && head[0] >= 0x80 {
+			invalid++
+		}
+		head = head[size:]
+	}
+	total := len(data)
+	if total > 8192 {
+		total = 8192
+	}
+	return control*100/total > 10 || invalid*100/total > 30
+}
+
 type Write struct{}
 
 type writeArgs struct {
@@ -131,7 +186,7 @@ type writeArgs struct {
 func (t *Write) Name() string  { return "write" }
 func (t *Write) Class() string { return "write" }
 func (t *Write) Description() string {
-	return "Write a file, creating it and any parent directories. Overwrites existing content."
+	return "Write a file, creating it and any parent directories. Overwrites existing content. The permission prompt shows the diff before anything is written."
 }
 func (t *Write) Schema() map[string]any {
 	return obj(map[string]any{
@@ -145,14 +200,25 @@ func (t *Write) Run(_ context.Context, raw json.RawMessage, env *Env) (string, e
 	if err != nil {
 		return "", fmt.Errorf("bad arguments: %w", err)
 	}
-	if err := env.CheckPath("write", a.Path); err != nil {
+	path, err := env.ResolvePath(a.Path)
+	if err != nil {
+		return "", err
+	}
+	var old string
+	if err := env.checkPolicy("write", a.Path); err != nil {
+		return "", err
+	}
+	if err := env.checkOldContent(path); err != nil {
+		return "", err
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		old = string(data)
+	}
+	preview := DiffPreview(a.Path, old, a.Content)
+	if err := env.CheckPathPreview("write", a.Path, preview); err != nil {
 		return "", err
 	}
 	if err := env.Snapshot("before write", a.Path); err != nil {
-		return "", err
-	}
-	path, err := env.ResolvePath(a.Path)
-	if err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -184,12 +250,12 @@ type editArgs struct {
 func (t *Edit) Name() string  { return "edit" }
 func (t *Edit) Class() string { return "edit" }
 func (t *Edit) Description() string {
-	return "Replace an exact string in a file. old_string must match exactly and be unique unless replace_all is true. Include enough surrounding context to make it unique."
+	return "Replace text in a file. old_string must be unique unless replace_all is true. Exact matching is tried first, then a line-based match that tolerates CRLF and whitespace differences. The permission prompt shows the diff."
 }
 func (t *Edit) Schema() map[string]any {
 	return obj(map[string]any{
 		"path":        desc("file path"),
-		"old_string":  desc("exact text to replace"),
+		"old_string":  desc("text to replace, with enough context to be unique"),
 		"new_string":  desc("replacement text"),
 		"replace_all": map[string]any{"type": "boolean", "description": "replace every occurrence"},
 	}, "path", "old_string", "new_string")
@@ -203,33 +269,29 @@ func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if a.OldString == a.NewString {
 		return "", fmt.Errorf("old_string and new_string are identical")
 	}
-	if err := env.CheckPath("edit", a.Path); err != nil {
-		return "", err
-	}
-	if err := env.Snapshot("before edit", a.Path); err != nil {
+	if err := env.checkPolicy("edit", a.Path); err != nil {
 		return "", err
 	}
 	path, err := env.ResolvePath(a.Path)
 	if err != nil {
 		return "", err
 	}
+	if err := env.checkOldContent(path); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
-	content := string(data)
-	count := strings.Count(content, a.OldString)
-	switch {
-	case count == 0:
-		return "", fmt.Errorf("old_string not found in %s", a.Path)
-	case count > 1 && !a.ReplaceAll:
-		return "", fmt.Errorf("old_string matches %d times in %s; add more context or set replace_all", count, a.Path)
+	updated, count, fuzzy, err := replaceTextIn(path, string(data), a.OldString, a.NewString, a.ReplaceAll)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", a.Path, err)
 	}
-	var updated string
-	if a.ReplaceAll {
-		updated = strings.ReplaceAll(content, a.OldString, a.NewString)
-	} else {
-		updated = strings.Replace(content, a.OldString, a.NewString, 1)
+	if err := env.CheckPathPreview("edit", a.Path, DiffPreview(a.Path, string(data), updated)); err != nil {
+		return "", err
+	}
+	if err := env.Snapshot("before edit", a.Path); err != nil {
+		return "", err
 	}
 	st, err := os.Stat(path)
 	if err != nil {
@@ -239,6 +301,9 @@ func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 		return "", err
 	}
 	out := fmt.Sprintf("edited %s (%d replacement(s))", a.Path, count)
+	if fuzzy {
+		out += " [matched ignoring whitespace/line endings]"
+	}
 	if w := secretWarning(env, path); w != "" {
 		out = w + "\n" + out
 	}

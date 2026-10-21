@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -98,10 +99,11 @@ type noteMsg struct {
 }
 
 type permAskMsg struct {
-	kind   string
-	perm   tools.PermKind
-	detail string
-	reply  chan tools.Decision
+	kind    string
+	perm    tools.PermKind
+	detail  string
+	preview string
+	reply   chan tools.Decision
 }
 
 // questionMsg asks the user to choose between options, the way opencode
@@ -120,7 +122,7 @@ func permColor(kind tools.PermKind) lipgloss.TerminalColor {
 		return cSandbox
 	case tools.PermOutside:
 		return cOutside
-	case tools.PermDangerous:
+	case tools.PermDangerous, tools.PermSensitive:
 		return cRed
 	}
 	return cWarn
@@ -133,6 +135,8 @@ func permTitle(kind tools.PermKind) string {
 		return "sandbox"
 	case tools.PermDangerous:
 		return "dangerous"
+	case tools.PermSensitive:
+		return "credentials file"
 	case tools.PermOutside:
 		return "outside workspace"
 	}
@@ -179,6 +183,7 @@ type chat struct {
 	perm         *permAskMsg
 	permFeedback bool
 	permInput    textinput.Model
+	permMu       sync.Mutex
 
 	question       *tools.Question
 	questionText   textinput.Model
@@ -334,6 +339,9 @@ func (c *chat) rebuild(reset bool) error {
 	if err != nil {
 		return err
 	}
+	if len(c.cfg.FallbackModels) > 0 {
+		prov = llm.WithFallback(prov, c.cfg.FallbackModels, nil)
+	}
 	cwd := c.sess.Meta.Cwd
 	if cwd == "" {
 		cwd = c.opt.Cwd
@@ -349,7 +357,7 @@ func (c *chat) rebuild(reset bool) error {
 	env := &tools.Env{
 		Dir:           cwd,
 		Permit:        c.permit,
-		DenyDangerous: true,
+		PermitPreview: c.permitPreview,
 		DenyMutate:    !c.mode.AllowsWrite(),
 		Mode:          c.mode.Label(),
 	}
@@ -361,8 +369,13 @@ func (c *chat) rebuild(reset bool) error {
 		}
 		env.Checkpoint = cp
 	}
-	if c.ag != nil && c.ag.Trace != nil {
-		_ = c.ag.Trace.Close()
+	if c.ag != nil {
+		if c.ag.Trace != nil {
+			_ = c.ag.Trace.Close()
+		}
+		if c.ag.Env != nil {
+			c.ag.Env.JobManager().Close()
+		}
 	}
 	c.ag = &agent.Agent{
 		Provider:      prov,
@@ -432,6 +445,12 @@ func (c *chat) openSession(id string) error {
 }
 
 func (c *chat) permit(kind, detail string) tools.Decision {
+	return c.permitPreview(kind, detail, "")
+}
+
+func (c *chat) permitPreview(kind, detail, preview string) tools.Decision {
+	c.permMu.Lock()
+	defer c.permMu.Unlock()
 	if v, ok := c.cfg.Permissions[kind]; ok {
 		switch v {
 		case "allow":
@@ -448,7 +467,7 @@ func (c *chat) permit(kind, detail string) tools.Decision {
 	if c.send == nil {
 		return tools.Decision{}
 	}
-	c.emit(permAskMsg{kind: kind, perm: tools.PermKindFor(kind), detail: detail, reply: reply})
+	c.emit(permAskMsg{kind: kind, perm: tools.PermKindFor(kind), detail: detail, preview: preview, reply: reply})
 	select {
 	case d := <-reply:
 		return d
@@ -1366,6 +1385,9 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case permAskMsg:
 		p := msg
+		if p.preview != "" {
+			c.note("proposed change for "+p.detail+":\n"+p.preview, false)
+		}
 		c.perm = &p
 		c.layout()
 		c.refresh()
