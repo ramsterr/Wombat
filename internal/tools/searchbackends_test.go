@@ -32,9 +32,12 @@ func TestSearchBingRSSParse(t *testing.T) {
 }
 
 func TestSearchWebRacesAndCaches(t *testing.T) {
-	for _, key := range []string{"BRAVE_API_KEY", "TAVILY_API_KEY", "SERPER_API_KEY"} {
+	for _, key := range []string{"BRAVE_API_KEY", "TAVILY_API_KEY", "SERPER_API_KEY", "EXA_API_KEY"} {
 		t.Setenv(key, "")
 	}
+	oldExa, oldTavily := exaMCPURL, tavilyAPIURL
+	exaMCPURL, tavilyAPIURL = "", ""
+	defer func() { exaMCPURL, tavilyAPIURL = oldExa, oldTavily }()
 	clearSearchCache()
 	var mu sync.Mutex
 	bingHits, ddgHits := 0, 0
@@ -60,30 +63,26 @@ func TestSearchWebRacesAndCaches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 2 {
-		t.Fatalf("results = %+v", results)
+	if len(results) == 0 {
+		t.Fatal("no results")
 	}
-	foundCanonical := false
 	for _, result := range results {
-		if result.URL == "https://example.com/a" {
-			foundCanonical = true
-		}
 		if strings.Contains(result.URL, "utm_") {
 			t.Fatalf("tracking parameter not removed: %q", result.URL)
 		}
 	}
-	if !foundCanonical {
-		t.Fatalf("canonical Bing URL missing: %+v", results)
-	}
+	mu.Lock()
+	before := bingHits + ddgHits
+	mu.Unlock()
 	results, err = searchWeb(context.Background(), "test query", 8)
-	if err != nil || len(results) != 2 {
+	if err != nil || len(results) == 0 {
 		t.Fatalf("cached search = %+v, %v", results, err)
 	}
 	mu.Lock()
-	b, d := bingHits, ddgHits
+	after := bingHits + ddgHits
 	mu.Unlock()
-	if b != 1 || d != 1 {
-		t.Fatalf("second search should hit cache: bing=%d ddg=%d", b, d)
+	if after != before {
+		t.Fatalf("second search should hit cache: before=%d after=%d", before, after)
 	}
 }
 
@@ -101,5 +100,25 @@ func TestSerperParse(t *testing.T) {
 	results, err := searchSerper(context.Background(), "k", "q", 5)
 	if err != nil || len(results) != 1 || !strings.Contains(results[0].Title, "One") {
 		t.Fatalf("results=%+v err=%v", results, err)
+	}
+}
+
+func TestSearchExaParse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("missing content type")
+		}
+		fmt.Fprint(w, "event: message\ndata: {\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"Title: One\\nURL: https://one.example\\nHighlights:\\nfirst hit\\n\\n---\\n\\nTitle: Two\\nURL: https://two.example\\nText:\\nsecond hit\"}]}}\n\n")
+	}))
+	defer srv.Close()
+	old := exaMCPURL
+	exaMCPURL = srv.URL
+	defer func() { exaMCPURL = old }()
+	results, err := searchExa(context.Background(), "", "query", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].URL != "https://one.example" || !strings.Contains(results[1].Snippet, "second") {
+		t.Fatalf("results = %+v", results)
 	}
 }

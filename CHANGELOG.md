@@ -99,11 +99,12 @@ All notable changes to Wombat are recorded here. The format follows
   `worker_full_access false` restores read-only scouts. Worker and writer token
   budgets default to unlimited; `worker_token_budget` and the turn caps can be
   set to a positive number to opt back into limits.
-- **Faster web research.** `websearch` queries Bing RSS and DuckDuckGo HTML in
-  parallel, caches results, and uses Brave/Tavily/Serper APIs when their keys
-  are present. `webfetch` caches responses, retries connection failures,
-  extracts main article text, and uses a shared 12-second client. Independent
-  `websearch`/`webfetch` calls now run alongside other reads.
+- **Faster web research.** `websearch` hedges Exa and Tavily (keyless by
+  default), falls back to Bing RSS and DuckDuckGo HTML after a short grace
+  period, caches results, and supports Exa/Tavily/Brave/Serper keys. `webfetch`
+  caches responses, retries connection failures, extracts main article text,
+  and uses a shared 12-second client. Independent `websearch`/`webfetch` calls
+  now run alongside other reads.
 - **Compaction crash fixed.** Summarizing a short history no longer indexes past
   the message slice; the TUI also recovers an internal panic and reports it
   instead of terminating the session.

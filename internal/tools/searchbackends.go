@@ -52,13 +52,14 @@ var (
 	bingRSSURL   = "https://www.bing.com/search?format=rss&q="
 	ddgHTMLURL   = "https://html.duckduckgo.com/html/?q="
 	braveAPIURL  = "https://api.search.brave.com/res/v1/web/search?q="
+	exaMCPURL    = "https://mcp.exa.ai/mcp"
 	tavilyAPIURL = "https://api.tavily.com/search"
 	serperAPIURL = "https://google.serper.dev/search"
 )
 
-// searchWeb returns results from an API provider when one is configured,
-// otherwise races Bing RSS and DuckDuckGo HTML with a hard deadline. Results
-// are cached so parallel workers do not fetch the same query repeatedly.
+// searchWeb hedges the search providers: Exa and Tavily start immediately,
+// Bing RSS and DuckDuckGo start after a short grace period, and the first
+// provider with results wins. Slow or failing providers are cancelled.
 func searchWeb(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	if limit <= 0 {
 		limit = 8
@@ -70,71 +71,107 @@ func searchWeb(ctx context.Context, query string, limit int) ([]SearchResult, er
 	if cached := cachedSearch(key); cached != nil {
 		return cached, nil
 	}
+
 	searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 
-	var apiErr error
-	if key := strings.TrimSpace(os.Getenv("BRAVE_API_KEY")); key != "" {
-		if results, err := searchBrave(searchCtx, key, query, limit); err == nil && len(results) > 0 {
-			return cacheSearch(key, cleanResults(results, limit)), nil
-		} else {
-			apiErr = err
-		}
+	var primary, fallback []searchEngine
+	if exaMCPURL != "" {
+		primary = append(primary, searchEngine{name: "exa", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+			return searchExa(ctx, os.Getenv("EXA_API_KEY"), q, n)
+		}})
 	}
-	if key := strings.TrimSpace(os.Getenv("TAVILY_API_KEY")); key != "" {
-		if results, err := searchTavily(searchCtx, key, query, limit); err == nil && len(results) > 0 {
-			return cacheSearch(key, cleanResults(results, limit)), nil
-		} else {
-			apiErr = err
-		}
+	if tavilyAPIURL != "" {
+		primary = append(primary, searchEngine{name: "tavily", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+			return searchTavily(ctx, os.Getenv("TAVILY_API_KEY"), q, n)
+		}})
+	}
+	if key := strings.TrimSpace(os.Getenv("BRAVE_API_KEY")); key != "" {
+		primary = append(primary, searchEngine{name: "brave", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+			return searchBrave(ctx, key, q, n)
+		}})
 	}
 	if key := strings.TrimSpace(os.Getenv("SERPER_API_KEY")); key != "" {
-		if results, err := searchSerper(searchCtx, key, query, limit); err == nil && len(results) > 0 {
-			return cacheSearch(key, cleanResults(results, limit)), nil
-		} else {
-			apiErr = err
-		}
+		primary = append(primary, searchEngine{name: "serper", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+			return searchSerper(ctx, key, q, n)
+		}})
 	}
+	fallback = append(fallback, searchEngine{name: "bing", query: searchBingRSS})
+	fallback = append(fallback, searchEngine{name: "duckduckgo", query: searchDuckDuckGo})
 
-	engines := []searchEngine{
-		{name: "bing", query: searchBingRSS},
-		{name: "duckduckgo", query: searchDuckDuckGo},
-	}
-	type response struct {
+	type outcome struct {
 		results []SearchResult
 		err     error
 	}
-	ch := make(chan response, len(engines))
+	engines := append(append([]searchEngine{}, primary...), fallback...)
+	ch := make(chan outcome, len(engines))
 	var wg sync.WaitGroup
-	for _, engine := range engines {
+	launch := func(engine searchEngine) {
 		wg.Add(1)
-		go func(engine searchEngine) {
+		go func() {
 			defer wg.Done()
-			engineCtx, cancel := context.WithTimeout(searchCtx, searchEngineTTL)
-			defer cancel()
+			engineCtx, engineCancel := context.WithTimeout(searchCtx, searchEngineTTL)
+			defer engineCancel()
 			results, err := engine.query(engineCtx, query, limit)
-			ch <- response{results: results, err: err}
-		}(engine)
+			ch <- outcome{results: results, err: err}
+		}()
+	}
+	for _, engine := range primary {
+		launch(engine)
+	}
+	// If there is no API-backed provider, start the scraped fallbacks now.
+	startedFallback := len(primary) == 0
+	if startedFallback {
+		for _, engine := range fallback {
+			launch(engine)
+		}
+	}
+	remaining := len(primary)
+	if startedFallback {
+		remaining = len(fallback)
+	}
+	var timerC <-chan time.Time
+	if !startedFallback {
+		timer := time.NewTimer(1200 * time.Millisecond)
+		defer timer.Stop()
+		timerC = timer.C
+	}
+	var lastErr error
+	for remaining > 0 {
+		select {
+		case result := <-ch:
+			remaining--
+			if result.err != nil {
+				lastErr = result.err
+				break
+			}
+			if len(result.results) > 0 {
+				cancel()
+				return cacheSearch(key, cleanResults(result.results, limit)), nil
+			}
+		case <-timerC:
+			timerC = nil
+			startedFallback = true
+			for _, engine := range fallback {
+				launch(engine)
+			}
+			remaining += len(fallback)
+		case <-searchCtx.Done():
+			if lastErr != nil {
+				return nil, fmt.Errorf("search failed: %w", lastErr)
+			}
+			return nil, searchCtx.Err()
+		}
+		if remaining == 0 && !startedFallback {
+			startedFallback = true
+			timerC = nil
+			for _, engine := range fallback {
+				launch(engine)
+			}
+			remaining = len(fallback)
+		}
 	}
 	wg.Wait()
-	close(ch)
-
-	var all []SearchResult
-	var lastErr error
-	for response := range ch {
-		if response.err != nil {
-			lastErr = response.err
-			continue
-		}
-		all = append(all, response.results...)
-	}
-	all = cleanResults(all, limit)
-	if len(all) > 0 {
-		return cacheSearch(key, all), nil
-	}
-	if apiErr != nil {
-		lastErr = apiErr
-	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("search failed: %w", lastErr)
 	}
@@ -315,13 +352,18 @@ func searchBrave(ctx context.Context, key, query string, limit int) ([]SearchRes
 
 func searchTavily(ctx context.Context, key, query string, limit int) ([]SearchResult, error) {
 	payload, _ := json.Marshal(map[string]any{
-		"api_key": key, "query": query, "max_results": limit, "search_depth": "basic",
+		"query": query, "search_depth": "basic", "chunks_per_source": 3, "max_results": limit,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tavilyAPIURL, strings.NewReader(string(payload)))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	} else {
+		req.Header.Set("X-Tavily-Access-Mode", "keyless")
+	}
 	var body struct {
 		Results []struct {
 			Title   string `json:"title"`
@@ -337,6 +379,135 @@ func searchTavily(ctx context.Context, key, query string, limit int) ([]SearchRe
 		out = append(out, SearchResult{Title: r.Title, URL: r.URL, Snippet: r.Content})
 	}
 	return out, nil
+}
+
+func searchExa(ctx context.Context, key, query string, limit int) ([]SearchResult, error) {
+	endpoint := exaMCPURL
+	if key != "" {
+		endpoint += "?exaApiKey=" + url.QueryEscape(key)
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{
+			"name":      "web_search_exa",
+			"arguments": map[string]any{"query": query, "numResults": limit},
+		},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(payload)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := webHTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("exa: %s", resp.Status)
+	}
+	var result struct {
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := decodeMCPJSON(data, &result); err != nil {
+		return nil, err
+	}
+	for _, item := range result.Result.Content {
+		if item.Type == "text" && item.Text != "" {
+			return parseExaText(item.Text, limit), nil
+		}
+	}
+	return nil, nil
+}
+
+func decodeMCPJSON(data []byte, result any) error {
+	trimmed := strings.TrimSpace(string(data))
+	if strings.HasPrefix(trimmed, "{") {
+		return json.Unmarshal([]byte(trimmed), result)
+	}
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data: "))), result); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("exa: no JSON response")
+}
+
+func parseExaText(text string, limit int) []SearchResult {
+	blocks := strings.Split(text, "\n\n---\n\n")
+	out := make([]SearchResult, 0, len(blocks))
+	for _, block := range blocks {
+		url := fieldLine(block, "URL:")
+		if url == "" || len(out) >= limit {
+			continue
+		}
+		title := fieldLine(block, "Title:")
+		content := fieldBlock(block, "Highlights:")
+		if content == "" {
+			content = fieldBlock(block, "Text:")
+		}
+		out = append(out, SearchResult{Title: title, URL: url, Snippet: strings.TrimSpace(content)})
+	}
+	return out
+}
+
+func fieldLine(block, prefix string) string {
+	for _, line := range strings.Split(block, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
+
+func fieldBlock(block, prefix string) string {
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		if rest := strings.TrimSpace(strings.TrimPrefix(line, prefix)); rest != "" {
+			return rest
+		}
+		var parts []string
+		for _, next := range lines[i+1:] {
+			next = strings.TrimSpace(next)
+			if next == "" {
+				continue
+			}
+			if isExaField(next) {
+				break
+			}
+			parts = append(parts, next)
+		}
+		return strings.Join(parts, " ")
+	}
+	return ""
+}
+
+func isExaField(line string) bool {
+	for _, prefix := range []string{"Title:", "URL:", "Published:", "Author:", "Highlights:", "Text:"} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func searchSerper(ctx context.Context, key, query string, limit int) ([]SearchResult, error) {
