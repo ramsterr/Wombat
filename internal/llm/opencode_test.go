@@ -26,7 +26,7 @@ func TestClassifyOpenCodeModel(t *testing.T) {
 		"deepseek-v4.1-flash": "openai",
 	}
 	for model, want := range cases {
-		if got := classifyOpenCodeModel(model); got != want {
+		if got := classifyOpenCodeModel("opencode", model); got != want {
 			t.Errorf("classify(%s) = %s, want %s", model, got, want)
 		}
 	}

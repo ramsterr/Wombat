@@ -17,8 +17,9 @@ import (
 )
 
 type modelItem struct {
-	name    string
-	current bool
+	name     string
+	provider string
+	current  bool
 }
 
 func (m modelItem) Title() string {
@@ -29,7 +30,7 @@ func (m modelItem) Title() string {
 }
 
 func (m modelItem) Description() string {
-	w := tokens.Window(m.name)
+	w := tokens.WindowFor(m.provider, m.name)
 	if w <= 0 {
 		return "context —"
 	}
@@ -171,7 +172,7 @@ func (m modelsModel) update(msg tea.Msg) (modelsModel, tea.Cmd) {
 		}
 		items := make([]list.Item, 0, len(msg.models))
 		for _, name := range msg.models {
-			items = append(items, modelItem{name: name, current: name == m.opt.Cfg.ActiveModel() && m.provider() == m.opt.Cfg.Provider})
+			items = append(items, modelItem{name: name, provider: m.provider(), current: name == m.opt.Cfg.ActiveModel() && m.provider() == m.opt.Cfg.Provider})
 		}
 		m.list.SetItems(items)
 		m.list.ResetSelected()

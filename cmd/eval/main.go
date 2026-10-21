@@ -101,7 +101,7 @@ func main() {
 		},
 		MaxSteps:       *maxSteps,
 		Orchestrator:   *orchestrator,
-		ContextWindow:  tokens.Window(resolvedModel),
+		ContextWindow:  tokens.WindowFor(resolvedProvider, resolvedModel),
 		Timeout:        *timeout,
 		CommandTimeout: *commandTimeout,
 		Home:           home,

@@ -1,6 +1,10 @@
 package tokens
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/ramsterr/Wombat/internal/modelinfo"
+)
 
 // visionModels are the model families that accept an image in the request.
 // A model that is not listed here is treated as text-only: sending it an
@@ -33,14 +37,28 @@ var visionModels = []string{
 	"minimax-vl",
 	"nova-lite",
 	"nova-pro",
+	"deepseek-v4.1-flash",
 }
 
 // textOnlyModels are families that are known to be text-only, even when the
 // name would otherwise look like a vision model.
 var textOnlyModels = []string{
-	"deepseek",
+	"deepseek-chat",
+	"deepseek-reasoner",
+	"deepseek-coder",
 	"grok-2-",
 	"gemma-3",
+}
+
+// SupportsImagesFor reports whether provider/model accepts images. It asks
+// the models.dev catalogue first, so a new vision model works without a
+// Wombat release, and falls back to the built-in model families when there
+// is no catalogue entry or no network.
+func SupportsImagesFor(provider, model string) bool {
+	if info, ok := modelinfo.Lookup(provider, model); ok {
+		return info.Vision
+	}
+	return SupportsImages(model)
 }
 
 // SupportsImages reports whether a model can look at an image.

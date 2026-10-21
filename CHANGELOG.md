@@ -54,6 +54,11 @@ All notable changes to Wombat are recorded here. The format follows
 - **`symbols`.** Go definitions and references come from the AST, with
   declaration patterns for other languages, so a comment is not mistaken for
   code.
+- **Automatic model capability detection.** Attachments, context and output
+  limits, reasoning support, tool calling, and the OpenCode wire protocol are
+  read from the models.dev catalogue, cached and refreshed daily, so new models
+  are recognized without a Wombat release. The built-in model families remain
+  as an offline fallback.
 - **Browser automation and visual verification.** `browser` opens a local
   Chromium page, clicks, types, presses keys, scrolls, runs JavaScript, resizes
   the viewport, and captures viewport or full-page screenshots. Screenshots are

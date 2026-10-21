@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ramsterr/Wombat/internal/modelinfo"
 )
 
 // openCode routes models on the OpenCode Zen / Go gateways to the protocol
@@ -50,12 +52,15 @@ var openCodeFamily = []struct{ prefix, protocol string }{
 	{"gemini-", "google"},
 }
 
-func classifyOpenCodeModel(model string) string {
+func classifyOpenCodeModel(provider, model string) string {
 	m := strings.ToLower(model)
 	for _, f := range openCodeFamily {
 		if strings.HasPrefix(m, f.prefix) {
 			return f.protocol
 		}
+	}
+	if info, ok := modelinfo.Lookup(provider, model); ok && info.Protocol != "" {
+		return info.Protocol
 	}
 	return "openai"
 }
@@ -67,7 +72,7 @@ func (o *openCode) protocolOrder(model string) []string {
 	if ok {
 		return []string{known}
 	}
-	first := classifyOpenCodeModel(model)
+	first := classifyOpenCodeModel(o.name, model)
 	order := []string{first}
 	for _, p := range []string{"openai", "messages", "responses", "google"} {
 		if p != first {

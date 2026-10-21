@@ -56,8 +56,12 @@ func cmdDoctor(_ []string) error {
 	} else {
 		fmt.Println("  provider  " + bold(active) + dim(fmt.Sprintf(" (%s @ %s)", activeConf.Kind, activeConf.BaseURL)))
 		model := cfg.ActiveModel()
-		win := tokens.Window(model)
-		fmt.Println("  model     " + bold(model) + dim(fmt.Sprintf(" (ctx %s)", humanTokens(win))))
+		caps := tokens.DiscoverFor(active, model)
+		src := ""
+		if caps.Source == "provider" {
+			src = ", models.dev"
+		}
+		fmt.Println("  model     " + bold(model) + dim(fmt.Sprintf(" (ctx %s%s)", humanTokens(caps.Context), src)))
 		fmt.Println("  api key   " + redactKey(cfg.APIKey(active, activeConf)))
 	}
 

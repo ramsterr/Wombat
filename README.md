@@ -327,6 +327,8 @@ wombat run --image screenshot.png "what is broken in this layout?"
 
 Files are copied into the session store at `~/.wombat/sessions/<project-hash>/.attachments/` and referenced from the transcript, so history and `wombat resume` keep working. Each file is capped at 20 MB; text-like files are folded into the prompt, and everything else is sent as native media. Gemini inlines at most about 14 MB per request, so shrink or split large files.
 
+Wombat resolves model capabilities from the [models.dev](https://models.dev) catalogue — attachment support, context and output limits, reasoning, tool calling, and the OpenCode wire protocol — cached in the OS cache directory and refreshed at most once a day, so a new model works without waiting for a Wombat update. When no catalogue entry is available it falls back to built-in model families.
+
 | provider | images | video | audio | documents |
 |---|---|---|---|---|
 | Anthropic / Claude | yes (png, jpeg, gif, webp) | no | no | PDF, text |

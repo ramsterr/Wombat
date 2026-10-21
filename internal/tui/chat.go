@@ -316,7 +316,7 @@ func (c *chat) rebuild(reset bool) error {
 		c.modelName = c.cfg.ActiveModel()
 	}
 	if c.sess == nil {
-		c.window = tokens.Window(c.modelName)
+		c.window = tokens.WindowFor(c.provName, c.modelName)
 		return nil
 	}
 	if c.provName == "" {
@@ -386,7 +386,7 @@ func (c *chat) rebuild(reset bool) error {
 		Env:           env,
 		Sess:          c.sess,
 		Compact:       true,
-		ContextWindow: tokens.Window(c.modelName),
+		ContextWindow: tokens.WindowFor(c.provName, c.modelName),
 		NumCtx:        pc.NumCtx,
 		Reasoning:     c.cfg.Reasoning,
 		ModeNote:      c.mode.Note(),
@@ -1057,7 +1057,7 @@ func (c *chat) addAttachment(path string) error {
 	c.layout()
 	c.refresh()
 	c.note(fmt.Sprintf("attached %s (%s, %s)", a.Name, a.Kind, llm.HumanSize(a.Size)), false)
-	if a.Kind == "image" && c.modelName != "" && !tokens.SupportsImages(c.modelName) {
+	if a.Kind == "image" && c.modelName != "" && !tokens.SupportsImagesFor(c.provName, c.modelName) {
 		c.note("this model cannot see images ("+c.modelName+") - the file will be described instead", true)
 	}
 	return nil

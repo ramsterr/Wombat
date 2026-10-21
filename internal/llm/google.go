@@ -182,7 +182,7 @@ func (g *google) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 	if req.MaxTokens > 0 {
 		genCfg["maxOutputTokens"] = req.MaxTokens
 	}
-	if isGoogleThinkingModel(req.Model) {
+	if reasoningEnabled(g.name, req.Model, isGoogleThinkingModel) {
 		genCfg["thinkingConfig"] = map[string]any{"includeThoughts": true}
 	}
 	if len(genCfg) > 0 {

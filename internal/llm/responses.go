@@ -197,7 +197,7 @@ func (r *responses) Chat(ctx context.Context, req Request, onDelta func(string))
 	if req.System != "" {
 		body["instructions"] = req.System
 	}
-	if isReasoningModel(req.Model) {
+	if reasoningEnabled(r.name, req.Model, isReasoningModel) {
 		body["reasoning"] = map[string]any{"summary": "auto"}
 		if effort := reasoningEffort(req.Reasoning); effort != "" {
 			body["reasoning"].(map[string]any)["effort"] = effort

@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/modelinfo"
 )
 
 func Main() {
@@ -24,6 +27,11 @@ func Main() {
 				return
 			}
 		}
+	}
+	if runsAgent(cmd) {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		modelinfo.Ensure(ctx)
+		cancel()
 	}
 	var err error
 	switch cmd {
@@ -118,6 +126,16 @@ attachments:
   /attach <path> in the chat TUI. Images/video/audio require a model
   that supports them; audio/video are model- and provider-specific.
 `)
+}
+
+// runsAgent reports whether the command can attach images, so the model
+// catalogue is refreshed before a session starts.
+func runsAgent(cmd string) bool {
+	switch cmd {
+	case "", "home", "chat", "run", "resume":
+		return true
+	}
+	return false
 }
 
 func mustConfig() *config.Config {

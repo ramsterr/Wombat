@@ -376,7 +376,7 @@ func (a *Agent) repairHistory() (bool, string) {
 	notes := make([]string, 0, 3)
 
 	// 1. images a text-only model cannot take
-	vision := tokens.SupportsImages(a.Model)
+	vision := a.supportsImages()
 	for i := range msgs {
 		if len(msgs[i].Attachments) == 0 {
 			continue
@@ -479,13 +479,23 @@ func (a *Agent) requestMessages() []llm.Message {
 	return llm.TrimStaleReasoning(a.Sess.Messages)
 }
 
+// supportsImages reports whether the active provider/model can see images.
+// The provider's published metadata wins over the built-in model families.
+func (a *Agent) supportsImages() bool {
+	name := ""
+	if a.Provider != nil {
+		name = a.Provider.Name()
+	}
+	return tokens.SupportsImagesFor(name, a.Model)
+}
+
 // appendMedia attaches files a tool produced to a user message, so the model
 // receives them as images the way a pasted image arrives.
 //
 // A model that cannot see images must not be sent one: the provider rejects
 // the whole request. For those, the file is described in words instead.
 func (a *Agent) appendMedia(media []tools.Media) error {
-	if !tokens.SupportsImages(a.Model) {
+	if !a.supportsImages() {
 		parts := make([]string, 0, len(media))
 		for _, m := range media {
 			note := ""
