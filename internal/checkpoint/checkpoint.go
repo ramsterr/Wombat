@@ -28,6 +28,7 @@ type File struct {
 
 type Manifest struct {
 	ID        string    `json:"id"`
+	Commit    string    `json:"commit,omitempty"`
 	Reason    string    `json:"reason,omitempty"`
 	Workspace string    `json:"workspace"`
 	Created   time.Time `json:"created"`
@@ -44,6 +45,8 @@ type Manager struct {
 	root      string
 	workspace string
 	keep      int
+	gitDir    string
+	gitOK     bool
 	mu        struct {
 		sync.Mutex
 		last string
@@ -58,7 +61,7 @@ func New(root, workspace string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{root: root, workspace: abs}, nil
+	return &Manager{root: root, workspace: abs, gitDir: filepath.Join(root, "git"), gitOK: gitAvailable()}, nil
 }
 
 func RootForSession(sessionPath string) string {
@@ -79,7 +82,7 @@ func (m *Manager) SetKeep(n int) {
 
 // PruneRoot prunes a checkpoint directory by path, without a workspace.
 func PruneRoot(root string, keep int) (int, error) {
-	return (&Manager{root: root}).Prune(keep)
+	return (&Manager{root: root, gitDir: filepath.Join(root, "git"), gitOK: gitAvailable()}).Prune(keep)
 }
 
 func (m *Manager) objectPath(sum string) string {
@@ -158,9 +161,7 @@ func (m *Manager) rel(path string) (string, error) {
 	return filepath.ToSlash(rel), nil
 }
 
-func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *Manager) snapshotLegacy(reason string, paths []string) (string, error) {
 	id := time.Now().UTC().Format("20060102-150405.000000000") + "-" + randomHex(4)
 	dir := filepath.Join(m.root, id)
 	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o700); err != nil {
@@ -289,9 +290,6 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 		return "", err
 	}
 	m.mu.last = id
-	if m.keep > 0 {
-		_, _ = m.Prune(m.keep)
-	}
 	return id, nil
 }
 
@@ -304,11 +302,11 @@ func (m *Manager) Last() string {
 // Prune removes all but the newest keep checkpoints and returns the number
 // removed. A checkpoint is only an undo point; pruning never touches the
 // workspace.
-func (m *Manager) Prune(keep int) (int, error) {
+func (m *Manager) pruneLegacy(keep int) (int, error) {
 	if keep < 0 {
 		keep = 0
 	}
-	list, err := m.List()
+	list, err := m.listLegacy()
 	if err != nil {
 		return 0, err
 	}
@@ -323,16 +321,16 @@ func (m *Manager) Prune(keep int) (int, error) {
 		removed++
 	}
 	if removed > 0 {
-		if err := m.gc(); err != nil {
+		if err := m.gcLegacy(); err != nil {
 			return removed, err
 		}
 	}
 	return removed, nil
 }
 
-// gc removes objects no remaining snapshot references.
-func (m *Manager) gc() error {
-	list, err := m.List()
+// gcLegacy removes objects no remaining legacy snapshot references.
+func (m *Manager) gcLegacy() error {
+	list, err := m.listLegacy()
 	if err != nil {
 		return err
 	}
@@ -362,7 +360,7 @@ func (m *Manager) gc() error {
 	})
 }
 
-func (m *Manager) List() ([]Manifest, error) {
+func (m *Manager) listLegacy() ([]Manifest, error) {
 	entries, err := os.ReadDir(m.root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -398,7 +396,7 @@ func inScope(rel string, scope []string) bool {
 	return false
 }
 
-func (m *Manager) Restore(id string) error {
+func (m *Manager) restoreLegacy(id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("checkpoint id is required")
 	}

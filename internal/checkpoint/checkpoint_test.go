@@ -272,30 +272,24 @@ func TestSnapshotDeduplicatesContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id1, err := m.Snapshot("one", nil)
+	if _, err := m.Snapshot("one", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Snapshot("two", nil); err != nil {
+		t.Fatal(err)
+	}
+	out, err := m.git("cat-file", "--batch-all-objects", "--batch-check=%(objecttype)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := m.Snapshot("two", nil)
-	if err != nil {
-		t.Fatal(err)
+	blobs := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "blob" {
+			blobs++
+		}
 	}
-	objects, _ := filepath.Glob(filepath.Join(root, "objects", "*", "*"))
-	if len(objects) != 1 {
-		t.Fatalf("objects = %v, want one deduplicated object", objects)
-	}
-	f1 := filepath.Join(root, id1, "files", "a.txt")
-	f2 := filepath.Join(root, id2, "files", "a.txt")
-	i1, err := os.Stat(f1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	i2, err := os.Stat(f2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !os.SameFile(i1, i2) {
-		t.Fatal("identical snapshot files are not hardlinked")
+	if blobs != 1 {
+		t.Fatalf("blobs = %d, want one deduplicated blob", blobs)
 	}
 }
 
@@ -341,8 +335,117 @@ func TestPruneRemovesUnreferencedObjects(t *testing.T) {
 	if _, err := m.Prune(0); err != nil {
 		t.Fatal(err)
 	}
-	objects, _ := filepath.Glob(filepath.Join(root, "objects", "*", "*"))
-	if len(objects) != 0 {
-		t.Fatalf("objects left after prune: %v", objects)
+	out, _ := m.git("rev-list", "--objects", "--all")
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("objects left after prune: %s", out)
+	}
+}
+
+func TestScopedRestoreRemovesCreatedFile(t *testing.T) {
+	work := t.TempDir()
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := m.Snapshot("before create", []string{"new.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "new.txt"), []byte("created"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Restore(id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(work, "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("created file was not removed: %v", err)
+	}
+}
+
+func TestLegacySnapshotStillRestores(t *testing.T) {
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := m.snapshotLegacy("legacy", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Restore(id); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(work, "a.txt"))
+	if err != nil || string(data) != "one" {
+		t.Fatalf("legacy restore = %q err=%v", data, err)
+	}
+}
+
+func TestPruneRootHandlesGitSnapshots(t *testing.T) {
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := m.Snapshot("test", nil); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	removed, err := PruneRoot(root, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 2 {
+		t.Fatalf("removed = %d, want 2", removed)
+	}
+}
+
+func TestSnapshotSkipsLargeUntrackedFile(t *testing.T) {
+	work := t.TempDir()
+	big := make([]byte, maxUntrackedBytes+1024)
+	for i := range big {
+		big[i] = 'x'
+	}
+	if err := os.WriteFile(filepath.Join(work, "big.bin"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "small.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Snapshot("test", nil); err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.List()
+	if err != nil || len(list) == 0 {
+		t.Fatalf("list = %v err=%v", list, err)
+	}
+	out, err := m.git("ls-tree", "-r", "--name-only", list[0].Commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "big.bin") {
+		t.Fatalf("large untracked file was captured: %s", out)
+	}
+	if !strings.Contains(out, "small.txt") {
+		t.Fatalf("small untracked file was not captured: %s", out)
 	}
 }

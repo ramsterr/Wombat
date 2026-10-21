@@ -104,7 +104,11 @@ func cmdCheckpoint(args []string) error {
 			if !m.Full {
 				scope = strings.Join(m.Scope, ",")
 			}
-			fmt.Printf("%s  %-18s  %3d files  %s\n", m.ID, scope, len(m.Files), dim(m.Created.Local().Format("2006-01-02 15:04:05")))
+			kind := fmt.Sprintf("%d files", len(m.Files))
+			if m.Commit != "" {
+				kind = "tree"
+			}
+			fmt.Printf("%s  %-18s  %-10s  %s\n", m.ID, scope, kind, dim(m.Created.Local().Format("2006-01-02 15:04:05")))
 		}
 		return nil
 	case "prune":

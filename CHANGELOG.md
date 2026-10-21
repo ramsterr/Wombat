@@ -19,10 +19,13 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Changed
 
-- Checkpoints now use a content-addressed object store: identical file content
-  is stored once and hardlinked into each snapshot. Automatic retention keeps
-  the newest `checkpoint_keep` snapshots per session (default 20; 0 keeps all),
-  and `wombat checkpoint prune --all` cleans old sessions.
+- Checkpoints now use a per-session **shadow Git repository**, separate from
+  the project's `.git`: trees are content-addressed, zlib-compressed,
+  deduplicated, and packed by `git gc`. Restores are scoped to the checkpoint's
+  paths, and old file-store snapshots still restore through a legacy fallback.
+  Automatic retention keeps the newest `checkpoint_keep` snapshots per session
+  (default 20; 0 keeps all), and `wombat checkpoint prune --all` cleans old
+  sessions.
 - Mouse-wheel scrolling is on by default, so the chat viewport scrolls in
   Terminal.app and other terminal apps that do not scroll the alternate
   screen. `Ctrl+O` toggles terminal scrollback mode (leaves the alternate
