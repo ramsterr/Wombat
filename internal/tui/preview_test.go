@@ -35,3 +35,24 @@ func TestPreviewBar(t *testing.T) {
 		t.Fatalf("finished bar = %q", got)
 	}
 }
+
+func TestPreviewOnlyFromServerTools(t *testing.T) {
+	c := &chat{w: 80}
+	c.detectToolPreview("read", "Local: http://localhost:5177/")
+	if c.previewURL != "" {
+		t.Fatal("reading a file must not set a preview")
+	}
+	c.detectToolPreview("bash", "cat old.log\nhttp://localhost:5177/")
+	if c.previewURL != "" {
+		t.Fatal("a plain URL in bash output must not set a preview")
+	}
+	c.detectToolPreview("bash", "VITE v7.3.7 ready in 322 ms\nLocal: http://localhost:5177/")
+	if c.previewURL != "http://localhost:5177/" {
+		t.Fatalf("vite banner preview = %q", c.previewURL)
+	}
+	c2 := &chat{w: 80}
+	c2.detectToolPreview("browser", "opened http://127.0.0.1:8080/\nTitle")
+	if c2.previewURL != "http://127.0.0.1:8080/" {
+		t.Fatalf("browser preview = %q", c2.previewURL)
+	}
+}

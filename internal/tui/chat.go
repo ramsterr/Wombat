@@ -1376,7 +1376,6 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case textMsg:
 		c.currentAssistant().text += string(msg)
-		c.detectPreview(string(msg))
 		c.refresh()
 		return nil
 	case reasoningMsg:
@@ -1389,7 +1388,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.refresh()
 		return nil
 	case toolDoneMsg:
-		c.detectPreview(msg.result)
+		c.detectToolPreview(msg.name, msg.result)
 		for i := len(c.entries) - 1; i >= 0; i-- {
 			e := c.entries[i]
 			if e.kind == entryTool && e.running {
@@ -1665,13 +1664,37 @@ func findPreviewURL(text string) string {
 	return url
 }
 
-func (c *chat) detectPreview(text string) {
+func (c *chat) detectToolPreview(name, text string) {
+	// Only a browser open or a development-server banner counts. Reading an
+	// old log or file in a fresh chat must not resurrect a previous preview.
+	switch name {
+	case "browser", "worker:browser":
+	case "bash", "worker:bash":
+		if !serverBanner(text) {
+			return
+		}
+	default:
+		return
+	}
 	url := findPreviewURL(text)
 	if url == "" || url == c.previewURL {
 		return
 	}
 	c.previewURL = url
 	c.layout()
+}
+
+func serverBanner(text string) bool {
+	lower := strings.ToLower(text)
+	for _, marker := range []string{
+		"local:", "ready in", "serving http", "listening on",
+		"uvicorn running", "development server", "running at",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func openLocalURL(url string) error {
