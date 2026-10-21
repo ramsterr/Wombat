@@ -504,7 +504,11 @@ func (a *Agent) execTool(ctx context.Context, tc llm.ToolCall) (string, error) {
 			return tool.Run(ctx, json.RawMessage(tc.Arguments), a.Env)
 		}
 	}
-	return "", fmt.Errorf("unknown tool %q", tc.Name)
+	names := make([]string, 0, len(a.Tools))
+	for _, tool := range a.Tools {
+		names = append(names, tool.Name())
+	}
+	return "", fmt.Errorf("unknown tool %q; available tools: %s", tc.Name, strings.Join(names, ", "))
 }
 
 func toolDetail(tc llm.ToolCall) string {

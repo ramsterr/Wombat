@@ -260,7 +260,8 @@ func (o *Orchestrator) systemPrompt() string {
 	b.WriteString("Never put dependent steps in one fleet. Do the work yourself when it is small, needs edits, or you already know where to look. ")
 	fmt.Fprintf(&b, "At most %d delegations per turn and %d scouts at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
 	b.WriteString("Give each worker a complete objective, the context it cannot see from this conversation, and a concrete deliverable. ")
-	b.WriteString("Workers are read-only and cannot delegate; they have hard caps on steps, tokens, and time, and a fleet shares the turn's token budget. ")
+	b.WriteString("Workers are read-only and cannot delegate. They have read, glob, grep, batch, websearch, webfetch, and bash for non-mutating " +
+		"commands (ls, which, grep, curl to stdout). They cannot create or modify files: do downloads and file writes yourself, or use delegate_write. ")
 	b.WriteString("Treat their reports as evidence, not truth: reconcile them and verify what matters.\n\n")
 	if o.worktrees != nil {
 		b.WriteString("### Writers\n")

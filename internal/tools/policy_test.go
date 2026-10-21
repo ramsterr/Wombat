@@ -66,10 +66,17 @@ func TestReadOnlyEnvBlocksMutations(t *testing.T) {
 		ReadOnly: true,
 		Permit:   func(string, string) Decision { return Decision{Allow: true} },
 	}
-	for _, kind := range []string{"write", "edit", "bash"} {
+	for _, kind := range []string{"write", "edit"} {
 		if err := env.Check(kind, "x"); err == nil || !strings.Contains(err.Error(), "read-only") {
 			t.Errorf("%s should be blocked: %v", kind, err)
 		}
+	}
+	// bash is allowed when it does not change anything
+	if err := env.Check("bash", "ls -la"); err != nil {
+		t.Errorf("a read-only command should be allowed: %v", err)
+	}
+	if err := env.Check("bash", "echo hi > out.txt"); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Errorf("a mutating command should be blocked: %v", err)
 	}
 	if err := env.Check("read", "x"); err != nil {
 		t.Errorf("read should be allowed: %v", err)

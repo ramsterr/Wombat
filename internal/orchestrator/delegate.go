@@ -423,7 +423,10 @@ func workerSystemPrompt(a delegateArgs, step *Step, goal string, facts []string)
 	b.WriteString("## Delegated worker\n")
 	b.WriteString("You are a read-only research worker for a coding agent. You cannot see the lead conversation. ")
 	b.WriteString("Do not modify files, run mutating commands, ask the user questions, or request more work. ")
-	b.WriteString("Use read/glob/grep to inspect the repository. Stay inside the working directory unless the brief says otherwise. ")
+	b.WriteString("You have read, glob, grep, batch, websearch, webfetch, and bash for non-mutating commands. ")
+	b.WriteString("Bash is read-only: ls, which, grep, and curl or HTTP to stdout are fine, but mkdir, redirection, " +
+		"downloads to disk, ffmpeg output, git mutations, and file writes are refused. ")
+	b.WriteString("If the task needs a file created or downloaded, return status=blocked with the exact command the lead should run. ")
 	b.WriteString("Make reasonable assumptions when context is missing, state them in risks, and prefer evidence over speculation.\n\n")
 	if goal != "" {
 		b.WriteString("Project goal: ")

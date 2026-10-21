@@ -21,7 +21,60 @@ func MayMutate(command string) bool {
 	if strings.Contains(cmd, "sed -i") || strings.Contains(cmd, "perl -i") {
 		return true
 	}
+	if networkWritesFile(cmd) {
+		return true
+	}
 	return mutatingCommand.MatchString(cmd)
+}
+
+// networkWritesFile recognizes downloaders that write to disk by default or
+// through an output flag. In a read-only worker these must be refused even
+// though they are not shell redirections.
+func networkWritesFile(cmd string) bool {
+	if hasCommand(cmd, "curl") &&
+		(regexp.MustCompile(`(^|\s)(-o|--output)(\s|=)`).MatchString(cmd)) {
+		return true
+	}
+	if hasCommand(cmd, "wget") &&
+		(regexp.MustCompile(`(^|\s)(-o|--output-document)(\s|=)`).MatchString(cmd)) {
+		return true
+	}
+	if hasCommand(cmd, "yt-dlp") {
+		if regexp.MustCompile(`(^|\s)(-o|--output)(\s|=)`).MatchString(cmd) {
+			return true
+		}
+		for _, safe := range []string{"--flat-playlist", "--print", "--dump-json", "--simulate", "--skip-download", "-j"} {
+			if strings.Contains(cmd, safe) {
+				return false
+			}
+		}
+		return true
+	}
+	if hasCommand(cmd, "ffmpeg") {
+		for _, safe := range []string{"-version", "-buildconf", "-filters", "-formats", "-codecs", "-h", "-help"} {
+			if strings.Contains(cmd, safe) {
+				return false
+			}
+		}
+		return true
+	}
+	// Common writes inside interpreters. This is best-effort, not a jail.
+	if hasCommand(cmd, "python") || hasCommand(cmd, "python3") {
+		for _, marker := range []string{"open(", "write_text(", "write_bytes(", "shutil.copy", "os.remove", "os.unlink", "os.rename"} {
+			if strings.Contains(cmd, marker) &&
+				(strings.Contains(cmd, "'w'") || strings.Contains(cmd, "\"w\"") || strings.Contains(cmd, "'a'") || strings.Contains(cmd, "\"a\"")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasCommand reports whether name is invoked as a command (start of the
+// line, or after a shell separator), not merely mentioned as an argument.
+func hasCommand(cmd, name string) bool {
+	re := regexp.MustCompile(`(^|[;&|]\s*)` + regexp.QuoteMeta(name) + `(\s|$)`)
+	return re.MatchString(cmd)
 }
 
 // writesAFile reports whether the command redirects output into a real file.

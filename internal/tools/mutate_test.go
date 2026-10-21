@@ -10,6 +10,9 @@ func TestMayMutateIgnoresHarmlessRedirects(t *testing.T) {
 		"echo hi",
 		"git status",
 		"grep -r foo . 2>/dev/null",
+		"curl https://example.com",
+		"yt-dlp --flat-playlist --print \"%(id)s\" \"ytsearch5:test\"",
+		"ffmpeg -version",
 	}
 	for _, cmd := range harmless {
 		if MayMutate(cmd) {
@@ -24,10 +27,44 @@ func TestMayMutateIgnoresHarmlessRedirects(t *testing.T) {
 		"rm -rf build",
 		"mkdir -p x",
 		"cp a b",
+		"curl -o out.png https://example.com/a.png",
+		"wget -O out.png https://example.com/a.png",
+		"yt-dlp https://example.com/video",
+		"ffmpeg -i in.mp4 out.mp4",
+		"python3 -c \"open('x','w').write('a')\"",
 	}
 	for _, cmd := range mutating {
 		if !MayMutate(cmd) {
 			t.Errorf("MayMutate(%q) = false, want true", cmd)
+		}
+	}
+}
+
+func TestNetworkWritesFileIsMutating(t *testing.T) {
+	mutating := []string{
+		"curl -o out.html https://example.com",
+		"curl --output out.html https://example.com",
+		"wget -O out.html https://example.com",
+		"yt-dlp https://example.com/video",
+		"ffmpeg -i in.mp4 out.mp4",
+		"python3 -c \"open('x','w')\"",
+	}
+	for _, cmd := range mutating {
+		if !MayMutate(cmd) {
+			t.Errorf("%q should count as a mutation", cmd)
+		}
+	}
+	safe := []string{
+		"curl -s https://example.com",
+		"curl -s https://example.com | head -20",
+		"yt-dlp --flat-playlist https://example.com/video",
+		"ffmpeg -version",
+		"ls -la",
+		"grep -r foo .",
+	}
+	for _, cmd := range safe {
+		if MayMutate(cmd) {
+			t.Errorf("%q should not count as a mutation", cmd)
 		}
 	}
 }
