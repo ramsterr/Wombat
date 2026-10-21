@@ -51,6 +51,7 @@ var List = []Command{
 	{Name: "/history", Summary: "the messages in this session"},
 	{Name: "/sessions", Summary: "browse past sessions"},
 	{Name: "/status", Summary: "show the current settings"},
+	{Name: "/preview", Summary: "open the local preview the agent reported"},
 	{Name: "/cost", Summary: "token usage and cost"},
 	{Name: "/model", Args: "[name]", Summary: "switch model"},
 	{Name: "/provider", Args: "[name]", Summary: "switch provider"},

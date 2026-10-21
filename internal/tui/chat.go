@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -194,6 +197,11 @@ type chat struct {
 
 	pending []llm.Attachment
 	mouse   bool
+
+	// previewURL is the newest local development URL a tool reported. It
+	// stays at the top of the chat so a running site can be opened while the
+	// agent keeps polishing it.
+	previewURL string
 
 	auto   bool
 	always map[string]bool
@@ -849,7 +857,10 @@ func (c *chat) layout() {
 	c.ta.SetHeight(lines)
 	extra := 0
 	if len(c.pending) > 0 {
-		extra = 1
+		extra++
+	}
+	if c.previewURL != "" {
+		extra++
 	}
 	vh := c.h - 1 - (lines + 2) - 1 - extra
 	if vh < 3 {
@@ -1217,6 +1228,7 @@ func (c *chat) command(line string) tea.Cmd {
 		c.sess = ns
 		c.entries = nil
 		c.pending = nil
+		c.previewURL = ""
 		c.cumIn, c.cumOut, c.cumCached, c.history = 0, 0, 0, 0
 		if err := c.rebuild(false); err != nil {
 			c.note("error: "+err.Error(), true)
@@ -1236,6 +1248,16 @@ func (c *chat) command(line string) tea.Cmd {
 			}()
 			return nil
 		}
+	case "/preview":
+		if c.previewURL == "" {
+			c.note("no local preview detected yet", true)
+			break
+		}
+		if err := openLocalURL(c.previewURL); err != nil {
+			c.note("could not open preview: "+err.Error(), true)
+			break
+		}
+		c.note("opened "+c.previewURL, false)
 	case "/cost":
 		c.note(fmt.Sprintf("in %s (cache %s) · out %s · context %s/%s",
 			humanN(c.cumIn), humanN(c.cumCached), humanN(c.cumOut), humanN(c.history), humanN(c.window)), false)
@@ -1345,6 +1367,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	case textMsg:
 		c.currentAssistant().text += string(msg)
+		c.detectPreview(string(msg))
 		c.refresh()
 		return nil
 	case reasoningMsg:
@@ -1357,6 +1380,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.refresh()
 		return nil
 	case toolDoneMsg:
+		c.detectPreview(msg.result)
 		for i := len(c.entries) - 1; i >= 0; i-- {
 			e := c.entries[i]
 			if e.kind == entryTool && e.running {
@@ -1618,6 +1642,57 @@ func (c *chat) modeLabel() string {
 	return c.mode.Label()
 }
 
+var previewURLPattern = regexp.MustCompile(`https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::[0-9]+)?(?:[/?#][^\s"'<>)]*)?(?:$|[^\w.-])`)
+var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func findPreviewURL(text string) string {
+	text = ansiPattern.ReplaceAllString(text, "")
+	matches := previewURLPattern.FindAllString(text, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	url := strings.TrimSpace(matches[len(matches)-1])
+	url = strings.TrimRight(url, ".,;:!?)]}'\"·–—")
+	return url
+}
+
+func (c *chat) detectPreview(text string) {
+	url := findPreviewURL(text)
+	if url == "" || url == c.previewURL {
+		return
+	}
+	c.previewURL = url
+	c.layout()
+}
+
+func openLocalURL(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
+}
+
+func (c *chat) previewBar() string {
+	if c.previewURL == "" {
+		return ""
+	}
+	status := "ready"
+	if c.streaming {
+		status = "still iterating · esc to stop"
+	}
+	text := " ● preview ready — " + c.previewURL + "  ·  " + status + " "
+	if c.w > 0 && len([]rune(text)) > c.w {
+		text = string([]rune(text)[:max(0, c.w-1)]) + "…"
+	}
+	return lipgloss.NewStyle().Background(cAccent).Foreground(cInk).Bold(true).Render(text)
+}
+
 func (c *chat) header() string {
 	left := " " + styleAccent.Bold(true).Render("◆ wombat")
 	if c.streaming {
@@ -1735,7 +1810,11 @@ func (c *chat) view() string {
 		}
 		box = style.Width(c.w - 4).Render(c.ta.View())
 	}
-	parts := []string{c.header(), c.vp.View()}
+	parts := []string{c.header()}
+	if bar := c.previewBar(); bar != "" {
+		parts = append(parts, bar)
+	}
+	parts = append(parts, c.vp.View())
 	if line := c.pendingView(); line != "" {
 		parts = append(parts, line)
 	}

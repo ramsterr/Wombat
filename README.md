@@ -241,11 +241,12 @@ same list, and an unknown `/command` shows the closest matches.
 | `/attach`, `/paste`, `/detach` | attachments |
 | `/new`, `/compact`, `/clear` | session and context management |
 | `/yolo` | toggle auto-approve |
+| `/preview` | open the local preview URL the agent reported |
 | `/setup`, `/help`, `/exit` | the rest |
 
 ## The TUI
 
-Type a message and press `enter`. Responses stream in; tool calls appear as they run; reasoning-capable models show their thinking above the answer.
+Type a message and press `enter`. Responses stream in; tool calls appear as they run; reasoning-capable models show their thinking above the answer. When a tool reports a local dev-server URL, a highlighted **preview ready** bar appears under the header with the URL and whether the agent is still iterating; `/preview` opens it, and `esc` stops the run when you are satisfied.
 
 | key | action |
 |---|---|
