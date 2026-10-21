@@ -41,6 +41,9 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if err := env.checkPolicy("bash", a.Command); err != nil {
 		return "", err
 	}
+	if err := env.checkShellWriteIsolation(a.Command); err != nil {
+		return "", err
+	}
 	if target := shellSecretTarget(a.Command); target != "" {
 		if err := env.permitPreview("sensitive-read", target, ""); err != nil {
 			return "", err

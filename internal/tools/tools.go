@@ -70,6 +70,11 @@ type Env struct {
 	// it at ~/.wombat/index so indexes survive sessions.
 	IndexDir string
 
+	// BlockedRoots are directories a shell command must not write into.
+	// Isolated writers set this to the lead workspace so an absolute path in
+	// a command cannot escape the worktree.
+	BlockedRoots []string
+
 	// browser owns the local Chromium session used for visual verification.
 	browser *browser.Manager
 

@@ -68,3 +68,19 @@ func TestNetworkWritesFileIsMutating(t *testing.T) {
 		}
 	}
 }
+
+func TestGitMutatingWithDirectory(t *testing.T) {
+	blocked := []string{
+		"git -C /tmp/other add .",
+		"git --git-dir=/tmp/other/.git commit -m x",
+		"git --work-tree=/tmp/other checkout .",
+	}
+	for _, cmd := range blocked {
+		if !IsGitMutatingCommand(cmd) {
+			t.Errorf("%q should count as a git mutation", cmd)
+		}
+	}
+	if IsGitMutatingCommand("git -C /tmp/other status") {
+		t.Error("read-only git command was treated as mutating")
+	}
+}

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var gitMutatingCommand = regexp.MustCompile(`(^|[;&|]\s*)git\s+(apply|checkout|switch|reset|clean|merge|rebase|cherry-pick|stash|commit|add|rm|mv|init|clone|fetch|pull|push|tag|branch\s+-[dD])\b`)
+var gitMutatingCommand = regexp.MustCompile(`(^|[;&|]\s*)git\s+(?:(?:-C|-c)\s*\S+\s+|(?:--git-dir|--work-tree)(?:=|\s+)\S+\s+)*(apply|checkout|switch|reset|clean|merge|rebase|cherry-pick|stash|commit|add|rm|mv|init|clone|fetch|pull|push|tag|branch\s+-[dD])\b`)
 
 var mutatingCommand = regexp.MustCompile(`(^|[;&|]\s*)(rm|mv|cp|mkdir|rmdir|touch|truncate|tee|dd|ln|chmod|chown|patch|make|install|sed\s+-i|perl\s+-i|git\s+(apply|checkout|switch|reset|clean|merge|rebase|cherry-pick|stash|commit|add|rm|mv)|go\s+mod\s+(tidy|vendor)|(npm|pnpm|yarn)\s+(install|add|remove|ci)|pip\s+install|cargo\s+(add|remove|install))\b`)
 

@@ -187,3 +187,15 @@ func TestDeniedCallKeepsUserFeedback(t *testing.T) {
 		t.Errorf("the feedback should be kept: %v", err)
 	}
 }
+
+func TestCheckPathRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	env := &Env{Dir: root, DenyOutside: true}
+	if err := env.CheckPath("write", "escape/x.txt"); err == nil {
+		t.Fatal("write through a symlink outside the workspace was allowed")
+	}
+}

@@ -141,14 +141,8 @@ func (e *Env) pathOutside(path string) (bool, error) {
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(e.Dir, abs)
 	}
-	abs, err := filepath.Abs(abs)
-	if err != nil {
-		return false, err
-	}
-	root, err := filepath.Abs(e.Dir)
-	if err != nil {
-		return false, err
-	}
+	abs = canonicalPath(abs)
+	root := canonicalPath(e.Dir)
 	rel, err := filepath.Rel(root, abs)
 	if err != nil {
 		return false, err
