@@ -1031,7 +1031,16 @@ func (c *chat) submit(text string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 	return tea.Batch(func() tea.Msg {
-		go func() { c.emit(runDoneMsg{err: ag.RunWithAttachments(ctx, text, atts)}) }()
+		go func() {
+			var runErr error
+			defer func() {
+				if r := recover(); r != nil {
+					runErr = fmt.Errorf("internal error: %v", r)
+				}
+				c.emit(runDoneMsg{err: runErr})
+			}()
+			runErr = ag.RunWithAttachments(ctx, text, atts)
+		}()
 		return nil
 	}, c.sp.Tick)
 }
