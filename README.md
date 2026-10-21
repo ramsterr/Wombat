@@ -4,10 +4,9 @@
 
 Wombat is a coding agent for your terminal. It reads and edits files, runs commands, searches the web, uses a browser, and works through multi-step tasks with a plan. It runs against OpenAI-compatible APIs, Anthropic, OpenCode, or a local model server.
 
-This README documents the `11-new-features` development branch. The stable
-release installer installs the latest tagged release from `main`; it does not
-contain unreleased work from this branch. To test this branch, build it from
-source below.
+The latest tagged release does not yet include every change on `main`. The
+stable installer installs the latest tagged release, so build from source to
+run the current `main` before the next release.
 
 ## Install
 
@@ -228,10 +227,10 @@ clean tracked tree.
 The banner only appears after a tool reports a local URL such as
 `http://localhost:5173`.
 
-**An upgrade replaced my branch build**
+**An upgrade replaced my source build**
 
-`wombat upgrade` installs the latest tagged release from `main`. Rebuild from
-source to stay on a development branch.
+`wombat upgrade` installs the latest tagged release. Rebuild from source to
+stay on the current `main`.
 
 ## Uninstall
 
