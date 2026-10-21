@@ -3,9 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ramsterr/Wombat/internal/checkpoint"
+	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/session"
 )
 
@@ -17,11 +19,14 @@ func cmdCheckpoint(args []string) error {
 	}
 	var sessionID, snapshotID string
 	yes := false
+	all := false
 	keep := 10
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--yes", "-y":
 			yes = true
+		case "--all", "-a":
+			all = true
 		case "--session", "-s":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--session needs a session id")
@@ -48,6 +53,25 @@ func cmdCheckpoint(args []string) error {
 				return fmt.Errorf("unexpected argument %q", args[i])
 			}
 		}
+	}
+	if all && action != "prune" {
+		return fmt.Errorf("--all is only valid with prune")
+	}
+	if action == "prune" && all {
+		roots, err := filepath.Glob(filepath.Join(config.Home(), "sessions", "*", "*.checkpoints"))
+		if err != nil {
+			return err
+		}
+		total := 0
+		for _, root := range roots {
+			n, err := checkpoint.PruneRoot(root, keep)
+			if err != nil {
+				return err
+			}
+			total += n
+		}
+		fmt.Printf("removed %d checkpoint(s) across %d session(s), kept the newest %d per session\n", total, len(roots), keep)
+		return nil
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -112,7 +136,7 @@ func cmdCheckpoint(args []string) error {
 		fmt.Println(green("restored ") + snapshotID)
 		return nil
 	default:
-		return fmt.Errorf("usage: wombat checkpoint [list|restore|prune [--keep N]]")
+		return fmt.Errorf("usage: wombat checkpoint [list|restore|prune [--keep N] [--all]]")
 	}
 }
 

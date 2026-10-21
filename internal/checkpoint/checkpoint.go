@@ -43,6 +43,7 @@ type Manifest struct {
 type Manager struct {
 	root      string
 	workspace string
+	keep      int
 	mu        struct {
 		sync.Mutex
 		last string
@@ -68,6 +69,75 @@ func RootForSession(sessionPath string) string {
 }
 
 func (m *Manager) Root() string { return m.root }
+
+// SetKeep sets how many snapshots to retain. Zero keeps every snapshot.
+func (m *Manager) SetKeep(n int) {
+	m.mu.Lock()
+	m.keep = n
+	m.mu.Unlock()
+}
+
+// PruneRoot prunes a checkpoint directory by path, without a workspace.
+func PruneRoot(root string, keep int) (int, error) {
+	return (&Manager{root: root}).Prune(keep)
+}
+
+func (m *Manager) objectPath(sum string) string {
+	if len(sum) < 2 {
+		return filepath.Join(m.root, "objects", sum)
+	}
+	return filepath.Join(m.root, "objects", sum[:2], sum)
+}
+
+// storeObject writes a file into the content-addressed object store and
+// returns its hash. Identical content is stored once and hardlinked into
+// each snapshot.
+func (m *Manager) storeObject(src string, mode os.FileMode) (string, error) {
+	sum, err := hashFile(src)
+	if err != nil {
+		return "", err
+	}
+	object := m.objectPath(sum)
+	if _, err := os.Stat(object); err == nil {
+		return sum, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(object), 0o700); err != nil {
+		return "", err
+	}
+	tmp := object + ".tmp-" + randomHex(4)
+	if err := copyFile(src, tmp, 0o600); err != nil {
+		return "", err
+	}
+	got, err := hashFile(tmp)
+	if err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	if got != sum {
+		// The source changed while it was being copied.
+		_ = os.Remove(tmp)
+		sum = got
+		object = m.objectPath(sum)
+		if _, err := os.Stat(object); err == nil {
+			return sum, nil
+		}
+	}
+	if err := os.Rename(tmp, object); err != nil {
+		_ = os.Remove(tmp)
+		if _, statErr := os.Stat(object); statErr == nil {
+			return sum, nil
+		}
+		return "", err
+	}
+	return sum, nil
+}
+
+func linkOrCopy(object, dst string, mode os.FileMode) error {
+	if err := os.Link(object, dst); err == nil {
+		return nil
+	}
+	return copyFile(object, dst, mode)
+}
 
 func (m *Manager) rel(path string) (string, error) {
 	abs := path
@@ -168,15 +238,23 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 			return err
 		}
-		if err := copyFile(abs, dst, info.Mode().Perm()); err != nil {
-			return err
-		}
-		sum, err := hashFile(dst)
+		mode := info.Mode().Perm()
+		sum, err := m.storeObject(abs, mode)
 		if err != nil {
+			// The object store is an optimisation; fall back to the old
+			// direct copy rather than failing the checkpoint.
+			if err := copyFile(abs, dst, mode); err != nil {
+				return err
+			}
+			sum, err = hashFile(dst)
+			if err != nil {
+				return err
+			}
+		} else if err := linkOrCopy(m.objectPath(sum), dst, mode); err != nil {
 			return err
 		}
 		manifest.Files = append(manifest.Files, File{
-			Path: rel, Exists: true, Mode: info.Mode().Perm(), Size: info.Size(), SHA256: sum,
+			Path: rel, Exists: true, Mode: mode, Size: info.Size(), SHA256: sum,
 		})
 		return nil
 	}
@@ -211,6 +289,9 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 		return "", err
 	}
 	m.mu.last = id
+	if m.keep > 0 {
+		_, _ = m.Prune(m.keep)
+	}
 	return id, nil
 }
 
@@ -241,7 +322,44 @@ func (m *Manager) Prune(keep int) (int, error) {
 		}
 		removed++
 	}
+	if removed > 0 {
+		if err := m.gc(); err != nil {
+			return removed, err
+		}
+	}
 	return removed, nil
+}
+
+// gc removes objects no remaining snapshot references.
+func (m *Manager) gc() error {
+	list, err := m.List()
+	if err != nil {
+		return err
+	}
+	keep := map[string]bool{}
+	for _, manifest := range list {
+		for _, file := range manifest.Files {
+			if file.SHA256 != "" {
+				keep[file.SHA256] = true
+			}
+		}
+	}
+	root := filepath.Join(m.root, "objects")
+	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !keep[entry.Name()] {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
 }
 
 func (m *Manager) List() ([]Manifest, error) {

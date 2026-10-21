@@ -369,6 +369,7 @@ func (c *chat) rebuild(reset bool) error {
 		if err != nil {
 			return err
 		}
+		cp.SetKeep(c.cfg.CheckpointKeep)
 		env.Checkpoint = cp
 	}
 	if c.ag != nil && c.ag.Trace != nil {

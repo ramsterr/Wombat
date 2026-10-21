@@ -121,6 +121,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		if err != nil {
 			return nil, err
 		}
+		cp.SetKeep(cfg.CheckpointKeep)
 		env.Checkpoint = cp
 	}
 	ag := &agent.Agent{

@@ -22,6 +22,10 @@ type Provider struct {
 // ask-by-default permission set.
 const configVersion = 2
 
+// DefaultCheckpointKeep is how many undo snapshots each session keeps. Set
+// checkpoint_keep to 0 to keep every snapshot.
+const DefaultCheckpointKeep = 20
+
 type Config struct {
 	Version        int                  `json:"version"`
 	Provider       string               `json:"provider"`
@@ -35,6 +39,7 @@ type Config struct {
 	ParallelAgents bool                 `json:"parallel_agents"`
 	ScoutModel     string               `json:"scout_model,omitempty"`
 	Checkpoints    bool                 `json:"checkpoints"`
+	CheckpointKeep int                  `json:"checkpoint_keep"`
 	Writers        bool                 `json:"writers"`
 	KeepWorktrees  bool                 `json:"keep_worktrees,omitempty"`
 	Mouse          bool                 `json:"mouse,omitempty"`
@@ -122,6 +127,7 @@ func Defaults() *Config {
 		Mode:           "create",
 		ParallelAgents: true,
 		Checkpoints:    true,
+		CheckpointKeep: DefaultCheckpointKeep,
 		Writers:        true,
 		Mouse:          true,
 	}

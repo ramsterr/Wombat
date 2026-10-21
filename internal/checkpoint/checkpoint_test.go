@@ -260,3 +260,89 @@ func TestPruneKeepsNewest(t *testing.T) {
 		t.Fatalf("list = %d, want 2", len(list))
 	}
 }
+
+func TestSnapshotDeduplicatesContent(t *testing.T) {
+	work := t.TempDir()
+	data := []byte(strings.Repeat("same content\n", 1000))
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id1, err := m.Snapshot("one", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := m.Snapshot("two", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, _ := filepath.Glob(filepath.Join(root, "objects", "*", "*"))
+	if len(objects) != 1 {
+		t.Fatalf("objects = %v, want one deduplicated object", objects)
+	}
+	f1 := filepath.Join(root, id1, "files", "a.txt")
+	f2 := filepath.Join(root, id2, "files", "a.txt")
+	i1, err := os.Stat(f1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i2, err := os.Stat(f2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(i1, i2) {
+		t.Fatal("identical snapshot files are not hardlinked")
+	}
+}
+
+func TestAutomaticRetention(t *testing.T) {
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetKeep(2)
+	for i := 0; i < 4; i++ {
+		if _, err := m.Snapshot("test", nil); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	list, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("retained %d snapshots, want 2", len(list))
+	}
+}
+
+func TestPruneRemovesUnreferencedObjects(t *testing.T) {
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Snapshot("test", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Prune(0); err != nil {
+		t.Fatal(err)
+	}
+	objects, _ := filepath.Glob(filepath.Join(root, "objects", "*", "*"))
+	if len(objects) != 0 {
+		t.Fatalf("objects left after prune: %v", objects)
+	}
+}

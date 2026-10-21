@@ -304,7 +304,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat config set <key> <value>` | set `provider`, `model`, `mode`, `writers`, or a permission |
 | `wombat checkpoint list` | list snapshots for the latest session |
 | `wombat checkpoint restore <id>` | restore a snapshot (`--yes` for non-interactive use) |
-| `wombat checkpoint prune [--keep N]` | delete old snapshots, keeping the newest N (default 10) |
+| `wombat checkpoint prune [--keep N] [--all]` | delete old snapshots, keeping the newest N (default 10); `--all` cleans every session |
 | `wombat upgrade` | update wombat to the latest release (`--check` to only look) |
 | `wombat version` | print the version |
 
@@ -605,7 +605,7 @@ Token usage, cache hits, and compaction events are reported live. Prompt caching
 
 Sessions are append-only JSONL files under `~/.wombat/sessions/<project-hash>/`, keyed to the working directory. Every run is resumable with `wombat resume` or `/sessions` inside the TUI; attachments live beside the session in `.attachments/`. Task ledgers live beside sessions as `<session>.ledger.json`, so a resumed run keeps its plan. Checkpoints live in `<session>.checkpoints/`, and structured run events are written to `<session>.events.jsonl`. Deleting a session file removes its history; delete the ledger and checkpoint directory too to reset the plan and rollback history.
 
-Checkpoints are automatic undo points, not project data. Before a `write` or `edit`, Wombat copies the target file into the session's `.checkpoints/` directory so `wombat checkpoint restore` can put it back. They are safe to delete at any time; your files, git history, and sessions are unaffected. `wombat checkpoint prune --keep 10` keeps the newest ten for the current session, and `wombat config set checkpoints false` disables snapshots entirely. A checkpoint that cannot be written (full disk, permissions) is reported as a warning and never blocks the edit.
+Checkpoints are automatic undo points, not project data. Before a `write` or `edit`, Wombat copies the target file into a content-addressed object store and hardlinks it into the session's `.checkpoints/` directory, so identical content is stored once. They are safe to delete at any time; your files, git history, and sessions are unaffected. `wombat checkpoint prune --keep 10` keeps the newest ten for the current session, `--all` cleans every session, and `wombat config set checkpoints false` disables snapshots entirely. The newest 20 snapshots per session are kept automatically (`checkpoint_keep`); set it to 0 to keep every snapshot. A checkpoint that cannot be written (full disk, permissions) is reported as a warning and never blocks the edit.
 
 ## Configuration
 
@@ -632,6 +632,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   "orchestrator": true,
   "parallel_agents": true,
   "checkpoints": true,
+  "checkpoint_keep": 20,
   "writers": true,
   "mouse": true
 }
@@ -654,6 +655,8 @@ wombat config set orchestrator false        # disable ledger + delegation
 wombat config set parallel_agents false     # agents do the work themselves
 wombat config set permissions.bash ask      # be consulted before bash
 wombat config set checkpoints false         # disable snapshots
+wombat config set checkpoint_keep 20        # keep the newest N per session (0 = all)
+wombat checkpoint prune --all --keep 5       # clean old undo snapshots
 wombat config set writers false             # disable worktree writers
 ```
 
