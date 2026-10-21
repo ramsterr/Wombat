@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -84,6 +85,8 @@ type compactMsg struct {
 }
 
 type compactDoneMsg struct{ err error }
+
+type transcriptDoneMsg struct{ err error }
 
 type runDoneMsg struct{ err error }
 
@@ -1209,6 +1212,12 @@ func (c *chat) command(line string) tea.Cmd {
 			}()
 			return nil
 		}
+	case "/undo":
+		c.cmdUndo(arg)
+	case "/prune":
+		c.cmdPrune(arg)
+	case "/transcript":
+		return c.openTranscript()
 	case "/cost":
 		c.note(fmt.Sprintf("in %s (cache %s) · out %s · context %s/%s",
 			humanN(c.cumIn), humanN(c.cumCached), humanN(c.cumOut), humanN(c.history), humanN(c.window)), false)
@@ -1393,6 +1402,11 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		}
 		c.refresh()
 		return nil
+	case transcriptDoneMsg:
+		if msg.err != nil {
+			c.note("transcript: "+msg.err.Error(), true)
+		}
+		return nil
 	case clipImageMsg:
 		if msg.err != nil {
 			if errors.Is(msg.err, clipboard.ErrNoImage) {
@@ -1528,9 +1542,11 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 	case "ctrl+v":
 		return c.pasteImage()
 	case "ctrl+o":
+		return c.openTranscript()
+	case "ctrl+g":
 		c.scrollback = !c.scrollback
 		if c.scrollback {
-			c.note("terminal scrollback on — use the terminal scrollbar or wheel; ctrl+o to return", false)
+			c.note("terminal scrollback on — use the terminal scrollbar or wheel; ctrl+g to return", false)
 			return tea.Batch(
 				func() tea.Msg { return tea.DisableMouse() },
 				func() tea.Msg { return tea.ExitAltScreen() },
@@ -1581,6 +1597,129 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		c.vp.GotoBottom()
 	}
 	return cmd
+}
+
+func (c *chat) checkpointManager() (*checkpoint.Manager, int, error) {
+	if c.sess == nil {
+		return nil, 0, fmt.Errorf("no session yet")
+	}
+	cwd := c.sess.Meta.Cwd
+	if cwd == "" {
+		cwd = c.opt.Cwd
+	}
+	mgr, err := checkpoint.New(checkpoint.RootForSession(c.sess.Path()), cwd)
+	if err != nil {
+		return nil, 0, err
+	}
+	list, err := mgr.List()
+	if err != nil {
+		return mgr, 0, err
+	}
+	return mgr, len(list), nil
+}
+
+func (c *chat) cmdUndo(arg string) {
+	mgr, count, err := c.checkpointManager()
+	if err != nil {
+		c.note("undo: "+err.Error(), true)
+		return
+	}
+	if count == 0 {
+		c.note("undo: no checkpoints for this session", true)
+		return
+	}
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		c.note(fmt.Sprintf("undo: use /undo N, where N is 1-%d. The conversation is unchanged.", count), false)
+		return
+	}
+	n, err := strconv.Atoi(arg)
+	if err != nil || n < 1 {
+		c.note(fmt.Sprintf("undo: N must be a number from 1 to %d", count), true)
+		return
+	}
+	if n > count {
+		n = count
+	}
+	c.note(fmt.Sprintf("undo: reverting the last %d change(s) from checkpoints; those checkpoints are then removed. The conversation stays as it is.", n), false)
+	done, err := mgr.Undo(n)
+	if err != nil {
+		c.note("undo failed: "+err.Error(), true)
+		return
+	}
+	c.note(fmt.Sprintf("undo: restored %d change(s)", done), false)
+}
+
+func (c *chat) cmdPrune(arg string) {
+	mgr, count, err := c.checkpointManager()
+	if err != nil {
+		c.note("prune: "+err.Error(), true)
+		return
+	}
+	arg = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(arg), "keep"))
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		c.note(fmt.Sprintf("prune: %d checkpoint(s). Use /prune keep N, where N is 0-%d (0 deletes all). Files and session history stay.", count, count), false)
+		return
+	}
+	keep, err := strconv.Atoi(arg)
+	if err != nil || keep < 0 {
+		c.note(fmt.Sprintf("prune: N must be a number from 0 to %d", count), true)
+		return
+	}
+	c.note(fmt.Sprintf("prune: keeping the newest %d checkpoint(s); older undo points will be deleted. Your files and session history are untouched.", keep), false)
+	removed, err := mgr.Prune(keep)
+	if err != nil {
+		c.note("prune failed: "+err.Error(), true)
+		return
+	}
+	c.note(fmt.Sprintf("prune: removed %d checkpoint(s)", removed), false)
+}
+
+func (c *chat) transcriptText() string {
+	var blocks []string
+	for _, e := range c.entries {
+		if lines := c.entryLines(e); len(lines) > 0 {
+			blocks = append(blocks, strings.Join(lines, "\n"))
+		}
+	}
+	return strings.TrimSpace(strings.Join(blocks, "\n\n"))
+}
+
+func (c *chat) openTranscript() tea.Cmd {
+	text := c.transcriptText()
+	if text == "" {
+		c.note("transcript: nothing to show yet", false)
+		return nil
+	}
+	f, err := os.CreateTemp("", "wombat-transcript-*.txt")
+	if err != nil {
+		c.note("transcript: "+err.Error(), true)
+		return nil
+	}
+	path := f.Name()
+	if _, err := f.WriteString(text); err != nil {
+		f.Close()
+		os.Remove(path)
+		c.note("transcript: "+err.Error(), true)
+		return nil
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		c.note("transcript: "+err.Error(), true)
+		return nil
+	}
+	args := []string{"-R", "+G", path}
+	name := "less"
+	if _, err := exec.LookPath(name); err != nil {
+		name = "cat"
+		args = []string{path}
+	}
+	cmd := exec.Command(name, args...)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		os.Remove(path)
+		return transcriptDoneMsg{err: err}
+	})
 }
 
 func (c *chat) scrollUp(n int) {
@@ -1634,9 +1773,9 @@ func (c *chat) hint() string {
 	case c.interrupting:
 		left = styleWarn.Render("interrupting…")
 	case c.streaming:
-		left = styleDim.Render("esc interrupt · wheel/pgup scroll · working…")
+		left = styleDim.Render("esc interrupt · wheel/pgup scroll · ctrl+o transcript · working…")
 	default:
-		left = styleFaint.Render("enter send · alt+enter newline · ctrl+v image · wheel/pgup scroll · ctrl+o scrollback")
+		left = styleFaint.Render("enter send · alt+enter newline · ctrl+v image · wheel/pgup scroll · ctrl+o transcript")
 	}
 	if c.cumIn+c.cumOut == 0 || c.w <= 0 {
 		return " " + left

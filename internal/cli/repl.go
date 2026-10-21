@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/checkpoint"
 	"github.com/ramsterr/Wombat/internal/commands"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -343,6 +345,25 @@ func cmdRepl(args []string, resume bool) error {
 	}
 }
 
+func checkpointManagerFor(sess *session.Session) (*checkpoint.Manager, int, error) {
+	if sess == nil {
+		return nil, 0, fmt.Errorf("no session yet")
+	}
+	cwd := sess.Meta.Cwd
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	mgr, err := checkpoint.New(checkpoint.RootForSession(sess.Path()), cwd)
+	if err != nil {
+		return nil, 0, err
+	}
+	list, err := mgr.List()
+	if err != nil {
+		return mgr, 0, err
+	}
+	return mgr, len(list), nil
+}
+
 func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *session.Session, p *Prompter, r *renderer, opts *runOpts) (done bool, newAg *agent.Agent, newSess *session.Session, err error) {
 	parts := strings.Fields(line)
 	cmd := parts[0]
@@ -405,6 +426,54 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 		if err := ag.CompactNow(ctx); err != nil {
 			return false, nil, nil, err
 		}
+	case "/undo":
+		mgr, count, err := checkpointManagerFor(sess)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		if count == 0 {
+			fmt.Println(dim("undo: no checkpoints for this session"))
+			break
+		}
+		if strings.TrimSpace(arg) == "" {
+			fmt.Println(dim(fmt.Sprintf("undo: use /undo N, where N is 1-%d. The conversation is unchanged.", count)))
+			break
+		}
+		n, perr := strconv.Atoi(strings.TrimSpace(arg))
+		if perr != nil || n < 1 {
+			return false, nil, nil, fmt.Errorf("undo: N must be a number from 1 to %d", count)
+		}
+		if n > count {
+			n = count
+		}
+		fmt.Println(dim(fmt.Sprintf("undo: reverting the last %d change(s) from checkpoints; those checkpoints are then removed. The conversation stays as it is.", n)))
+		done, uerr := mgr.Undo(n)
+		if uerr != nil {
+			return false, nil, nil, uerr
+		}
+		fmt.Println(green(fmt.Sprintf("undo: restored %d change(s)", done)))
+	case "/prune":
+		mgr, count, err := checkpointManagerFor(sess)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(arg), "keep"))
+		if value == "" {
+			fmt.Println(dim(fmt.Sprintf("prune: %d checkpoint(s). Use /prune keep N, where N is 0-%d (0 deletes all). Files and session history stay.", count, count)))
+			break
+		}
+		keep, perr := strconv.Atoi(value)
+		if perr != nil || keep < 0 {
+			return false, nil, nil, fmt.Errorf("prune: N must be a number from 0 to %d", count)
+		}
+		fmt.Println(dim(fmt.Sprintf("prune: keeping the newest %d checkpoint(s); older undo points will be deleted. Your files and session history are untouched.", keep)))
+		removed, perr := mgr.Prune(keep)
+		if perr != nil {
+			return false, nil, nil, perr
+		}
+		fmt.Println(green(fmt.Sprintf("prune: removed %d checkpoint(s)", removed)))
+	case "/transcript":
+		fmt.Println(historyText(sess))
 	case "/cost":
 		fmt.Printf("in %s (cache %s) · out %s · context ~%s/%s\n",
 			humanTokens(r.cumIn), humanTokens(r.cumCached), humanTokens(r.cumOut),

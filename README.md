@@ -234,6 +234,9 @@ same list, and an unknown `/command` shows the closest matches.
 | `/toolset` | the tools this session can use, and how each is gated |
 | `/sources` | the sites and files this session used |
 | `/history` | the messages in this session |
+| `/undo [N]` | restore files from the last N changes; consumes those checkpoints (conversation unchanged) |
+| `/prune keep N` | delete old checkpoints, keep the newest N (0 deletes all) |
+| `/transcript` | open the full transcript in a pager (`less`) |
 | `/sessions` | browse past sessions |
 | `/status` | the current settings |
 | `/cost` | token usage and cost |
@@ -503,7 +506,7 @@ of a wall of text. Turn it on when you want to see it:
 ```
 
 The setting is saved. The thinking is always stored in the session, so
-`/history` and a resumed session still show it.
+`/history` and a resumed session still show it. `/transcript` opens the whole chat in `less`, and `Ctrl+O` does the same from the keyboard.
 
 ## Parallel work
 
@@ -638,7 +641,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 }
 ```
 
-`mouse` defaults to true so the wheel scrolls the chat in any terminal; `/mouse` toggles it and saves the choice. `Ctrl+O` toggles terminal scrollback mode without changing the setting. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `parallel_agents` makes a fleet the default. There are no step, token, delegation, worker, writer, or command time limits: a turn ends when the model stops calling tools, the user interrupts, or the provider fails. Checkpoints are on by default and only snapshot the files a write or edit is about to touch.
+`mouse` defaults to true so the wheel scrolls the chat in any terminal; `/mouse` toggles it and saves the choice. `Ctrl+O` opens the full transcript in a pager; `Ctrl+G` toggles terminal scrollback mode without changing the setting. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `parallel_agents` makes a fleet the default. There are no step, token, delegation, worker, writer, or command time limits: a turn ends when the model stops calling tools, the user interrupts, or the provider fails. Checkpoints are on by default and only snapshot the files a write or edit is about to touch.
 
 ## Orchestration
 

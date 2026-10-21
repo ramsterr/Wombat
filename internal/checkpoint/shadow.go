@@ -273,10 +273,7 @@ func (m *Manager) listGit() ([]Manifest, error) {
 	return manifests, nil
 }
 
-func (m *Manager) restoreGit(id string) (bool, error) {
-	if !m.gitOK {
-		return false, nil
-	}
+func (m *Manager) resolveGit(id string) (string, []string, bool) {
 	commit := ""
 	var scope []string
 	if meta, ok := m.loadMeta(id); ok {
@@ -291,9 +288,26 @@ func (m *Manager) restoreGit(id string) (bool, error) {
 			}
 		}
 	}
-	if commit == "" {
+	return commit, scope, commit != ""
+}
+
+func (m *Manager) restoreGit(id string) (bool, error) {
+	commit, scope, ok := m.resolveGit(id)
+	if !ok {
 		return false, nil
 	}
+	return true, m.restoreGitCommit(commit, scope)
+}
+
+func (m *Manager) restoreGitPaths(id string, paths []string) (bool, error) {
+	commit, _, ok := m.resolveGit(id)
+	if !ok {
+		return false, nil
+	}
+	return true, m.restoreGitCommit(commit, paths)
+}
+
+func (m *Manager) restoreGitCommit(commit string, scope []string) error {
 	if len(scope) == 0 {
 		// Full restore: put back every path in the tree and remove files the
 		// shadow index knows about that did not exist at this snapshot.
@@ -305,10 +319,10 @@ func (m *Manager) restoreGit(id string) (bool, error) {
 			}
 		}
 		if _, err := m.git("read-tree", "--reset", "-u", commit); err != nil {
-			return true, err
+			return err
 		}
 		if _, err := m.git("checkout-index", "-a", "-f"); err != nil {
-			return true, err
+			return err
 		}
 		all, _ := m.git("ls-files", "--cached", "--others", "--exclude-standard", "-z")
 		for _, p := range strings.Split(all, "\x00") {
@@ -316,7 +330,7 @@ func (m *Manager) restoreGit(id string) (bool, error) {
 				_ = os.RemoveAll(filepath.Join(m.workspace, filepath.FromSlash(p)))
 			}
 		}
-		return true, nil
+		return nil
 	}
 	for _, rel := range scope {
 		rel = filepath.ToSlash(strings.TrimSpace(rel))
@@ -325,7 +339,7 @@ func (m *Manager) restoreGit(id string) (bool, error) {
 		}
 		if _, err := m.git("cat-file", "-e", commit+":"+rel); err == nil {
 			if _, err := m.git("checkout", commit, "--", rel); err != nil {
-				return true, err
+				return err
 			}
 			continue
 		}
@@ -333,7 +347,111 @@ func (m *Manager) restoreGit(id string) (bool, error) {
 		// agent created there.
 		_ = os.RemoveAll(filepath.Join(m.workspace, filepath.FromSlash(rel)))
 	}
-	return true, nil
+	return nil
+}
+
+func (m *Manager) RestorePaths(id string, paths []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gitOK {
+		if ok, err := m.restoreGitPaths(id, paths); ok {
+			return err
+		}
+	}
+	return m.restoreLegacy(id)
+}
+
+// Drop removes specific checkpoints. Undo uses it to consume the undo history
+// it just restored, so repeated /undo calls walk backwards instead of moving
+// forward again.
+func (m *Manager) Drop(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	drop := map[string]bool{}
+	for _, id := range ids {
+		drop[id] = true
+	}
+	gitRemoved := false
+	if m.gitOK {
+		for _, id := range ids {
+			if _, err := m.git("update-ref", "-d", "refs/wombat/"+id); err == nil {
+				gitRemoved = true
+			}
+			_ = os.Remove(m.metaPath(id))
+		}
+	}
+	for id := range drop {
+		_ = os.RemoveAll(filepath.Join(m.root, id))
+	}
+	if gitRemoved {
+		_, _ = m.git("gc", "--prune=now", "--quiet")
+	}
+	if err := m.gcLegacy(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Undo restores the files touched by the last n changes to their state before
+// the oldest of those changes. It returns the number of changes undone, which
+// is capped at the number of checkpoints available. The consumed checkpoints
+// are removed, so a second /undo walks further back.
+func (m *Manager) Undo(n int) (int, error) {
+	if n <= 0 {
+		return 0, errors.New("undo count must be positive")
+	}
+	list, err := m.List()
+	if err != nil {
+		return 0, err
+	}
+	if len(list) == 0 {
+		return 0, errors.New("no checkpoints to undo")
+	}
+	if n > len(list) {
+		n = len(list)
+	}
+	target := list[n-1]
+	consumed := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		consumed = append(consumed, list[i].ID)
+	}
+	if target.Commit == "" {
+		if err := m.Restore(target.ID); err != nil {
+			return n, err
+		}
+		_ = m.Drop(consumed)
+		return n, nil
+	}
+	paths := make([]string, 0)
+	full := false
+	seen := map[string]bool{}
+	for i := 0; i < n; i++ {
+		if len(list[i].Scope) == 0 {
+			full = true
+			break
+		}
+		for _, p := range list[i].Scope {
+			if p != "" && !seen[p] {
+				seen[p] = true
+				paths = append(paths, p)
+			}
+		}
+	}
+	if full || len(target.Scope) == 0 {
+		if err := m.Restore(target.ID); err != nil {
+			return n, err
+		}
+		_ = m.Drop(consumed)
+		return n, nil
+	}
+	if err := m.RestorePaths(target.ID, paths); err != nil {
+		return n, err
+	}
+	_ = m.Drop(consumed)
+	return n, nil
 }
 
 func (m *Manager) pruneGit(keep int) (int, error) {

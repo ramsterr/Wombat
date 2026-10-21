@@ -103,7 +103,7 @@ func TestPaletteInRealProgram(t *testing.T) {
 	if !strings.Contains(rendered, "list the working modes") {
 		t.Fatalf("the palette did not appear in the rendered output:\n%s", stripANSI(rendered))
 	}
-	if !strings.Contains(rendered, "switch the working mode") {
+	if !strings.Contains(rendered, "choose chat (explain only) or create (read, write, run)") {
 		t.Fatalf("the palette is missing entries:\n%s", stripANSI(rendered))
 	}
 }

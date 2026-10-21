@@ -78,6 +78,13 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- `/undo [N]` restores the files touched by the last N checkpoints (and consumes them, so repeated undo walks backwards), and
+  `/prune keep N` deletes old checkpoints while keeping the newest N. Both
+  show a note before acting; `/prune` accepts 0 to delete all.
+- `/transcript` (and `Ctrl+O`) opens the full conversation in `less`, so
+  messages that scrolled out of the TUI viewport are always reachable.
+- The command palette now shows a clearer one-line description on the right
+  for every command and option.
 - **A scratch directory per session** (`~/.wombat/tmp/<session>`, also in
   `$WOMBAT_TMP`), so temporary files stay out of the project and out of the
   checkpoints.

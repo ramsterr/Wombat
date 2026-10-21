@@ -23,6 +23,11 @@ func TestFind(t *testing.T) {
 	if _, ok := Find("/thinking"); !ok {
 		t.Error("/thinking missing")
 	}
+	for _, name := range []string{"/undo", "/prune", "/transcript"} {
+		if _, ok := Find(name); !ok {
+			t.Errorf("%s missing", name)
+		}
+	}
 	if _, ok := Find("/nope"); ok {
 		t.Error("unexpected command")
 	}

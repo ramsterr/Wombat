@@ -449,3 +449,54 @@ func TestSnapshotSkipsLargeUntrackedFile(t *testing.T) {
 		t.Fatalf("small untracked file was not captured: %s", out)
 	}
 }
+
+func TestUndoRestoresLastChanges(t *testing.T) {
+	work := t.TempDir()
+	path := filepath.Join(work, "a.txt")
+	write := func(s string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("one")
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Snapshot("before two", []string{"a.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	write("two")
+	if _, err := m.Snapshot("before three", []string{"a.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	write("three")
+	if _, err := m.Snapshot("before four", []string{"a.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	write("four")
+	n, err := m.Undo(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("undone = %d, want 2", n)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "two" {
+		t.Fatalf("after undo(2) = %q, want two", data)
+	}
+	list, _ := m.List()
+	if len(list) != 1 {
+		t.Fatalf("checkpoints after undo = %d, want 1", len(list))
+	}
+	if _, err := m.Undo(99); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(path)
+	if string(data) != "one" {
+		t.Fatalf("after undo(all) = %q, want one", data)
+	}
+}
