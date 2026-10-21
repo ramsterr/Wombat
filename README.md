@@ -4,35 +4,69 @@
 
 Wombat is a coding agent for your terminal. It reads and edits files, runs commands, searches the web, uses a browser, and works through multi-step tasks with a plan. It runs against OpenAI-compatible APIs, Anthropic, OpenCode, or a local model server.
 
-The latest tagged release does not yet include every change on `main`. The
-stable installer installs the latest tagged release, so build from source to
-run the current `main` before the next release.
-
 ## Install
 
-### macOS or Linux — one command
+The latest tagged release does not include every change on `main` yet. Use the
+source build below to run the current features.
+
+### Run current main
+
+You only need Go and git:
+
+```sh
+git clone https://github.com/ramsterr/Wombat.git
+cd Wombat
+go build -o wombat ./cmd/wombat
+./wombat version
+./wombat setup
+./wombat
+```
+
+Install it somewhere on your PATH:
+
+```sh
+go build -o /usr/local/bin/wombat ./cmd/wombat
+```
+
+Requirements: Go 1.26+ for building from source. The core agent has no runtime
+dependencies. Optional features use standard tools: a Chromium browser for
+`browser`, a language server for `lsp`/`refactor`, git for isolated workers,
+and `sh` for `bash`.
+
+### Stable release (tagged versions)
+
+The one-line installer, Homebrew, and `go install ...@latest` install the
+latest **tagged release**, not unreleased changes on `main`.
+
+**macOS or Linux**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
 ```
 
-This installs the stable release to `~/.local/bin`. If `wombat` is not found:
+If `wombat` is not found:
 
 ```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-### Homebrew
+**Homebrew**
 
 ```sh
 brew tap ramsterr/wombat
 brew install ramsterr/wombat/wombat
 ```
 
-### Windows
+**Go**
 
-Use **WSL2**. Install Ubuntu from PowerShell:
+```sh
+go install github.com/ramsterr/Wombat/cmd/wombat@latest
+```
+
+**Windows — WSL2**
+
+Install Ubuntu from PowerShell:
 
 ```powershell
 wsl --install
@@ -50,30 +84,6 @@ wombat
 
 Git Bash also works for the native Windows build, but Wombat's `bash` tool
 needs a POSIX `sh`. Native PowerShell/cmd is not fully supported.
-
-### Build from source
-
-You only need Go and git:
-
-```sh
-git clone https://github.com/ramsterr/Wombat.git
-cd Wombat
-git switch 11-new-features
-go build -o wombat ./cmd/wombat
-./wombat version
-./wombat
-```
-
-To install that build somewhere on your PATH:
-
-```sh
-go build -o /usr/local/bin/wombat ./cmd/wombat
-```
-
-Requirements: Go 1.26+ for building from source. The core agent has no
-runtime dependencies. Optional features use tools you already know:
-a Chromium browser for `browser`, a language server for `lsp` and `refactor`,
-git for isolated workers, and `sh` for `bash`.
 
 ## First run
 
