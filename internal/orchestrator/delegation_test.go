@@ -442,6 +442,11 @@ type waveWriterProvider struct {
 }
 
 func (p *waveWriterProvider) Name() string { return "wave-mock" }
+func (p *waveWriterProvider) calls(kind string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.counts[kind]
+}
 func (p *waveWriterProvider) ListModels(context.Context) ([]string, error) {
 	return []string{"wave-mock"}, nil
 }
@@ -773,5 +778,108 @@ func TestWriterReviewCanBeDisabled(t *testing.T) {
 	}
 	if prov.calls("reviewer") != 0 {
 		t.Fatalf("reviewer ran even though review was disabled: %d", prov.calls("reviewer"))
+	}
+}
+
+func TestWriterRejectsCheckThatNamesLeadWorkspace(t *testing.T) {
+	prov := &waveWriterProvider{}
+	o, repo := reviewRepo(t, prov, Config{ReviewWriters: boolPtr(false)})
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "w", Title: "Write A", Kind: StepWrite, Files: []string{"a.txt"}, Status: StepInProgress,
+		Checks: []Check{{ID: "c", Command: "test -f " + filepath.Join(repo, "a.txt"), Status: CheckPending}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegateWrite(context.Background(), delegateWriteArgs{Tasks: []writerTask{{
+		StepID: "w", Title: "Write A", Objective: "write a", Files: []string{"a.txt"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "lead workspace path") {
+		t.Fatalf("out = %s", out)
+	}
+	if prov.calls("writer") != 0 {
+		t.Fatalf("writer ran despite an invalid check: %d calls", prov.calls("writer"))
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "a.txt"))
+	if err != nil || string(data) != "one\n" {
+		t.Fatalf("lead workspace was modified: %q err=%v", data, err)
+	}
+}
+
+func TestWriterCannotWriteIntoLeadWorkspaceByShell(t *testing.T) {
+	var repo string
+	prov := &reviewProvider{fn: func(kind string, call int) (*llm.Result, error) {
+		if kind != "writer" {
+			return nil, fmt.Errorf("unexpected %s", kind)
+		}
+		switch call {
+		case 1:
+			return toolCall("b1", "bash", map[string]string{"command": "printf escaped > " + filepath.Join(repo, "escaped.txt")}), nil
+		case 2:
+			return toolCall("r1", "submit_report", map[string]any{"status": "failed", "summary": "could not write outside the worktree"}), nil
+		default:
+			return &llm.Result{Content: "done"}, nil
+		}
+	}}
+	o, r := reviewRepo(t, prov, Config{ReviewWriters: boolPtr(false)})
+	repo = r
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "w", Title: "Write", Kind: StepWrite, Files: []string{"a.txt"}, Status: StepInProgress,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.delegateWrite(context.Background(), delegateWriteArgs{Tasks: []writerTask{{
+		StepID: "w", Title: "Write", Objective: "write", Files: []string{"a.txt"},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "escaped.txt")); err == nil {
+		t.Fatal("writer escaped the worktree")
+	}
+}
+
+func TestUpdatePlanPreservesReview(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "w", Title: "Write", Kind: StepWrite, Files: []string{"b.txt"}, Status: StepInProgress,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	o.ledger.Steps[0].Review = &Review{Verdict: "approved", Summary: "looks good"}
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "w", Title: "Write", Kind: StepWrite, Files: []string{"b.txt"}, Status: StepCompleted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if step := o.ledger.Find("w"); step == nil || step.Review == nil || step.Review.Verdict != "approved" {
+		t.Fatalf("review was lost: %+v", step)
+	}
+}
+
+func TestRunPlanMergesNewFileWithRelativeCheck(t *testing.T) {
+	prov := &reviewProvider{fn: writerSteps("approved")}
+	o, repo := reviewRepo(t, prov, Config{ReviewWriters: boolPtr(true), RequireVerification: true})
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "w", Title: "Create b", Kind: StepWrite, Files: []string{"b.txt"}, Status: StepPending,
+		Checks: []Check{{ID: "exists", Command: "test -f b.txt", Status: CheckPending}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.runPlan(context.Background(), runPlanArgs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"merged": true`) {
+		t.Fatalf("out = %s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "b.txt"))
+	if err != nil || string(data) != "two" {
+		t.Fatalf("b.txt = %q err=%v", data, err)
+	}
+	step := o.ledger.Find("w")
+	if step == nil || step.Status != StepCompleted || step.Review == nil || step.Review.Verdict != "approved" {
+		t.Fatalf("step = %+v", step)
 	}
 }

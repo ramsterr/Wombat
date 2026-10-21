@@ -305,6 +305,13 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 
 func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string, facts []string) {
 	cfg := o.cfg
+	if r.step != nil {
+		if err := validateWorktreeChecks(r.step.Checks, o.worktrees.Repo); err != nil {
+			r.outcome.Status = "failed"
+			r.outcome.Error = err.Error()
+			return
+		}
+	}
 	o.worktreeMu.Lock()
 	wt, err := o.worktrees.CreateAt(r.task.StepID, o.currentWriterBase())
 	o.worktreeMu.Unlock()
@@ -331,6 +338,9 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	env.DenyGit = true
 	env.DenyOutside = true
 	env.AllowOutside = false
+	// The writer works in a worktree, but a shell command with an absolute
+	// path could still name the lead workspace. Block writes there.
+	env.BlockedRoots = []string{o.lead.Env.Dir}
 	// Writers never ask the user anything and never reach the network.
 	env.DenyNetwork = true
 	runCtx, cancel := context.WithTimeout(ctx, cfg.WriterTimeout)
@@ -483,6 +493,7 @@ func (o *Orchestrator) reviewWriter(ctx context.Context, r *writerRun, goal stri
 	env.DenyGit = true
 	env.DenyOutside = true
 	env.AllowOutside = false
+	env.BlockedRoots = []string{o.lead.Env.Dir}
 	env.DenyNetwork = true
 	runCtx, cancel := context.WithTimeout(ctx, cfg.WriterTimeout)
 	defer cancel()
@@ -743,7 +754,7 @@ func writerSystemPrompt(t writerTask, step *Step, goal string, facts []string, p
 	b.WriteString("## Writer worker\n")
 	b.WriteString("You are a coding writer in an isolated git worktree. Implement the task yourself using read/write/edit/glob/grep/bash. ")
 	b.WriteString("You may only modify the declared files. Do not commit, change git state, touch .git, or edit files outside your ownership. ")
-	b.WriteString("Run the supplied checks locally, then call submit_report with the structured result. Do not ask questions.\n\n")
+	b.WriteString("Run the supplied checks locally with repo-relative paths (they run in this worktree), then call submit_report with the structured result. Do not ask questions.\n\n")
 	if goal != "" {
 		b.WriteString("Project goal: " + oneLine(goal, 800) + "\n")
 	}
@@ -793,4 +804,41 @@ func writerBriefWriter(t writerTask, goal string, facts []string) string {
 	b.WriteString(strings.Join(t.Files, ", "))
 	b.WriteString(". Run the checks, keep changes minimal, and finish with the JSON report.")
 	return strings.TrimSpace(b.String())
+}
+
+// validateWorktreeChecks rejects checks that name the lead workspace by
+// absolute path. A writer runs its checks inside the worktree; such a check
+// would either fail for the wrong reason or tempt the writer to escape.
+func validateWorktreeChecks(checks []Check, repo string) error {
+	if strings.TrimSpace(repo) == "" {
+		return nil
+	}
+	root := canonicalWorktreePath(repo)
+	for _, check := range checks {
+		for _, field := range strings.Fields(check.Command) {
+			field = strings.Trim(field, `"'`)
+			if field == "" || !filepath.IsAbs(field) {
+				continue
+			}
+			if rel, err := filepath.Rel(root, canonicalWorktreePath(field)); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("write-step check %q uses the lead workspace path %q; checks run in the writer worktree, so use a relative path", check.ID, field)
+			}
+		}
+	}
+	return nil
+}
+
+func canonicalWorktreePath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	dir, base := filepath.Split(abs)
+	if resolved, err := filepath.EvalSymlinks(filepath.Clean(dir)); err == nil {
+		return filepath.Join(resolved, base)
+	}
+	return abs
 }

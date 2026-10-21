@@ -104,7 +104,7 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 		return "", err
 	}
 	if len(targets) == 0 {
-		return "", fmt.Errorf("no runnable steps: all selected steps are already complete")
+		return "", fmt.Errorf("no runnable steps: %s; pass step ids to retry failed or blocked steps", stepStatusSummary(ledger))
 	}
 
 	// An explicitly requested failed or blocked step is a retry.
@@ -323,6 +323,24 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 	o.mu.Unlock()
 
 	return jsonMarshalIndent(result)
+}
+
+func stepStatusSummary(l *Ledger) string {
+	counts := map[StepStatus]int{}
+	for _, step := range l.Steps {
+		counts[step.Status]++
+	}
+	if len(counts) == 0 {
+		return "the ledger has no steps"
+	}
+	order := []StepStatus{StepPending, StepInProgress, StepCompleted, StepBlocked, StepFailed}
+	parts := make([]string, 0, len(order))
+	for _, status := range order {
+		if counts[status] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[status], status))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func selectPlanSteps(l *Ledger, ids []string) ([]string, error) {
