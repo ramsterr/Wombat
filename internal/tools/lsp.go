@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/ramsterr/Wombat/internal/lsp"
@@ -31,14 +32,14 @@ type lspArgs struct {
 func (t *LSP) Name() string  { return "lsp" }
 func (t *LSP) Class() string { return "read" }
 func (t *LSP) Description() string {
-	return "Ask a language server for semantic answers: definition, references, diagnostics, workspace symbols, or a file outline. Go uses gopls; TypeScript, Python, Rust, C/C++, Java, Ruby, PHP, Lua, C#, Swift, Kotlin, and shell use their standard servers when installed. Prefer this over grep when you need the exact symbol."
+	return "Ask a language server for semantic answers: definition, references, diagnostics, completion, workspace symbols, or a file outline. Go uses gopls; TypeScript, Python, Rust, C/C++, Java, Ruby, PHP, Lua, C#, Swift, Kotlin, and shell use their standard servers when installed. Prefer this over grep when you need the exact symbol."
 }
 func (t *LSP) Schema() map[string]any {
 	return obj(map[string]any{
-		"action": map[string]any{"type": "string", "enum": []string{"definition", "references", "diagnostics", "symbols", "outline"}},
+		"action": map[string]any{"type": "string", "enum": []string{"definition", "references", "diagnostics", "completion", "symbols", "outline"}},
 		"path":   desc("file to inspect; for symbols, a file or directory to identify the language"),
-		"line":   map[string]any{"type": "integer", "description": "1-based line for definition/references"},
-		"column": map[string]any{"type": "integer", "description": "1-based column for definition/references"},
+		"line":   map[string]any{"type": "integer", "description": "1-based line for definition/references/completion"},
+		"column": map[string]any{"type": "integer", "description": "1-based column for definition/references/completion"},
 		"query":  desc("symbol name or fragment for workspace symbols"),
 	}, "action")
 }
@@ -53,7 +54,7 @@ func (t *LSP) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, e
 		return "", fmt.Errorf("action is required")
 	}
 	switch action {
-	case "definition", "references", "diagnostics", "outline":
+	case "definition", "references", "diagnostics", "outline", "completion":
 		if strings.TrimSpace(a.Path) == "" {
 			return "", fmt.Errorf("%s needs a path", action)
 		}
@@ -96,6 +97,18 @@ func (t *LSP) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, e
 				return "", err
 			}
 			return finishLSP(env, "lsp-diagnostics.txt", formatDiagnostics(env, path, items)), nil
+		case "completion":
+			if err := requirePosition(a.Line, a.Column); err != nil {
+				return "", err
+			}
+			items, err := server.Completion(ctx, path, a.Line, a.Column)
+			if err != nil {
+				return "", err
+			}
+			if len(items) == 0 {
+				return "no completions found", nil
+			}
+			return finishLSP(env, "lsp-completions.txt", formatCompletions(items)), nil
 		case "outline":
 			symbols, err := server.DocumentSymbols(ctx, path)
 			if err != nil {
@@ -124,7 +137,7 @@ func (t *LSP) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, e
 		}
 		return finishLSP(env, "lsp-symbols.txt", formatSymbols(env, symbols)), nil
 	}
-	return "", fmt.Errorf("action must be definition, references, diagnostics, symbols, or outline")
+	return "", fmt.Errorf("action must be definition, references, diagnostics, completion, symbols, or outline")
 }
 
 func lspPath(env *Env, path string) (string, error) {
@@ -208,6 +221,59 @@ func formatLocations(env *Env, locations []lsp.Location) string {
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatCompletions(items []lsp.CompletionItem) string {
+	limit := len(items)
+	if limit > 100 {
+		limit = 100
+	}
+	var b strings.Builder
+	for _, item := range items[:limit] {
+		fmt.Fprintf(&b, "%-40s %-9s %s", clipText(item.Label, 40), completionKind(item.Kind), item.Detail)
+		if doc := completionDoc(item.Documentation); doc != "" {
+			fmt.Fprintf(&b, "  — %s", doc)
+		}
+		b.WriteByte('\n')
+	}
+	header := fmt.Sprintf("%d completion(s)", len(items))
+	if limit < len(items) {
+		header += fmt.Sprintf(" (showing %d)", limit)
+	}
+	return header + ":\n" + strings.TrimRight(b.String(), "\n")
+}
+
+func completionDoc(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return firstLine(text)
+	}
+	var markup struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &markup); err == nil {
+		return firstLine(markup.Value)
+	}
+	return ""
+}
+
+func firstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return clipText(strings.TrimSpace(s), 100)
+}
+
+func completionKind(kind int) string {
+	names := []string{"", "text", "method", "function", "constructor", "field", "variable", "class", "interface", "module", "property", "unit", "value", "enum", "keyword", "snippet", "color", "file", "reference", "folder", "enum-member", "constant", "struct", "event", "operator", "type-parameter"}
+	if kind > 0 && kind < len(names) {
+		return names[kind]
+	}
+	return "item"
 }
 
 func formatDiagnostics(env *Env, path string, items []lsp.Diagnostic) string {
@@ -406,6 +472,26 @@ func (t *Rename) Run(ctx context.Context, raw json.RawMessage, env *Env) (string
 	if !apply {
 		return renamePreview(files, a.NewName), nil
 	}
+	if err := applyEditFiles(env, files, "before rename"); err != nil {
+		return "", err
+	}
+	msg := fmt.Sprintf("renamed to %s (%d edit(s) in %d file(s))", a.NewName, countRenameEdits(files), len(files))
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		paths = append(paths, f.path)
+	}
+	if err := server.Sync(ctx, paths...); err != nil {
+		return msg + fmt.Sprintf("; language server refresh failed: %v", err), nil
+	}
+	return msg, nil
+}
+
+// applyEditFiles checks, snapshots, and writes computed edits as one unit,
+// rolling back every file if a write fails.
+func applyEditFiles(env *Env, files []renameFile, reason string) error {
+	if len(files) == 0 {
+		return fmt.Errorf("the language server returned no edits")
+	}
 	paths := make([]string, 0, len(files))
 	var preview strings.Builder
 	for _, f := range files {
@@ -414,15 +500,15 @@ func (t *Rename) Run(ctx context.Context, raw json.RawMessage, env *Env) (string
 		preview.WriteString("\n")
 	}
 	if err := env.CheckPaths("edit", paths, strings.TrimSpace(preview.String())); err != nil {
-		return "", err
+		return err
 	}
 	for _, f := range files {
 		if err := env.checkOldContent(f.path); err != nil {
-			return "", err
+			return err
 		}
 	}
-	if err := env.Snapshot("before rename", paths...); err != nil {
-		return "", err
+	if err := env.Snapshot(reason, paths...); err != nil {
+		return err
 	}
 	written := make([]renameFile, 0, len(files))
 	rollback := func() {
@@ -435,20 +521,16 @@ func (t *Rename) Run(ctx context.Context, raw json.RawMessage, env *Env) (string
 		st, err := os.Stat(f.path)
 		if err != nil {
 			rollback()
-			return "", err
+			return err
 		}
 		f.mode = st.Mode().Perm()
 		if err := os.WriteFile(f.path, []byte(f.new), f.mode); err != nil {
 			rollback()
-			return "", err
+			return err
 		}
 		written = append(written, f)
 	}
-	msg := fmt.Sprintf("renamed to %s (%d edit(s) in %d file(s))", a.NewName, countRenameEdits(files), len(files))
-	if err := server.Sync(ctx, paths...); err != nil {
-		return msg + fmt.Sprintf("; language server refresh failed: %v", err), nil
-	}
-	return msg, nil
+	return nil
 }
 
 func buildRenameFiles(env *Env, changes map[string][]lsp.TextEdit) ([]renameFile, error) {
@@ -456,7 +538,7 @@ func buildRenameFiles(env *Env, changes map[string][]lsp.TextEdit) ([]renameFile
 	for uri, edits := range changes {
 		path, err := lsp.Path(uri)
 		if err != nil {
-			return nil, fmt.Errorf("rename returned an edit for %s: %w", uri, err)
+			return nil, fmt.Errorf("language server returned an edit for %s: %w", uri, err)
 		}
 		abs, err := filepath.Abs(path)
 		if err != nil {
@@ -551,4 +633,235 @@ func validIdentifier(name string) bool {
 		}
 	}
 	return true
+}
+
+// Refactor exposes the language server's structural code actions. The server
+// parses and type-checks the code, so extract/inline/organize-import edits
+// are semantic rather than textual. Rename stays a separate tool because it
+// is the most common operation and has its own preview flow.
+type Refactor struct{}
+
+type refactorArgs struct {
+	Path      string `json:"path"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndLine   int    `json:"end_line,omitempty"`
+	EndColumn int    `json:"end_column,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Index     int    `json:"index,omitempty"`
+	Apply     *bool  `json:"apply,omitempty"`
+}
+
+func (t *Refactor) Name() string  { return "refactor" }
+func (t *Refactor) Class() string { return "edit" }
+func (t *Refactor) Description() string {
+	return "Apply an AST-aware refactoring from the language server: extract or inline code, organize imports, rewrite expressions, or fix a diagnostic at a position or selection. Without title/index it lists the available actions. The server parses and type-checks the code, so edits are structural, not string replacement. Use rename for symbol renames."
+}
+func (t *Refactor) Schema() map[string]any {
+	return obj(map[string]any{
+		"path":       desc("file to refactor"),
+		"line":       map[string]any{"type": "integer", "description": "1-based line of the cursor or selection start"},
+		"column":     map[string]any{"type": "integer", "description": "1-based column of the cursor or selection start"},
+		"end_line":   map[string]any{"type": "integer", "description": "optional 1-based selection end line"},
+		"end_column": map[string]any{"type": "integer", "description": "optional 1-based selection end column"},
+		"kind":       desc("optional code action kind filter, e.g. refactor.extract, refactor.inline, source.organizeImports"),
+		"title":      desc("action title to apply (case-insensitive); omit to list actions"),
+		"index":      map[string]any{"type": "integer", "description": "1-based action index from the list, used instead of title"},
+		"apply":      map[string]any{"type": "boolean", "description": "apply the action (default true); false returns the diff or the command it would run"},
+	}, "path", "line", "column")
+}
+
+func (t *Refactor) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, error) {
+	a, err := decode[refactorArgs](raw)
+	if err != nil {
+		return "", fmt.Errorf("bad arguments: %w", err)
+	}
+	if err := requirePosition(a.Line, a.Column); err != nil {
+		return "", err
+	}
+	if a.EndLine > 0 && a.EndColumn < 1 {
+		return "", fmt.Errorf("end_column is required with end_line")
+	}
+	if a.EndColumn > 0 && a.EndLine < 1 {
+		return "", fmt.Errorf("end_line is required with end_column")
+	}
+	path, err := lspPath(env, a.Path)
+	if err != nil {
+		return "", err
+	}
+	server, err := env.LSPManager().Server(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	var only []string
+	if kind := strings.TrimSpace(a.Kind); kind != "" {
+		only = []string{kind}
+	}
+	actions, err := server.CodeActions(ctx, path, a.Line, a.Column, a.EndLine, a.EndColumn, only)
+	if err != nil {
+		return "", err
+	}
+	if len(actions) == 0 {
+		return "no code actions at that position", nil
+	}
+	if strings.TrimSpace(a.Title) == "" && a.Index == 0 {
+		return formatCodeActions(actions), nil
+	}
+	action, err := chooseAction(actions, a.Title, a.Index)
+	if err != nil {
+		return "", err
+	}
+	apply := true
+	if a.Apply != nil {
+		apply = *a.Apply
+	}
+	if action.Edit == nil && action.Command == nil {
+		return "", fmt.Errorf("action %q has no edit or command", action.Title)
+	}
+
+	var files []renameFile
+	if action.Edit != nil {
+		changes, err := lsp.WorkspaceChanges(*action.Edit)
+		if err != nil {
+			return "", err
+		}
+		files, err = buildRenameFiles(env, changes)
+		if err != nil {
+			return "", err
+		}
+	}
+	if !apply {
+		return refactorPreview(action, files), nil
+	}
+	msg := fmt.Sprintf("applied %s", action.Title)
+	if len(files) > 0 {
+		if err := applyEditFiles(env, files, "before refactor"); err != nil {
+			return "", err
+		}
+		msg += fmt.Sprintf(" (%d edit(s) in %d file(s))", countRenameEdits(files), len(files))
+		paths := make([]string, 0, len(files))
+		for _, f := range files {
+			paths = append(paths, f.path)
+		}
+		if err := server.Sync(ctx, paths...); err != nil {
+			msg += fmt.Sprintf("; language server refresh failed: %v", err)
+		}
+	}
+	if action.Command != nil {
+		if err := server.ExecuteCommand(ctx, *action.Command); err != nil {
+			return "", err
+		}
+		msg += fmt.Sprintf("; executed %s", action.Command.Command)
+		if len(files) == 0 {
+			// Servers may answer a command by asking the client to apply an
+			// edit. Give the request a moment to arrive, then apply it through
+			// the same permission and rollback path as a direct edit.
+			applied := server.TakeAppliedEdits()
+			for i := 0; i < 20 && len(applied) == 0; i++ {
+				time.Sleep(25 * time.Millisecond)
+				applied = server.TakeAppliedEdits()
+			}
+			for _, edit := range applied {
+				changes, err := lsp.WorkspaceChanges(edit)
+				if err != nil {
+					return "", err
+				}
+				commandFiles, err := buildRenameFiles(env, changes)
+				if err != nil {
+					return "", err
+				}
+				if len(commandFiles) == 0 {
+					continue
+				}
+				if err := applyEditFiles(env, commandFiles, "before refactor"); err != nil {
+					return "", err
+				}
+				msg += fmt.Sprintf(" (%d edit(s) in %d file(s))", countRenameEdits(commandFiles), len(commandFiles))
+				paths := make([]string, 0, len(commandFiles))
+				for _, f := range commandFiles {
+					paths = append(paths, f.path)
+				}
+				if err := server.Sync(ctx, paths...); err != nil {
+					msg += fmt.Sprintf("; language server refresh failed: %v", err)
+				}
+			}
+		}
+	}
+	return msg, nil
+}
+
+func formatCodeActions(actions []lsp.CodeAction) string {
+	var b strings.Builder
+	for i, action := range actions {
+		kind := action.Kind
+		if kind == "" {
+			kind = "action"
+		}
+		markers := make([]string, 0, 2)
+		if action.Edit != nil {
+			markers = append(markers, "edit")
+		}
+		if action.Command != nil {
+			markers = append(markers, "command")
+		}
+		if action.IsPreferred {
+			markers = append(markers, "preferred")
+		}
+		marker := ""
+		if len(markers) > 0 {
+			marker = " [" + strings.Join(markers, ", ") + "]"
+		}
+		fmt.Fprintf(&b, "%d. %s  (%s)%s\n", i+1, action.Title, kind, marker)
+	}
+	return fmt.Sprintf("%d code action(s):\n%s", len(actions), strings.TrimRight(b.String(), "\n"))
+}
+
+func chooseAction(actions []lsp.CodeAction, title string, index int) (lsp.CodeAction, error) {
+	if index != 0 {
+		if index < 1 || index > len(actions) {
+			return lsp.CodeAction{}, fmt.Errorf("index %d is outside the list (1-%d)", index, len(actions))
+		}
+		return actions[index-1], nil
+	}
+	want := strings.ToLower(strings.TrimSpace(title))
+	for _, action := range actions {
+		if strings.ToLower(action.Title) == want {
+			return action, nil
+		}
+	}
+	var matches []lsp.CodeAction
+	for _, action := range actions {
+		if strings.Contains(strings.ToLower(action.Title), want) {
+			matches = append(matches, action)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) == 0 {
+		return lsp.CodeAction{}, fmt.Errorf("no action matches %q; available:\n%s", title, formatCodeActions(actions))
+	}
+	names := make([]string, 0, len(matches))
+	for _, action := range matches {
+		names = append(names, action.Title)
+	}
+	return lsp.CodeAction{}, fmt.Errorf("%q matches several actions (%s); use the exact title or index", title, strings.Join(names, "; "))
+}
+
+func refactorPreview(action lsp.CodeAction, files []renameFile) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "apply %s", action.Title)
+	if len(files) > 0 {
+		fmt.Fprintf(&b, " (%d edit(s) in %d file(s))", countRenameEdits(files), len(files))
+	}
+	if action.Command != nil {
+		fmt.Fprintf(&b, "; then run %s", action.Command.Command)
+	}
+	b.WriteString(":\n")
+	for _, f := range files {
+		b.WriteString(DiffPreview(f.rel, f.old, f.new))
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

@@ -350,6 +350,8 @@ API keys resolve in order: config file → preset environment variable (`OPENAI_
 
 `imagegen` uses an OpenAI-compatible image endpoint. By default it uses the `openai` provider, `gpt-image-1`, and the same key resolution as chat. Point it at another provider or model with `wombat config set image_provider <name>` and `wombat config set image_model <model>`, or override with `WOMBAT_IMAGE_PROVIDER`, `WOMBAT_IMAGE_BASE_URL`, `WOMBAT_IMAGE_API_KEY`, and `WOMBAT_IMAGE_MODEL`. `generate` creates an asset; `edit` takes an input image and optional mask. Both save into the workspace and attach the result for review.
 
+`semantic_search` finds code by meaning instead of exact text. It indexes the workspace into line chunks, caches vectors outside the repository, and re-embeds only files that changed. Point it at any OpenAI-compatible embedding endpoint with `wombat config set embedding_provider <name>` and `wombat config set embedding_model <model>` (for example `openai` with `text-embedding-3-small`, or `ollama` with `nomic-embed-text`), or override with `WOMBAT_EMBED_PROVIDER`, `WOMBAT_EMBED_BASE_URL`, `WOMBAT_EMBED_API_KEY`, and `WOMBAT_EMBED_MODEL`. With no embedding provider configured it uses a deterministic offline embedder, so the tool still works without network access.
+
 `browser` drives a local Chromium browser over the DevTools protocol. It finds Chrome, Chromium, Edge, Brave, Playwright, or Puppeteer installations; set `WOMBAT_BROWSER` to choose an executable. Open the page, interact with it, and take a screenshot that is attached to the conversation, so frontend work is verified visually instead of guessed from HTML.
 
 ### Reasoning models
@@ -386,10 +388,12 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `glob` | read | `**` patterns; skips `.git` and `node_modules` |
 | `grep` | read | pure-Go search; skips credentials files and redacts output |
 | `symbols` | read | Go AST definitions/references plus language-specific declarations |
-| `lsp` | read | language-server definition, references, diagnostics, symbols, and outline |
+| `lsp` | read | language-server definition, references, diagnostics, completion, symbols, and outline |
 | `browser` | network | drive Chromium: open, click, type, scroll, eval, resize, and screenshot |
 | `imagegen` | write | generate or edit an image and attach it for visual review |
 | `rename` | edit | language-server rename, with a combined diff and atomic application |
+| `refactor` | edit | AST-aware language-server refactorings (extract, inline, organize imports, quick fixes) |
+| `semantic_search` | read | find code by meaning with embeddings; cached, incremental index |
 | `batch` | read | several `read`/`grep`/`glob` calls in one round-trip |
 | `verify` | bash | runs the project's own tests, build, typecheck, lint, and format |
 | `jobs` / `job_output` / `job_kill` | read/bash | list, stream, and stop background processes |
@@ -401,7 +405,7 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `delegate` / `delegate_many` | delegate | read-only investigation workers |
 | `delegate_write` | write | isolated git worktree writers (opt-in in config) |
 
-`lsp` and `rename` use whichever language server is installed: `gopls` for Go, `typescript-language-server` for TypeScript/JavaScript, `pyright` or `pylsp` for Python, `rust-analyzer`, `clangd`, `jdtls`, `solargraph`, `intelephense`, `lua-language-server`, `csharp-ls`, `sourcekit-lsp`, `kotlin-language-server`, and `bash-language-server`. Override a server with `WOMBAT_LSP` or per language with `WOMBAT_LSP_GO`, `WOMBAT_LSP_PY`, and so on. If no server is installed the tool says so; `symbols` still works as a fallback.
+`lsp` asks the server for definitions, references, diagnostics, completions, symbols, and outlines; `rename` and `refactor` apply the server's semantic edits. They use whichever language server is installed: `gopls` for Go, `typescript-language-server` for TypeScript/JavaScript, `pyright` or `pylsp` for Python, `rust-analyzer`, `clangd`, `jdtls`, `solargraph`, `intelephense`, `lua-language-server`, `csharp-ls`, `sourcekit-lsp`, `kotlin-language-server`, and `bash-language-server`. Override a server with `WOMBAT_LSP` or per language with `WOMBAT_LSP_GO`, `WOMBAT_LSP_PY`, and so on. If no server is installed the tool says so; `symbols` and `semantic_search` still work as fallbacks.
 
 Permissions are set per class to `ask`, `allow`, or `deny`. `bash`, `write`, `edit`, and `network` default to `allow`; `dangerous` and `sensitive-read` default to `ask`, so destructive commands and credentials files are never read automatically. Read is otherwise allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed. Credentials files are also skipped by `grep` and redacted from tool output.
 
@@ -603,7 +607,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `browser`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `semantic_search`, `browser`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
 
 ### Checks, verification, and writers
 

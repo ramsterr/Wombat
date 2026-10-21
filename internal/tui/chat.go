@@ -25,6 +25,7 @@ import (
 	clipboard "github.com/ramsterr/Wombat/internal/clip"
 	"github.com/ramsterr/Wombat/internal/commands"
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/embeddings"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
@@ -362,6 +363,8 @@ func (c *chat) rebuild(reset bool) error {
 		Mode:          c.mode.Label(),
 	}
 	env.AskUser = c.askUser
+	env.Embeddings = embeddings.FromConfig(c.cfg)
+	env.IndexDir = filepath.Join(config.Home(), "index")
 	if c.cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(c.sess.Path()), cwd)
 		if err != nil {

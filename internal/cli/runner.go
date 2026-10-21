@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/checkpoint"
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/embeddings"
 	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
@@ -117,6 +119,8 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		}
 	}
 	env.Images = imageClient(cfg)
+	env.Embeddings = embeddings.FromConfig(cfg)
+	env.IndexDir = filepath.Join(config.Home(), "index")
 	if cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(sess.Path()), cwd)
 		if err != nil {

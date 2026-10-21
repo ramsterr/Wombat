@@ -64,6 +64,9 @@ type Client struct {
 	diagMu sync.Mutex
 	diag   map[string]diagnosticState
 
+	applyMu sync.Mutex
+	applied []WorkspaceEdit
+
 	caps serverCapabilities
 	root string
 }
@@ -126,6 +129,25 @@ func startClient(ctx context.Context, root string, command []string) (*Client, e
 				Diagnostic:         map[string]any{},
 				PublishDiagnostics: map[string]any{"relatedInformation": true},
 				DocumentSymbol:     map[string]any{"hierarchicalDocumentSymbolSupport": true},
+				Completion: map[string]any{
+					"completionItem": map[string]any{
+						"snippetSupport":      true,
+						"documentationFormat": []string{"markdown", "plaintext"},
+					},
+				},
+				CodeAction: map[string]any{
+					"codeActionLiteralSupport": map[string]any{
+						"codeActionKind": map[string]any{
+							"valueSet": []string{
+								"", "quickfix", "refactor", "refactor.extract",
+								"refactor.inline", "refactor.rewrite", "source",
+								"source.organizeImports", "source.fixAll",
+							},
+						},
+					},
+					"isPreferredSupport": true,
+					"disabledSupport":    true,
+				},
 			},
 			Window: windowCapabilities{WorkDoneProgress: true},
 		},
@@ -196,7 +218,17 @@ func (c *Client) answerRequest(id json.RawMessage, method string, params json.Ra
 		_ = json.Unmarshal(params, &p)
 		result = make([]any, len(p.Items))
 	case "workspace/applyEdit":
-		result = map[string]any{"applied": false}
+		var p struct {
+			Edit WorkspaceEdit `json:"edit"`
+		}
+		if json.Unmarshal(params, &p) == nil && (len(p.Edit.Changes) > 0 || len(p.Edit.DocumentChanges) > 0) {
+			c.applyMu.Lock()
+			c.applied = append(c.applied, p.Edit)
+			c.applyMu.Unlock()
+			result = map[string]any{"applied": true}
+		} else {
+			result = map[string]any{"applied": false}
+		}
 	case "window/showMessageRequest":
 		result = nil
 	case "client/registerCapability", "client/unregisterCapability",
@@ -221,6 +253,16 @@ func (c *Client) handleNotification(method string, params json.RawMessage) {
 	c.diagMu.Lock()
 	c.diag[p.URI] = diagnosticState{items: items, at: time.Now()}
 	c.diagMu.Unlock()
+}
+
+// TakeAppliedEdits returns and clears workspace edits a server asked the
+// client to apply while executing a command.
+func (c *Client) TakeAppliedEdits() []WorkspaceEdit {
+	c.applyMu.Lock()
+	defer c.applyMu.Unlock()
+	edits := c.applied
+	c.applied = nil
+	return edits
 }
 
 func (c *Client) Request(ctx context.Context, method string, params, result any) error {

@@ -78,6 +78,41 @@ func (s *Server) References(ctx context.Context, path string, line, column int) 
 	return locations, nil
 }
 
+func (s *Server) Completion(ctx context.Context, path string, line, column int) ([]CompletionItem, error) {
+	uri, text, _, err := s.open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	pos, err := positionAt(text, line, column)
+	if err != nil {
+		return nil, err
+	}
+	var raw json.RawMessage
+	params := completionParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Position:     pos,
+		Context:      &completionContext{TriggerKind: 1},
+	}
+	if err := s.client.Request(ctx, "textDocument/completion", params, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	if strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
+		var items []CompletionItem
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return nil, fmt.Errorf("decode completions: %w", err)
+		}
+		return items, nil
+	}
+	var list completionList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("decode completions: %w", err)
+	}
+	return list.Items, nil
+}
+
 func (s *Server) Diagnostics(ctx context.Context, path string) ([]Diagnostic, error) {
 	uri, _, _, err := s.open(ctx, path)
 	if err != nil {
@@ -123,23 +158,102 @@ func (s *Server) Rename(ctx context.Context, path string, line, column int, newN
 	if err := s.client.Request(ctx, "textDocument/rename", params, &edit); err != nil {
 		return nil, err
 	}
+	changes, err := WorkspaceChanges(edit)
+	if err != nil {
+		return nil, err
+	}
+	if len(changes) == 0 {
+		return nil, fmt.Errorf("language server returned no rename edits")
+	}
+	return changes, nil
+}
+
+// WorkspaceChanges flattens a WorkspaceEdit into per-file text edits. File
+// create/rename/delete operations are rejected: Wombat applies content
+// edits atomically and does not silently create or remove files.
+func WorkspaceChanges(edit WorkspaceEdit) (map[string][]TextEdit, error) {
 	changes := map[string][]TextEdit{}
 	for uri, edits := range edit.Changes {
 		changes[uri] = append(changes[uri], edits...)
 	}
 	for _, change := range edit.DocumentChanges {
 		if change.Kind != "" || change.URI != "" || change.OldURI != "" || change.NewURI != "" {
-			return nil, fmt.Errorf("language server requested an unsupported file operation during rename")
+			return nil, fmt.Errorf("language server requested an unsupported file operation")
 		}
 		if change.TextDocument == nil {
-			return nil, fmt.Errorf("language server returned a rename edit without a document")
+			return nil, fmt.Errorf("language server returned an edit without a document")
 		}
 		changes[change.TextDocument.URI] = append(changes[change.TextDocument.URI], change.Edits...)
 	}
-	if len(changes) == 0 {
-		return nil, fmt.Errorf("language server returned no rename edits")
-	}
 	return changes, nil
+}
+
+func (s *Server) CodeActions(ctx context.Context, path string, line, column, endLine, endColumn int, only []string) ([]CodeAction, error) {
+	uri, text, _, err := s.open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	start, err := positionAt(text, line, column)
+	if err != nil {
+		return nil, err
+	}
+	end := start
+	if endLine > 0 {
+		if endColumn < 1 {
+			endColumn = 1
+		}
+		end, err = positionAt(text, endLine, endColumn)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if end.Line < start.Line || (end.Line == start.Line && end.Character < start.Character) {
+		return nil, fmt.Errorf("selection end is before its start")
+	}
+	var raw json.RawMessage
+	params := codeActionParams{
+		TextDocument: TextDocumentIdentifier{URI: uri},
+		Range:        Range{Start: start, End: end},
+		Context:      codeActionContext{Diagnostics: []Diagnostic{}, Only: only},
+	}
+	if err := s.client.Request(ctx, "textDocument/codeAction", params, &raw); err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("decode code actions: %w", err)
+	}
+	actions := make([]CodeAction, 0, len(items))
+	for _, item := range items {
+		var action CodeAction
+		if err := json.Unmarshal(item, &action); err == nil && action.Title != "" {
+			if action.Disabled != nil {
+				continue
+			}
+			actions = append(actions, action)
+			continue
+		}
+		var command Command
+		if err := json.Unmarshal(item, &command); err == nil && command.Command != "" {
+			actions = append(actions, CodeAction{Title: command.Title, Command: &command})
+			continue
+		}
+	}
+	return actions, nil
+}
+
+func (s *Server) ExecuteCommand(ctx context.Context, command Command) error {
+	params := executeCommandParams{Command: command.Command, Arguments: command.Arguments}
+	return s.client.Request(ctx, "workspace/executeCommand", params, nil)
+}
+
+// TakeAppliedEdits returns workspace edits the server asked the client to
+// apply while executing a command.
+func (s *Server) TakeAppliedEdits() []WorkspaceEdit {
+	return s.client.TakeAppliedEdits()
 }
 
 func (s *Server) WorkspaceSymbols(ctx context.Context, query string) ([]Symbol, error) {
@@ -280,6 +394,9 @@ func (s *Server) refresh(ctx context.Context, path string) (uri, text string, ch
 // writes files directly, so the server has to be told what changed.
 func (s *Server) Sync(ctx context.Context, paths ...string) error {
 	for _, path := range paths {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(s.root, path)
+		}
 		if _, _, _, err := s.open(ctx, path); err != nil {
 			return err
 		}

@@ -33,6 +33,46 @@ type WorkspaceEdit struct {
 	DocumentChanges []DocumentChange      `json:"documentChanges,omitempty"`
 }
 
+// Command is a server-side action that has to be executed by the client.
+type Command struct {
+	Title     string            `json:"title"`
+	Command   string            `json:"command"`
+	Arguments []json.RawMessage `json:"arguments,omitempty"`
+}
+
+// CodeAction is a refactoring, quick fix, or source action offered at a
+// position or range. It may carry edits directly, a command to execute, or
+// both.
+type CodeAction struct {
+	Title       string       `json:"title"`
+	Kind        string       `json:"kind,omitempty"`
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+	IsPreferred bool         `json:"isPreferred,omitempty"`
+	Disabled    *struct {
+		Reason string `json:"reason,omitempty"`
+	} `json:"disabled,omitempty"`
+	Edit    *WorkspaceEdit  `json:"edit,omitempty"`
+	Command *Command        `json:"command,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+// CompletionItem is a completion candidate. Documentation is kept raw
+// because servers send either a string or a MarkupContent object.
+type CompletionItem struct {
+	Label         string          `json:"label"`
+	Kind          int             `json:"kind,omitempty"`
+	Detail        string          `json:"detail,omitempty"`
+	Documentation json.RawMessage `json:"documentation,omitempty"`
+	InsertText    string          `json:"insertText,omitempty"`
+	SortText      string          `json:"sortText,omitempty"`
+	FilterText    string          `json:"filterText,omitempty"`
+}
+
+type completionList struct {
+	IsIncomplete bool             `json:"isIncomplete"`
+	Items        []CompletionItem `json:"items"`
+}
+
 type DocumentChange struct {
 	TextDocument *TextDocumentIdentifier `json:"textDocument,omitempty"`
 	Edits        []TextEdit              `json:"edits,omitempty"`
@@ -91,6 +131,9 @@ type serverCapabilities struct {
 	DocumentSymbolProvider  json.RawMessage `json:"documentSymbolProvider"`
 	WorkspaceSymbolProvider json.RawMessage `json:"workspaceSymbolProvider"`
 	DiagnosticProvider      json.RawMessage `json:"diagnosticProvider"`
+	CompletionProvider      json.RawMessage `json:"completionProvider"`
+	CodeActionProvider      json.RawMessage `json:"codeActionProvider"`
+	ExecuteCommandProvider  json.RawMessage `json:"executeCommandProvider"`
 }
 
 type initializeResult struct {
@@ -131,6 +174,8 @@ type textDocumentCapabilities struct {
 	Diagnostic         map[string]any              `json:"diagnostic"`
 	PublishDiagnostics map[string]any              `json:"publishDiagnostics"`
 	DocumentSymbol     map[string]any              `json:"documentSymbol"`
+	Completion         map[string]any              `json:"completion"`
+	CodeAction         map[string]any              `json:"codeAction"`
 }
 
 type synchronizationCapabilities struct {
@@ -176,6 +221,34 @@ type workspaceSymbolParams struct {
 
 type documentSymbolParams struct {
 	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+type completionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Position     Position               `json:"position"`
+	Context      *completionContext     `json:"context,omitempty"`
+}
+
+type completionContext struct {
+	TriggerKind      int    `json:"triggerKind"`
+	TriggerCharacter string `json:"triggerCharacter,omitempty"`
+}
+
+type codeActionParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+	Range        Range                  `json:"range"`
+	Context      codeActionContext      `json:"context"`
+}
+
+type codeActionContext struct {
+	Diagnostics []Diagnostic `json:"diagnostics"`
+	Only        []string     `json:"only,omitempty"`
+	TriggerKind int          `json:"triggerKind,omitempty"`
+}
+
+type executeCommandParams struct {
+	Command   string            `json:"command"`
+	Arguments []json.RawMessage `json:"arguments,omitempty"`
 }
 
 type didOpenParams struct {

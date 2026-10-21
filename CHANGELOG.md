@@ -72,10 +72,19 @@ All notable changes to Wombat are recorded here. The format follows
 - **Semantic code intelligence through real language servers.** `lsp` asks
   gopls (or the installed server for TypeScript, Python, Rust, C/C++, Java,
   Ruby, PHP, Lua, C#, Swift, Kotlin, or shell) for definitions, references,
-  diagnostics, workspace symbols, or a file outline. `rename` computes a
-  semantic rename, shows one combined diff, and applies every file atomically
-  with a snapshot and rollback. Servers are discovered on `PATH`, in Go and
-  Cargo bin directories, or through `WOMBAT_LSP` / `WOMBAT_LSP_<LANG>`.
+  diagnostics, completions, workspace symbols, or a file outline. `rename`
+  computes a semantic rename, shows one combined diff, and applies every file
+  atomically with a snapshot and rollback. `refactor` applies the server's
+  AST-aware code actions — extract or inline code, organize imports, rewrite
+  expressions, and quick fixes — through the same preview, permission, and
+  rollback path. Servers are discovered on `PATH`, in Go and Cargo bin
+  directories, or through `WOMBAT_LSP` / `WOMBAT_LSP_<LANG>`.
+- **Semantic search.** `semantic_search` indexes the workspace into chunks and
+  ranks them by embedding similarity, so code can be found by what it does
+  rather than its exact text. The index is cached outside the repository and
+  updated incrementally. It uses any OpenAI-compatible embedding endpoint
+  (`embedding_provider` / `embedding_model`, or `WOMBAT_EMBED_*`) and falls
+  back to a deterministic offline embedder.
 - **Provider fallback.** `fallback_models` tries the next model on a
   rate-limit, outage, or server error, but never after output has streamed.
 - **Binary and image safety.** `read` refuses binary files and attaches images

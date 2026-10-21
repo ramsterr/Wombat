@@ -72,6 +72,45 @@ func TestLSPDefinitionReferencesAndOutline(t *testing.T) {
 	if !strings.Contains(diagnostics, "diagnostic") {
 		t.Fatalf("diagnostics = %q", diagnostics)
 	}
+	completion := run(t, &LSP{}, env, `{"action":"completion","path":"a.go","line":6,"column":9}`)
+	if !strings.Contains(completion, "completion(s)") {
+		t.Fatalf("completion = %q", completion)
+	}
+}
+
+func TestRefactorListsAndAppliesOrganizeImports(t *testing.T) {
+	if !hasGopls() {
+		t.Skip("gopls is not installed")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "package demo\n\nimport \"os\"\n\nfunc Use() {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := testEnv(dir)
+	defer env.CloseLSP()
+
+	list := run(t, &Refactor{}, env, `{"path":"a.go","line":2,"column":1,"kind":"source.organizeImports"}`)
+	if !strings.Contains(strings.ToLower(list), "organize") {
+		t.Fatalf("actions = %q", list)
+	}
+	out := run(t, &Refactor{}, env, `{"path":"a.go","line":2,"column":1,"kind":"source.organizeImports","index":1}`)
+	if !strings.Contains(out, "applied") {
+		t.Fatalf("output = %q", out)
+	}
+	if strings.Contains(out, "refresh failed") {
+		t.Fatalf("language server was not refreshed: %q", out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "a.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"os"`) {
+		t.Fatalf("unused import was not removed: %s", data)
+	}
 }
 
 func TestRenamePreviewAndApply(t *testing.T) {
@@ -94,6 +133,9 @@ func TestRenamePreviewAndApply(t *testing.T) {
 	if !strings.Contains(out, "renamed to Sum") {
 		t.Fatalf("output = %q", out)
 	}
+	if strings.Contains(out, "refresh failed") {
+		t.Fatalf("language server was not refreshed: %q", out)
+	}
 	data, _ = os.ReadFile(filepath.Join(dir, "a.go"))
 	if strings.Contains(string(data), "Add(") || !strings.Contains(string(data), "func Sum(") || !strings.Contains(string(data), "return Sum(") {
 		t.Fatalf("file = %s", data)
@@ -113,5 +155,44 @@ func TestRenamePreviewAndApply(t *testing.T) {
 	diagnostics = run(t, &LSP{}, env, `{"action":"diagnostics","path":"a.go"}`)
 	if !strings.Contains(diagnostics, "error") {
 		t.Fatalf("expected an error after breaking the file, got %q", diagnostics)
+	}
+}
+
+func TestRefactorAppliesCommandAction(t *testing.T) {
+	if !hasGopls() {
+		t.Skip("gopls is not installed")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := `package demo
+
+func Use() int {
+	a := 1
+	b := 2
+	return a + b
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := testEnv(dir)
+	defer env.CloseLSP()
+
+	list := run(t, &Refactor{}, env, `{"path":"a.go","line":4,"column":2,"end_line":5,"end_column":9,"kind":"refactor.extract"}`)
+	if !strings.Contains(list, "Extract") {
+		t.Skipf("this gopls does not offer extract: %q", list)
+	}
+	out := run(t, &Refactor{}, env, `{"path":"a.go","line":4,"column":2,"end_line":5,"end_column":9,"kind":"refactor.extract","index":1}`)
+	if strings.Contains(out, "refresh failed") {
+		t.Fatalf("language server was not refreshed: %q", out)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "a.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) == src {
+		t.Fatalf("command action did not change the file: %q", out)
 	}
 }

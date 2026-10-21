@@ -87,6 +87,13 @@ func Use() int {
 	if len(symbols) == 0 {
 		t.Fatal("workspace symbols found nothing")
 	}
+	items, err := server.Completion(ctx, path, 6, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) == 0 {
+		t.Fatal("completion returned nothing")
+	}
 	outline, err := server.DocumentSymbols(ctx, path)
 	if err != nil || len(outline) == 0 {
 		t.Fatalf("outline = %+v, err = %v", outline, err)

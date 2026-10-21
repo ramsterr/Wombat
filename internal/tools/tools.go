@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ramsterr/Wombat/internal/browser"
+	"github.com/ramsterr/Wombat/internal/embeddings"
 	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/lsp"
 )
@@ -60,6 +61,14 @@ type Env struct {
 
 	// Images is the image generation/editing client, when configured.
 	Images *images.Client
+
+	// Embeddings is the semantic-search embedder, when configured. When it
+	// is nil, semantic search uses the offline local embedder.
+	Embeddings *embeddings.Client
+
+	// IndexDir is where semantic-search indexes are cached. The CLI points
+	// it at ~/.wombat/index so indexes survive sessions.
+	IndexDir string
 
 	// browser owns the local Chromium session used for visual verification.
 	browser *browser.Manager
@@ -273,8 +282,8 @@ type Tool interface {
 
 func Registry() []Tool {
 	return []Tool{
-		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{},
-		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &LSP{}, &Browser{}, &ImageGen{}, &Verify{},
+		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{}, &Refactor{},
+		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &LSP{}, &SemanticSearch{}, &Browser{}, &ImageGen{}, &Verify{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},
 	}
