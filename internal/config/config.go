@@ -21,41 +21,48 @@ const (
 	DefaultMaxDelegations        = 6
 	DefaultMaxParallelScouts     = 5
 	DefaultWorkerMaxSteps        = 16
-	DefaultWorkerTokenBudget     = 50_000
-	DefaultTurnWorkerTokenBudget = 260_000
+	DefaultWorkerTokenBudget     = 0
+	DefaultTurnWorkerTokenBudget = 0
 	DefaultMaxParallelWriters    = 2
 	DefaultWriterMaxSteps        = 40
-	DefaultWriterTokenBudget     = 200_000
-	DefaultTurnWriterTokenBudget = 400_000
+	DefaultWriterTokenBudget     = 0
+	DefaultTurnWriterTokenBudget = 0
 )
 
 type Config struct {
-	Version             int                  `json:"version"`
-	Provider            string               `json:"provider"`
-	Model               string               `json:"model"`
-	ImageProvider       string               `json:"image_provider,omitempty"`
-	ImageModel          string               `json:"image_model,omitempty"`
-	EmbeddingProvider   string               `json:"embedding_provider,omitempty"`
-	EmbeddingModel      string               `json:"embedding_model,omitempty"`
-	ReviewWriters       *bool                `json:"review_writers,omitempty"`
-	ReviewModel         string               `json:"review_model,omitempty"`
-	Providers           map[string]*Provider `json:"providers"`
-	Permissions         map[string]string    `json:"permissions,omitempty"`
-	Orchestrator        bool                 `json:"orchestrator"`
-	MaxParallelScouts   int                  `json:"max_parallel_scouts"`
-	MaxParallelWriters  int                  `json:"max_parallel_writers"`
-	Mode                string               `json:"mode"`
-	Reasoning           string               `json:"reasoning,omitempty"`
-	ShowThinking        bool                 `json:"show_thinking"`
-	TrimReasoning       bool                 `json:"trim_reasoning,omitempty"`
-	ParallelAgents      bool                 `json:"parallel_agents"`
-	ScoutModel          string               `json:"scout_model,omitempty"`
-	FallbackModels      []string             `json:"fallback_models,omitempty"`
-	Checkpoints         bool                 `json:"checkpoints"`
-	RequireVerification bool                 `json:"require_verification"`
-	Writers             bool                 `json:"writers"`
-	KeepWorktrees       bool                 `json:"keep_worktrees,omitempty"`
-	Mouse               bool                 `json:"mouse,omitempty"`
+	Version               int                  `json:"version"`
+	Provider              string               `json:"provider"`
+	Model                 string               `json:"model"`
+	ImageProvider         string               `json:"image_provider,omitempty"`
+	ImageModel            string               `json:"image_model,omitempty"`
+	EmbeddingProvider     string               `json:"embedding_provider,omitempty"`
+	EmbeddingModel        string               `json:"embedding_model,omitempty"`
+	ReviewWriters         *bool                `json:"review_writers,omitempty"`
+	ReviewModel           string               `json:"review_model,omitempty"`
+	WorkerFullAccess      *bool                `json:"worker_full_access,omitempty"`
+	Providers             map[string]*Provider `json:"providers"`
+	Permissions           map[string]string    `json:"permissions,omitempty"`
+	Orchestrator          bool                 `json:"orchestrator"`
+	MaxParallelScouts     int                  `json:"max_parallel_scouts"`
+	MaxParallelWriters    int                  `json:"max_parallel_writers"`
+	WorkerMaxSteps        int                  `json:"worker_max_steps,omitempty"`
+	WorkerTokenBudget     int                  `json:"worker_token_budget,omitempty"`
+	TurnWorkerTokenBudget int                  `json:"turn_worker_token_budget,omitempty"`
+	WriterMaxSteps        int                  `json:"writer_max_steps,omitempty"`
+	WriterTokenBudget     int                  `json:"writer_token_budget,omitempty"`
+	TurnWriterTokenBudget int                  `json:"turn_writer_token_budget,omitempty"`
+	Mode                  string               `json:"mode"`
+	Reasoning             string               `json:"reasoning,omitempty"`
+	ShowThinking          bool                 `json:"show_thinking"`
+	TrimReasoning         bool                 `json:"trim_reasoning,omitempty"`
+	ParallelAgents        bool                 `json:"parallel_agents"`
+	ScoutModel            string               `json:"scout_model,omitempty"`
+	FallbackModels        []string             `json:"fallback_models,omitempty"`
+	Checkpoints           bool                 `json:"checkpoints"`
+	RequireVerification   bool                 `json:"require_verification"`
+	Writers               bool                 `json:"writers"`
+	KeepWorktrees         bool                 `json:"keep_worktrees,omitempty"`
+	Mouse                 bool                 `json:"mouse,omitempty"`
 }
 
 type Preset struct {
@@ -192,6 +199,12 @@ func Load() (*Config, error) {
 		c.Mode = "create"
 	}
 	return c, nil
+}
+
+// FullWorkers reports whether delegated workers get write/network/all-tool
+// access. It defaults to true.
+func (c *Config) FullWorkers() bool {
+	return c == nil || c.WorkerFullAccess == nil || *c.WorkerFullAccess
 }
 
 func (c *Config) Save() error {

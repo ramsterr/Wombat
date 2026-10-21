@@ -387,7 +387,7 @@ func (b *blockedProvider) Chat(ctx context.Context, _ llm.Request, _ func(string
 func TestDelegationTimeout(t *testing.T) {
 	o, _, _ := newOrch(t, &blockedProvider{}, Config{MaxDelegations: 1, WorkerTimeout: 20 * time.Millisecond})
 	start := time.Now()
-	_, usage, _, err := o.runWorker(context.Background(), delegateArgs{Title: "slow", Objective: "wait"}, nil, "", nil, 2, 100000)
+	_, usage, _, err := o.runWorker(context.Background(), delegateArgs{Title: "slow", Objective: "wait"}, nil, "", nil, 2, 100000, false)
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("timeout error = %v", err)
 	}
@@ -570,5 +570,12 @@ func TestPlanWithIndependentStepsNudgesAFleet(t *testing.T) {
 	}
 	if strings.Contains(o2.systemPrompt(), "independent steps") {
 		t.Error("dependent steps should not trigger the fleet nudge")
+	}
+}
+
+func TestFullAccessOrchestrationPromptStaysShort(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{Goal: "g"}, cfg: Config{FullWorkers: true}}
+	if n := len(o.systemPrompt()); n > 2200 {
+		t.Errorf("the full-access orchestration prompt is %d characters, want under 2200", n)
 	}
 }

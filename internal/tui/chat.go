@@ -399,15 +399,22 @@ func (c *chat) rebuild(reset bool) error {
 	}
 	if c.cfg.Orchestrator {
 		if _, err := orchestrator.Attach(c.ag, orchestrator.Config{
-			MaxParallelScouts:   c.cfg.MaxParallelScouts,
-			ScoutModel:          c.cfg.ScoutModel,
-			ParallelAgents:      c.cfg.ParallelAgents,
-			MaxParallelWriters:  c.cfg.MaxParallelWriters,
-			RequireVerification: c.cfg.RequireVerification,
-			EnableWriters:       c.cfg.Writers,
-			KeepWorktrees:       c.cfg.KeepWorktrees,
-			ReviewWriters:       c.cfg.ReviewWriters,
-			ReviewModel:         c.cfg.ReviewModel,
+			MaxParallelScouts:     c.cfg.MaxParallelScouts,
+			ScoutModel:            c.cfg.ScoutModel,
+			ParallelAgents:        c.cfg.ParallelAgents,
+			MaxParallelWriters:    c.cfg.MaxParallelWriters,
+			WorkerMaxSteps:        c.cfg.WorkerMaxSteps,
+			WorkerTokenBudget:     c.cfg.WorkerTokenBudget,
+			TurnWorkerTokenBudget: c.cfg.TurnWorkerTokenBudget,
+			WriterMaxSteps:        c.cfg.WriterMaxSteps,
+			WriterTokenBudget:     c.cfg.WriterTokenBudget,
+			TurnWriterTokenBudget: c.cfg.TurnWriterTokenBudget,
+			RequireVerification:   c.cfg.RequireVerification,
+			EnableWriters:         c.cfg.Writers,
+			KeepWorktrees:         c.cfg.KeepWorktrees,
+			ReviewWriters:         c.cfg.ReviewWriters,
+			ReviewModel:           c.cfg.ReviewModel,
+			FullWorkers:           c.cfg.FullWorkers(),
 		}); err != nil {
 			return err
 		}

@@ -51,7 +51,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Two working modes** — `chat` explores and explains without touching anything; `create` writes and edits. Switch with `/mode`.
 - **It just works** — no sandbox, no caps, no permission prompts by default: the agent reads, writes, and runs commands. Ask before you act by setting a permission to `ask`. File mutations are snapshotted, so you can undo with `wombat checkpoint restore`.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
-- **Task ledger, verification, and delegation** — the lead agent keeps a persistent plan, records checks and evidence, runs bounded read-only scouts, and can hand independent coding tasks to writers in isolated git worktrees.
+- **Task ledger, verification, and delegation** — the lead agent keeps a persistent plan, records checks and evidence, runs full-access parallel workers, and can hand independent coding tasks to writers in isolated git worktrees.
 - **Check-gated parallel writers** — writers own disjoint files, run in worktrees, and merge sequentially only after their offers pass tests; conflicts and failures are kept for inspection.
 - **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required.
 
@@ -402,7 +402,7 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `question` | ask | ask the user to choose, with 2-3 options or free text |
 | `update_plan` | plan | create/replace the ledger, steps, and checks |
 | `run_checks` | verify | run a step's checks and record evidence |
-| `delegate` / `delegate_many` | delegate | read-only investigation workers |
+| `delegate` / `delegate_many` | delegate | full-access parallel workers with isolated worktrees |
 | `run_plan` | delegate | execute the ledger as a dependency graph: parallel scouts and reviewed writers |
 | `delegate_write` | write | isolated git worktree writers (opt-in in config) |
 
@@ -469,13 +469,13 @@ harnesses do it:
   in a checkpoint.
 - **Web tools.** `websearch` and `webfetch` are first-class tools, so research
   does not need a shell round-trip or a permission prompt for every `curl`.
-  The read-only workers get them too.
+  Workers get them too.
 - **One call instead of many.** `batch` runs several reads and searches in a
   single round-trip, and `multi_edit` applies several edits to one file at
   once. A big search result is written to a file with a pointer instead of
   being carried in the model's context, so the model reads only the part it
   needs.
-- **Cheaper scouts.** The read-only workers can run on a different, cheaper
+- **Cheaper workers.** Parallel workers can run on a different, cheaper
   model than the lead, which is the biggest cost lever because the workers do
   the reading:
 
@@ -600,7 +600,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. There are no step, token, or time caps: the agent works until the task is done. `max_parallel_scouts` and `max_parallel_writers` bound how many run at once (five and two). Checkpoints are on by default, so any change can be undone.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. Worker and writer token budgets are unlimited by default, and workers run with full tool/network access unless `worker_full_access` is false. `max_parallel_scouts` and `max_parallel_writers` bound how many run at once (five and two). Checkpoints are on by default, so any change can be undone.
 
 `fallback_models` is an ordered list tried when the selected model is rate-limited, unavailable, or returns a server error. The model is only switched before any output has streamed, so a reply is never duplicated; an invalid request is reported instead of hidden by a fallback.
 
@@ -608,7 +608,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Scouts are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `semantic_search`, `browser`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further. Workers report through a `submit_report` tool (with a robust JSON fallback) and return status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget.
+`delegate` hands one self-contained task to a fresh worker with its own context and session. `delegate_many` runs two to five independent workers concurrently — one wave, up to `max_parallel_scouts` at a time. By default workers are full-access: they get every non-orchestration tool, including `write`, `edit`, `bash`, `browser`, `imagegen`, and network access, and run in their own git worktree. Changes are reviewed and merged like writer patches; a research task that makes no changes still completes normally. Set `worker_full_access false` to restore read-only scouts. Workers report through a `submit_report` tool (with a robust JSON fallback). There is no token budget by default; the per-worker and per-turn token caps are unlimited unless configured.
 
 `run_plan` turns the ledger into the scheduler: it repeatedly finds ready steps, runs independent steps in parallel, waits for their wave to finish, then unlocks dependents. A step with `kind: write` gets the full writer pipeline — worktree, declared file ownership, checks, independent review, three-way merge — so delegates can write when the task needs it. A failed step blocks only its dependents; independent branches keep going. `run_plan` accepts a subset of step ids, a wave size, and `stop_on_failure` for a strict run.
 
@@ -620,9 +620,10 @@ Writers require a clean tracked working tree (commit or stash before starting). 
 
 ```sh
 wombat config set orchestrator false        # disable ledger + delegation
-wombat config set max_parallel_scouts 2     # concurrent scouts per wave
-wombat config set worker_token_budget 80000 # per-worker token cap
-wombat config set turn_worker_token_budget 160000 # all workers per turn
+wombat config set max_parallel_scouts 2     # concurrent workers per wave
+wombat config set worker_full_access false     # restore read-only scouts
+wombat config set worker_token_budget 0        # 0 means unlimited (default)
+wombat config set turn_worker_token_budget 0   # 0 means unlimited (default)
 wombat config set permissions.bash ask     # ask before every command
 wombat config set checkpoints false            # disable snapshots
 wombat config set writers false                # disable worktree writers
@@ -655,7 +656,7 @@ cmd/wombat        entry point
 cmd/eval          eval harness CLI
 internal/cli      REPL, headless run, setup wizard, doctor, checkpoints, upgrade
 internal/agent    agent loop, system prompt, hooks, budgets, usage, compaction
-internal/orchestrator  ledger, checks, read-only delegation, writers, merge queue
+internal/orchestrator  ledger, checks, parallel workers, writers, review, merge queue
 internal/worktree isolated git worktree manager and patch merge queue
 internal/checkpoint workspace snapshots and scoped restore
 internal/trace    append-only JSONL run events

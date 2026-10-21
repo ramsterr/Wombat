@@ -146,15 +146,22 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	}
 	if cfg.Orchestrator {
 		if _, err := orchestrator.Attach(ag, orchestrator.Config{
-			MaxParallelScouts:   cfg.MaxParallelScouts,
-			ScoutModel:          cfg.ScoutModel,
-			ParallelAgents:      cfg.ParallelAgents,
-			MaxParallelWriters:  cfg.MaxParallelWriters,
-			RequireVerification: cfg.RequireVerification,
-			EnableWriters:       cfg.Writers,
-			KeepWorktrees:       cfg.KeepWorktrees,
-			ReviewWriters:       cfg.ReviewWriters,
-			ReviewModel:         cfg.ReviewModel,
+			MaxParallelScouts:     cfg.MaxParallelScouts,
+			ScoutModel:            cfg.ScoutModel,
+			ParallelAgents:        cfg.ParallelAgents,
+			MaxParallelWriters:    cfg.MaxParallelWriters,
+			WorkerMaxSteps:        cfg.WorkerMaxSteps,
+			WorkerTokenBudget:     cfg.WorkerTokenBudget,
+			TurnWorkerTokenBudget: cfg.TurnWorkerTokenBudget,
+			WriterMaxSteps:        cfg.WriterMaxSteps,
+			WriterTokenBudget:     cfg.WriterTokenBudget,
+			TurnWriterTokenBudget: cfg.TurnWriterTokenBudget,
+			RequireVerification:   cfg.RequireVerification,
+			EnableWriters:         cfg.Writers,
+			KeepWorktrees:         cfg.KeepWorktrees,
+			ReviewWriters:         cfg.ReviewWriters,
+			ReviewModel:           cfg.ReviewModel,
+			FullWorkers:           cfg.FullWorkers(),
 		}); err != nil {
 			return nil, err
 		}

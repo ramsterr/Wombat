@@ -202,6 +202,14 @@ func validateDelegationArgs(a delegateArgs) error {
 	if a.MaxSteps < 0 || a.MaxSteps > 100 {
 		return fmt.Errorf("max_steps must be between 0 and 100")
 	}
+	if len(a.Files) > 40 {
+		return fmt.Errorf("too many files: %d (max 40)", len(a.Files))
+	}
+	for _, f := range a.Files {
+		if _, err := cleanOwnedPath(f); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

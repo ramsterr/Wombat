@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -881,5 +883,221 @@ func TestRunPlanMergesNewFileWithRelativeCheck(t *testing.T) {
 	step := o.ledger.Find("w")
 	if step == nil || step.Status != StepCompleted || step.Review == nil || step.Review.Verdict != "approved" {
 		t.Fatalf("step = %+v", step)
+	}
+}
+
+func TestFullAccessWorkerCanWriteAndMerge(t *testing.T) {
+	prov := &reviewProvider{fn: func(kind string, call int) (*llm.Result, error) {
+		if kind != "scout" {
+			return nil, fmt.Errorf("unexpected %s", kind)
+		}
+		switch call {
+		case 1:
+			return toolCall("w", "write", map[string]any{"path": "worker-note.txt", "content": "written by a delegate"}), nil
+		case 2:
+			return toolCall("r", "submit_report", map[string]any{
+				"status": "completed", "summary": "wrote the note",
+				"changes": []map[string]string{{"path": "worker-note.txt"}},
+			}), nil
+		default:
+			return &llm.Result{Content: "done"}, nil
+		}
+	}}
+	o, repo := reviewRepo(t, prov, Config{FullWorkers: true, ReviewWriters: boolPtr(false)})
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "s", Title: "Research and write", Kind: StepScout, Status: StepInProgress}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegate(context.Background(), delegateArgs{
+		StepID: "s", Title: "Research and write", Objective: "write a note",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status": "completed"`) {
+		t.Fatalf("out = %s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "worker-note.txt"))
+	if err != nil || string(data) != "written by a delegate" {
+		t.Fatalf("worker-note.txt = %q err=%v\nout=%s", data, err, out)
+	}
+	if step := o.ledger.Find("s"); step == nil || step.Status != StepCompleted {
+		t.Fatalf("step = %+v", step)
+	}
+}
+
+func TestFullAccessWorkerWithoutChangesCompletes(t *testing.T) {
+	prov := &reviewProvider{fn: func(kind string, call int) (*llm.Result, error) {
+		return &llm.Result{Content: `{"status":"completed","summary":"read only this time"}`}, nil
+	}}
+	o, _ := reviewRepo(t, prov, Config{FullWorkers: true, ReviewWriters: boolPtr(false)})
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "s", Title: "Research", Kind: StepScout, Status: StepInProgress}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegate(context.Background(), delegateArgs{StepID: "s", Title: "Research", Objective: "inspect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status": "completed"`) {
+		t.Fatalf("out = %s", out)
+	}
+	if step := o.ledger.Find("s"); step == nil || step.Status != StepCompleted {
+		t.Fatalf("step = %+v", step)
+	}
+}
+
+func TestFullAccessWorkerCanUseNetworkAndWrite(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("downloaded asset"))
+	}))
+	defer srv.Close()
+	prov := &reviewProvider{fn: func(kind string, call int) (*llm.Result, error) {
+		if kind != "scout" {
+			return nil, fmt.Errorf("unexpected %s", kind)
+		}
+		switch call {
+		case 1:
+			return toolCall("c", "bash", map[string]string{"command": "curl -s -o asset.txt " + srv.URL}), nil
+		case 2:
+			return toolCall("r", "submit_report", map[string]any{"status": "completed", "summary": "downloaded asset"}), nil
+		default:
+			return &llm.Result{Content: "done"}, nil
+		}
+	}}
+	o, repo := reviewRepo(t, prov, Config{FullWorkers: true, ReviewWriters: boolPtr(false)})
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "s", Title: "Fetch", Kind: StepScout, Status: StepInProgress}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegate(context.Background(), delegateArgs{StepID: "s", Title: "Fetch", Objective: "download the asset"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "asset.txt"))
+	if err != nil || string(data) != "downloaded asset" {
+		t.Fatalf("asset.txt = %q err=%v\nout=%s", data, err, out)
+	}
+}
+
+func TestRunPlanFullAccessScoutCanWrite(t *testing.T) {
+	prov := &reviewProvider{fn: func(kind string, call int) (*llm.Result, error) {
+		if kind != "scout" {
+			return nil, fmt.Errorf("unexpected %s", kind)
+		}
+		switch call {
+		case 1:
+			return toolCall("w", "write", map[string]any{"path": "plan-note.txt", "content": "from a plan scout"}), nil
+		case 2:
+			return toolCall("r", "submit_report", map[string]any{"status": "completed", "summary": "wrote plan note"}), nil
+		default:
+			return &llm.Result{Content: "done"}, nil
+		}
+	}}
+	o, repo := reviewRepo(t, prov, Config{FullWorkers: true, ReviewWriters: boolPtr(false)})
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "s", Title: "Scout write", Kind: StepScout, Status: StepPending}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.runPlan(context.Background(), runPlanArgs{}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "plan-note.txt"))
+	if err != nil || string(data) != "from a plan scout" {
+		t.Fatalf("plan-note.txt = %q err=%v", data, err)
+	}
+	if step := o.ledger.Find("s"); step == nil || step.Status != StepCompleted {
+		t.Fatalf("step = %+v", step)
+	}
+}
+
+type fullParallelProvider struct {
+	mu    sync.Mutex
+	calls map[string]int
+}
+
+func (p *fullParallelProvider) Name() string { return "full-parallel" }
+func (p *fullParallelProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"full-parallel"}, nil
+}
+func (p *fullParallelProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	kind := "lead"
+	if strings.Contains(req.System, "## Delegated worker") {
+		kind = "scout"
+	}
+	p.mu.Lock()
+	if p.calls == nil {
+		p.calls = map[string]int{}
+	}
+	key := kind
+	if kind == "scout" {
+		if strings.Contains(req.System, "[a]") {
+			key = "a"
+		} else if strings.Contains(req.System, "[b]") {
+			key = "b"
+		}
+	}
+	p.calls[key]++
+	call := p.calls[key]
+	p.mu.Unlock()
+	if kind != "scout" {
+		return nil, fmt.Errorf("unexpected %s", kind)
+	}
+	path := "a.txt"
+	if key == "b" {
+		path = "b.txt"
+	}
+	switch call {
+	case 1:
+		return toolCall("w", "write", map[string]any{"path": path, "content": key}), nil
+	case 2:
+		return toolCall("r", "submit_report", map[string]any{"status": "completed", "summary": "wrote " + path}), nil
+	default:
+		return &llm.Result{Content: "done"}, nil
+	}
+}
+
+func TestFullAccessWorkersRunInParallel(t *testing.T) {
+	prov := &fullParallelProvider{}
+	o, repo := reviewRepo(t, prov, Config{FullWorkers: true, ReviewWriters: boolPtr(false)})
+	if _, err := o.updatePlan("goal", nil, []Step{
+		{ID: "a", Title: "A", Kind: StepScout, Status: StepInProgress},
+		{ID: "b", Title: "B", Kind: StepScout, Status: StepInProgress},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.delegateMany(context.Background(), []delegateArgs{
+		{StepID: "a", Title: "A", Objective: "write a"},
+		{StepID: "b", Title: "B", Objective: "write b"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if data, err := os.ReadFile(filepath.Join(repo, name)); err != nil || string(data) != strings.TrimSuffix(name, ".txt") {
+			t.Fatalf("%s = %q err=%v", name, data, err)
+		}
+	}
+}
+
+func TestFullAccessWorkerFallsBackToMainWorkspace(t *testing.T) {
+	prov := &reviewProvider{fn: func(kind string, call int) (*llm.Result, error) {
+		switch call {
+		case 1:
+			return toolCall("w", "write", map[string]any{"path": "main-note.txt", "content": "written"}), nil
+		case 2:
+			return toolCall("r", "submit_report", map[string]any{"status": "completed", "summary": "wrote"}), nil
+		default:
+			return &llm.Result{Content: "done"}, nil
+		}
+	}}
+	o, ag, _ := newOrch(t, prov, Config{FullWorkers: true, ReviewWriters: boolPtr(false)})
+	if o.worktrees != nil {
+		t.Fatal("test expects no worktree in a non-git directory")
+	}
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "s", Title: "Write", Kind: StepScout, Status: StepInProgress}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.delegate(context.Background(), delegateArgs{StepID: "s", Title: "Write", Objective: "write"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(ag.Sess.Meta.Cwd, "main-note.txt"))
+	if err != nil || string(data) != "written" {
+		t.Fatalf("main-note.txt = %q err=%v", data, err)
 	}
 }

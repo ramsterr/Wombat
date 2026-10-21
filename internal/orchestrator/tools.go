@@ -120,22 +120,23 @@ func (t *updatePlanTool) Run(_ context.Context, raw json.RawMessage, _ *tools.En
 type delegateTool struct{ o *Orchestrator }
 
 type delegateArgs struct {
-	StepID      string `json:"step_id"`
-	Title       string `json:"title"`
-	Objective   string `json:"objective"`
-	Context     string `json:"context"`
-	Role        string `json:"role"`
-	Deliverable string `json:"deliverable"`
-	MaxSteps    int    `json:"max_steps"`
+	StepID      string   `json:"step_id"`
+	Title       string   `json:"title"`
+	Objective   string   `json:"objective"`
+	Context     string   `json:"context"`
+	Role        string   `json:"role"`
+	Deliverable string   `json:"deliverable"`
+	Files       []string `json:"files,omitempty"`
+	MaxSteps    int      `json:"max_steps"`
 }
 
 func (t *delegateTool) Name() string  { return "delegate" }
 func (t *delegateTool) Class() string { return "delegate" }
 func (t *delegateTool) Description() string {
-	return "Delegate one self-contained, read-only investigation to a fresh worker with its own context. " +
+	return "Delegate one self-contained task to a fresh worker with its own context. " +
 		"Use when exploration would flood your context. For two or more independent angles, use delegate_many - that is " +
-		"the default for multi-step work. Do the work directly when it is small or requires edits. " +
-		"Scouts cannot edit files, run mutating commands, or delegate. If the task needs edits, use a write step in run_plan or delegate_write. Returns a structured JSON report with evidence and usage."
+		"the default for multi-step work. Do the work directly when it is small. " +
+		"Workers are full-access by default: they can read, write, edit, run commands, use the network, and use every non-orchestration tool in an isolated worktree; changes are reviewed and merged. They cannot delegate further. Returns a structured JSON report with evidence and usage."
 }
 func (t *delegateTool) Schema() map[string]any {
 	return map[string]any{
@@ -147,6 +148,7 @@ func (t *delegateTool) Schema() map[string]any {
 			"context":     map[string]any{"type": "string", "description": "everything the worker needs that it cannot infer from the repo: paths, hypotheses, constraints, prior findings"},
 			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer or test-surveyor"},
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including which claims need evidence"},
+			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "optional repo-relative file ownership; omit to let a full-access worker edit anywhere in its worktree"},
 			"max_steps":   map[string]any{"type": "integer", "description": "optional worker step budget (default from config, max 100)"},
 		},
 		"required": []string{"title", "objective"},
@@ -170,11 +172,11 @@ type delegateManyArgs struct {
 func (t *delegateManyTool) Name() string  { return "delegate_many" }
 func (t *delegateManyTool) Class() string { return "delegate" }
 func (t *delegateManyTool) Description() string {
-	return "Run two to five independent, read-only workers concurrently, each with its own context and session. " +
+	return "Run two to five independent, full-access workers concurrently, each with its own context, session, and isolated worktree. " +
 		"USE THIS BY DEFAULT: for any task with more than two steps, for research, for comparison, or for anything that " +
 		"spans several parts of the codebase, dispatch a fleet of workers with one call instead of exploring one thread at " +
 		"a time. It is faster and keeps your context small. Give each worker a distinct angle and a self-contained brief. " +
-		"Do not use it for dependent steps, edits, or work you can do directly; for edits use run_plan write steps or delegate_write. Returns one structured JSON report per worker plus total usage; reconcile conflicting reports yourself."
+		"Workers can read, write, edit, run commands, use the network, and use every non-orchestration tool; changes are reviewed and merged, and tasks with no changes still complete. Returns one structured JSON report per worker plus total usage; reconcile conflicting reports yourself."
 }
 func (t *delegateManyTool) Schema() map[string]any {
 	taskSchema := map[string]any{
@@ -186,6 +188,7 @@ func (t *delegateManyTool) Schema() map[string]any {
 			"context":     map[string]any{"type": "string", "description": "self-contained context the scout cannot infer from the repo"},
 			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer or test-surveyor"},
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including evidence requirements"},
+			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "optional repo-relative ownership, for workers that may write"},
 			"max_steps":   map[string]any{"type": "integer", "description": "optional scout step budget (default from config, max 100)"},
 		},
 		"required": []string{"title", "objective"},

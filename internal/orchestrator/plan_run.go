@@ -74,6 +74,9 @@ type planRunResult struct {
 }
 
 func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, error) {
+	if o.cfg.FullWorkers && o.worktrees != nil {
+		o.ensureWriterBase()
+	}
 	merged := false
 	if o.worktrees != nil {
 		defer func() {
@@ -258,7 +261,9 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 				continue
 			}
 			step.Report = out.Report
-			step.Review = out.Review
+			if out.Review != nil {
+				step.Review = out.Review
+			}
 			if len(out.Checks) > 0 && (out.Kind == StepWrite || out.Kind == StepScout) {
 				step.Checks = nil
 				for _, c := range out.Checks {
@@ -438,16 +443,19 @@ func (o *Orchestrator) reserveWriterBudget(n int) (int, error) {
 	if left := cfg.MaxParallelWriters - o.writers; n > left {
 		return 0, fmt.Errorf("writer budget exhausted: need %d, only %d remain this turn", n, left)
 	}
-	remaining := cfg.TurnWriterTokenBudget - o.writerTokens
-	if remaining <= 0 {
-		return 0, fmt.Errorf("writer token budget exhausted for this turn (%d tokens)", cfg.TurnWriterTokenBudget)
-	}
-	per := remaining / n
-	if per > cfg.WriterTokenBudget {
-		per = cfg.WriterTokenBudget
-	}
-	if per < minWorkerTokenBudget {
-		return 0, fmt.Errorf("not enough writer token budget for %d writers: %d each (min %d)", n, per, minWorkerTokenBudget)
+	per := 0
+	if cfg.TurnWriterTokenBudget > 0 {
+		remaining := cfg.TurnWriterTokenBudget - o.writerTokens
+		if remaining <= 0 {
+			return 0, fmt.Errorf("writer token budget exhausted for this turn (%d tokens)", cfg.TurnWriterTokenBudget)
+		}
+		per = remaining / n
+		if cfg.WriterTokenBudget > 0 && per > cfg.WriterTokenBudget {
+			per = cfg.WriterTokenBudget
+		}
+		if per < minWorkerTokenBudget {
+			return 0, fmt.Errorf("not enough writer token budget for %d writers: %d each (min %d)", n, per, minWorkerTokenBudget)
+		}
 	}
 	o.writers += n
 	o.totalDelegations += n
@@ -485,11 +493,21 @@ func (o *Orchestrator) runPlanWave(ctx context.Context, ready, scouts, writers [
 				Objective:   stepObjective(step),
 				Role:        step.Role,
 				Deliverable: step.Deliverable,
+				Files:       append([]string(nil), step.Files...),
 			}
-			report, usage, _, err := o.runWorker(ctx, args, step, goal, facts, cfg.WorkerMaxSteps, scoutTokens)
+			var report *WorkerReport
+			var usage ReportUsage
+			var merged bool
+			var err error
+			if o.cfg.FullWorkers && o.worktrees != nil {
+				report, usage, _, merged, err = o.runFullWorker(ctx, args, step, goal, facts, cfg.WorkerMaxSteps, scoutTokens)
+			} else {
+				report, usage, _, err = o.runWorker(ctx, args, step, goal, facts, cfg.WorkerMaxSteps, scoutTokens, o.cfg.FullWorkers)
+			}
 			i := index[step.ID]
 			outcomes[i].Usage = usage
 			outcomes[i].Report = report
+			outcomes[i].merged = merged
 			outcomes[i].Status = report.Status
 			if err != nil {
 				outcomes[i].Status = "failed"

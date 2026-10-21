@@ -125,3 +125,15 @@ func TestOldConfigGetsSimplePermissions(t *testing.T) {
 		t.Errorf("the migration must not touch the model: %q", cfg.Model)
 	}
 }
+
+func TestFullWorkersDefaultOn(t *testing.T) {
+	if !Defaults().FullWorkers() {
+		t.Fatal("full worker access should default on")
+	}
+	off := false
+	cfg := Defaults()
+	cfg.WorkerFullAccess = &off
+	if cfg.FullWorkers() {
+		t.Fatal("worker_full_access=false should disable full access")
+	}
+}

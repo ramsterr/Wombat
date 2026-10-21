@@ -85,6 +85,30 @@ func (m *Manager) CreateAt(id, base string) (*Worktree, error) {
 	return &Worktree{manager: m, Path: path, Branch: branch, Base: base}, nil
 }
 
+// Head returns the current HEAD commit.
+func (m *Manager) Head() (string, error) {
+	if m == nil {
+		return "", errors.New("worktree manager is nil")
+	}
+	out, err := gitOutput(m.Repo, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// Clean reports whether the main workspace has no tracked or staged changes.
+func (m *Manager) Clean() (bool, error) {
+	if m == nil {
+		return false, errors.New("worktree manager is nil")
+	}
+	status, err := gitOutput(m.Repo, "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(status) == "", nil
+}
+
 // SnapshotIndex writes a dangling commit from the staged index, without
 // moving any branch. Writer merges are staged while a plan runs, so this is
 // the merged state later waves should branch from.

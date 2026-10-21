@@ -20,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -53,6 +53,12 @@ func cmdConfig(args []string) error {
 		cfg.ReviewWriters = &v
 	case key == "review_model":
 		cfg.ReviewModel = val
+	case key == "worker_full_access":
+		v, err := parseBool(key, val)
+		if err != nil {
+			return err
+		}
+		cfg.WorkerFullAccess = &v
 	case key == "orchestrator":
 		v, err := parseBool(key, val)
 		if err != nil {
@@ -125,14 +131,36 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg.KeepWorktrees = v
-	case key == "max_parallel_writers", key == "writer_max_steps", key == "writer_token_budget", key == "turn_writer_token_budget":
+	case key == "max_parallel_scouts", key == "max_parallel_writers",
+		key == "worker_max_steps", key == "worker_token_budget", key == "turn_worker_token_budget",
+		key == "writer_max_steps", key == "writer_token_budget", key == "turn_writer_token_budget":
 		n, err := strconv.Atoi(val)
-		if err != nil || n < 1 {
-			return fmt.Errorf("%s must be a positive integer", key)
+		if err != nil || n < 0 {
+			return fmt.Errorf("%s must be zero or a positive integer", key)
 		}
 		switch key {
+		case "max_parallel_scouts":
+			if n < 1 {
+				return fmt.Errorf("max_parallel_scouts must be positive")
+			}
+			cfg.MaxParallelScouts = n
 		case "max_parallel_writers":
+			if n < 1 {
+				return fmt.Errorf("max_parallel_writers must be positive")
+			}
 			cfg.MaxParallelWriters = n
+		case "worker_max_steps":
+			cfg.WorkerMaxSteps = n
+		case "worker_token_budget":
+			cfg.WorkerTokenBudget = n
+		case "turn_worker_token_budget":
+			cfg.TurnWorkerTokenBudget = n
+		case "writer_max_steps":
+			cfg.WriterMaxSteps = n
+		case "writer_token_budget":
+			cfg.WriterTokenBudget = n
+		case "turn_writer_token_budget":
+			cfg.TurnWriterTokenBudget = n
 		}
 	}
 	if err := cfg.Save(); err != nil {

@@ -92,6 +92,13 @@ All notable changes to Wombat are recorded here. The format follows
   a `submit_report` tool with a robust JSON fallback, and writers block on
   reviewer verdicts when `review_writers` is enabled (the default). Successful
   merges are applied with git's three-way fallback and left unstaged.
+- **Full-power parallel workers.** Delegated workers now default to full access:
+  write/edit, network, browser, image generation, and the rest of the
+  non-orchestration tools, running in isolated git worktrees with review and
+  merge. Research tasks that make no changes complete normally.
+  `worker_full_access false` restores read-only scouts. Worker and writer token
+  budgets default to unlimited; `worker_token_budget` and the turn caps can be
+  set to a positive number to opt back into limits.
 - **Provider fallback.** `fallback_models` tries the next model on a
   rate-limit, outage, or server error, but never after output has streamed.
 - **Binary and image safety.** `read` refuses binary files and attaches images

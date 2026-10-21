@@ -59,6 +59,10 @@ type Config struct {
 	ReviewWriters    *bool
 	ReviewModel      string
 	ReviewerMaxSteps int
+	// FullWorkers gives delegated workers write, network, and all non-
+	// orchestration tools in an isolated worktree. It is on by default in
+	// the app; direct Config users opt in.
+	FullWorkers bool
 }
 
 func (c Config) withDefaults() Config {
@@ -154,6 +158,21 @@ func (o *Orchestrator) setWriterBase(base string) {
 	o.mu.Lock()
 	o.writerBase = base
 	o.mu.Unlock()
+}
+
+// ensureWriterBase pins a clean HEAD before a parallel full-access batch so
+// every worker starts from the same commit even if another worker merges
+// before the next worktree is created.
+func (o *Orchestrator) ensureWriterBase() {
+	if o.worktrees == nil || o.currentWriterBase() != "" {
+		return
+	}
+	if clean, err := o.worktrees.Clean(); err != nil || !clean {
+		return
+	}
+	if head, err := o.worktrees.Head(); err == nil {
+		o.setWriterBase(head)
+	}
 }
 
 func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
@@ -301,11 +320,15 @@ func (o *Orchestrator) systemPrompt() string {
 		b.WriteString("That is faster and costs you far fewer tokens than one thread at a time. ")
 	}
 	b.WriteString("Use delegate for a single investigation. ")
-	b.WriteString("Never put dependent steps in one fleet. Do the work yourself when it is small, needs edits, or you already know where to look. ")
+	b.WriteString("Never put dependent steps in one fleet. Do the work yourself when it is small or you already know where to look. ")
 	fmt.Fprintf(&b, "At most %d delegations per turn and %d scouts at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
 	b.WriteString("Give each worker a complete objective, the context it cannot see from this conversation, and a concrete deliverable. ")
-	b.WriteString("Workers are read-only and cannot delegate. They have read, glob, grep, batch, websearch, webfetch, and bash for non-mutating " +
-		"commands (ls, which, grep, curl to stdout). They cannot create or modify files: do downloads and file writes yourself, or use delegate_write. ")
+	if o.cfg.FullWorkers {
+		b.WriteString("Workers are full-access and cannot delegate. They have every non-orchestration tool, including read/write/edit, bash, network, browser, and image generation, and run in isolated worktrees. Changes are reviewed and merged; no-change research still completes. ")
+	} else {
+		b.WriteString("Workers are read-only and cannot delegate. They have read, glob, grep, batch, websearch, webfetch, and bash for non-mutating " +
+			"commands (ls, which, grep, curl to stdout). They cannot create or modify files: do downloads and file writes yourself, or use delegate_write. ")
+	}
 	b.WriteString("Treat their reports as evidence, not truth: reconcile them and verify what matters.\n\n")
 	if o.worktrees != nil {
 		b.WriteString("### Writers\n")

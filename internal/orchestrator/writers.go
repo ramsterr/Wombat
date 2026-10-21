@@ -100,15 +100,19 @@ type writeBatchResult struct {
 }
 
 type writerRun struct {
-	task      writerTask
-	step      *Step
-	maxSteps  int
-	tokens    int
-	context   string
-	worktree  *worktree.Worktree
-	patch     string
-	outcome   writerOutcome
-	tokenUsed int
+	task       writerTask
+	step       *Step
+	maxSteps   int
+	tokens     int
+	context    string
+	worktree   *worktree.Worktree
+	patch      string
+	outcome    writerOutcome
+	tokenUsed  int
+	full       bool
+	allowEmpty bool
+	session    string
+	model      string
 }
 
 func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (string, error) {
@@ -173,18 +177,21 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 			outcome:  writerOutcome{StepID: task.StepID, Title: task.Title},
 		}
 	}
-	remaining := cfg.TurnWriterTokenBudget - o.writerTokens
-	if remaining <= 0 {
-		o.mu.Unlock()
-		return "", fmt.Errorf("writer token budget exhausted for this turn (%d tokens)", cfg.TurnWriterTokenBudget)
-	}
-	perWriter := remaining / len(runs)
-	if perWriter > cfg.WriterTokenBudget {
-		perWriter = cfg.WriterTokenBudget
-	}
-	if perWriter < minWorkerTokenBudget {
-		o.mu.Unlock()
-		return "", fmt.Errorf("not enough writer token budget for %d writers: %d each (min %d)", len(runs), perWriter, minWorkerTokenBudget)
+	perWriter := 0
+	if cfg.TurnWriterTokenBudget > 0 {
+		remaining := cfg.TurnWriterTokenBudget - o.writerTokens
+		if remaining <= 0 {
+			o.mu.Unlock()
+			return "", fmt.Errorf("writer token budget exhausted for this turn (%d tokens)", cfg.TurnWriterTokenBudget)
+		}
+		perWriter = remaining / len(runs)
+		if cfg.WriterTokenBudget > 0 && perWriter > cfg.WriterTokenBudget {
+			perWriter = cfg.WriterTokenBudget
+		}
+		if perWriter < minWorkerTokenBudget {
+			o.mu.Unlock()
+			return "", fmt.Errorf("not enough writer token budget for %d writers: %d each (min %d)", len(runs), perWriter, minWorkerTokenBudget)
+		}
 	}
 	for i := range runs {
 		runs[i].tokens = perWriter
@@ -321,11 +328,20 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	}
 	r.worktree = wt
 	r.outcome.Worktree = wt.Path
-	ws, err := session.CreateAt(cfg.WorkerHome, wt.Path, o.lead.Provider.Name(), o.lead.Model, "writer: "+oneLine(r.task.Title, 80))
+	model := o.lead.Model
+	if r.model != "" {
+		model = r.model
+	}
+	title := "writer: "
+	if r.full {
+		title = "worker: "
+	}
+	ws, err := session.CreateAt(cfg.WorkerHome, wt.Path, o.lead.Provider.Name(), model, title+oneLine(r.task.Title, 80))
 	if err != nil {
-		r.outcome.Error = "create writer session: " + err.Error()
+		r.outcome.Error = "create worker session: " + err.Error()
 		return
 	}
+	r.session = ws.Path()
 	env := *o.lead.Env
 	env.Isolate()
 	defer env.CloseJobs()
@@ -341,18 +357,16 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	// The writer works in a worktree, but a shell command with an absolute
 	// path could still name the lead workspace. Block writes there.
 	env.BlockedRoots = []string{o.lead.Env.Dir}
-	// Writers never ask the user anything and never reach the network.
-	env.DenyNetwork = true
-	runCtx, cancel := context.WithTimeout(ctx, cfg.WriterTimeout)
+	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WriterTimeout, fmt.Errorf("writer timed out after %s", cfg.WriterTimeout))
 	defer cancel()
-	budgetCtx, cancelBudget := context.WithCancel(runCtx)
-	defer cancelBudget()
+	budgetCtx, cancelBudget := context.WithCancelCause(runCtx)
+	defer cancelBudget(nil)
 	budget := &workerTokenBudget{limit: r.tokens}
 	hooks := workerHooks(o.lead.Hooks, r.task.Title, &o.hooksMu)
 	parentUsage := hooks.OnUsage
 	hooks.OnUsage = func(u llm.Usage, history int) {
 		if budget.add(u) {
-			cancelBudget()
+			cancelBudget(budget.err())
 		}
 		if parentUsage != nil {
 			parentUsage(u, history)
@@ -362,7 +376,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	writerTools := append(append([]tools.Tool{}, o.writerTools...), &submitReportTool{sink: sink})
 	writer := &agent.Agent{
 		Provider:      o.lead.Provider,
-		Model:         o.lead.Model,
+		Model:         model,
 		Tools:         writerTools,
 		Env:           &env,
 		Sess:          ws,
@@ -371,11 +385,27 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		ContextWindow: o.lead.ContextWindow,
 		NumCtx:        o.lead.NumCtx,
 		SystemExtra: func() string {
+			if r.full {
+				return workerSystemPromptAccess(delegateArgs{
+					Title: r.task.Title, Objective: r.task.Objective, Context: r.task.Context,
+					Role: r.task.Role, Deliverable: r.task.Deliverable, Files: r.task.Files,
+				}, r.step, goal, facts, true)
+			}
 			return writerSystemPrompt(r.task, r.step, goal, facts, r.context)
 		},
 		Hooks: hooks,
 	}
-	runErr := writer.Run(budgetCtx, writerBriefWriter(r.task, goal, facts))
+	brief := writerBriefWriter(r.task, goal, facts)
+	if r.full {
+		brief = workerBrief(delegateArgs{
+			Title: r.task.Title, Objective: r.task.Objective, Context: r.task.Context,
+			Role: r.task.Role, Deliverable: r.task.Deliverable, Files: r.task.Files,
+		}, goal, facts)
+		if r.context != "" {
+			brief += "\n\n" + r.context
+		}
+	}
+	runErr := writer.Run(budgetCtx, brief)
 	stats := writer.Usage()
 	r.outcome.Usage = usageFrom(stats)
 	content := lastAssistantContent(ws)
@@ -409,14 +439,33 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		r.outcome.Error = "writer reported " + report.Status + "; changes were not merged"
 		return
 	}
-	checks := runCheckCommands(ctx, &env, r.step.Checks, 0)
-	r.outcome.Checks = checks
-	for _, c := range checks {
+	var checks []Check
+	if r.step != nil {
+		checks = r.step.Checks
+	}
+	checkResults := runCheckCommands(ctx, &env, checks, 0)
+	r.outcome.Checks = checkResults
+	for _, c := range checkResults {
 		if c.Status != CheckPassed {
 			r.outcome.Status = "failed"
 			r.outcome.Error = "worktree check failed: " + c.Command
 			return
 		}
+	}
+	hasChanges, err := wt.HasChanges()
+	if err != nil {
+		r.outcome.Status = "failed"
+		r.outcome.Error = "check worktree: " + err.Error()
+		return
+	}
+	if !hasChanges {
+		if r.allowEmpty {
+			r.outcome.Status = "completed"
+			return
+		}
+		r.outcome.Status = "failed"
+		r.outcome.Error = "writer made no changes"
+		return
 	}
 	if _, err := wt.Commit("wombat writer: " + r.task.Title); err != nil {
 		r.outcome.Status = "failed"
@@ -429,12 +478,14 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		r.outcome.Error = "changed files: " + err.Error()
 		return
 	}
-	r.outcome.ChangedFiles = changed
-	if bad := outsideOwnership(changed, r.task.Files); len(bad) > 0 {
-		r.outcome.Status = "failed"
-		r.outcome.Error = "writer changed files outside declared ownership: " + strings.Join(bad, ", ")
-		return
+	if len(r.task.Files) > 0 {
+		if bad := outsideOwnership(changed, r.task.Files); len(bad) > 0 {
+			r.outcome.Status = "failed"
+			r.outcome.Error = "writer changed files outside declared ownership: " + strings.Join(bad, ", ")
+			return
+		}
 	}
+	r.outcome.ChangedFiles = changed
 	patch, err := wt.Diff()
 	if err != nil {
 		r.outcome.Status = "failed"
@@ -442,6 +493,10 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		return
 	}
 	if strings.TrimSpace(patch) == "" {
+		if r.allowEmpty {
+			r.outcome.Status = "completed"
+			return
+		}
 		r.outcome.Status = "failed"
 		r.outcome.Error = "writer produced an empty patch"
 		return
@@ -471,6 +526,55 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	}
 }
 
+// runFullWorker runs a delegated worker with full tools in an isolated
+// worktree and merges any changes after review. Research tasks that make no
+// changes still complete normally.
+func (o *Orchestrator) runFullWorker(ctx context.Context, a delegateArgs, step *Step, goal string, facts []string, maxSteps, tokenBudget int) (*WorkerReport, ReportUsage, string, bool, error) {
+	var copyStep *Step
+	if step != nil {
+		c := *step
+		copyStep = &c
+	}
+	files := append([]string(nil), a.Files...)
+	r := writerRun{
+		task: writerTask{
+			StepID: a.StepID, Title: a.Title, Objective: a.Objective, Context: a.Context,
+			Role: a.Role, Deliverable: a.Deliverable, Files: files,
+		},
+		step:       copyStep,
+		maxSteps:   maxSteps,
+		tokens:     tokenBudget,
+		context:    buildContextPack(o.worktrees.Repo, files, a.Objective),
+		full:       true,
+		allowEmpty: true,
+		model:      o.cfg.ScoutModel,
+		outcome:    writerOutcome{StepID: a.StepID, Title: a.Title},
+	}
+	o.runWriter(ctx, &r, goal, facts)
+	touched := false
+	if r.outcome.Status == "completed" && r.patch != "" {
+		touched = true
+		o.mergeMu.Lock()
+		err := o.mergeWriter(ctx, &r, &writeBatchResult{})
+		o.mergeMu.Unlock()
+		if err != nil {
+			r.outcome.Status = "failed"
+			r.outcome.Error = combineWarnings(err, r.outcome.Warning)
+		}
+	}
+	if r.outcome.Status == "completed" && r.worktree != nil && !o.cfg.KeepWorktrees {
+		_ = r.worktree.Remove()
+	}
+	if r.outcome.Status != "completed" && r.outcome.Report != nil {
+		r.outcome.Report.Status = "failed"
+	}
+	var runErr error
+	if r.outcome.Error != "" {
+		runErr = fmt.Errorf("%s", r.outcome.Error)
+	}
+	return r.outcome.Report, r.outcome.Usage, r.session, touched, runErr
+}
+
 func (o *Orchestrator) reviewWriter(ctx context.Context, r *writerRun, goal string) (*Review, error) {
 	cfg := o.cfg
 	o.mu.Lock()
@@ -494,11 +598,10 @@ func (o *Orchestrator) reviewWriter(ctx context.Context, r *writerRun, goal stri
 	env.DenyOutside = true
 	env.AllowOutside = false
 	env.BlockedRoots = []string{o.lead.Env.Dir}
-	env.DenyNetwork = true
-	runCtx, cancel := context.WithTimeout(ctx, cfg.WriterTimeout)
+	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WriterTimeout, fmt.Errorf("reviewer timed out after %s", cfg.WriterTimeout))
 	defer cancel()
-	budgetCtx, cancelBudget := context.WithCancel(runCtx)
-	defer cancelBudget()
+	budgetCtx, cancelBudget := context.WithCancelCause(runCtx)
+	defer cancelBudget(nil)
 	reviewTokens := 0
 	if r.tokens > 0 {
 		reviewTokens = r.tokens / 2
@@ -511,7 +614,7 @@ func (o *Orchestrator) reviewWriter(ctx context.Context, r *writerRun, goal stri
 	parentUsage := hooks.OnUsage
 	hooks.OnUsage = func(u llm.Usage, history int) {
 		if budget.add(u) {
-			cancelBudget()
+			cancelBudget(budget.err())
 		}
 		if parentUsage != nil {
 			parentUsage(u, history)
@@ -602,7 +705,11 @@ func (o *Orchestrator) mergeWriter(ctx context.Context, r *writerRun, result *wr
 		r.outcome.Warning = "worktree kept for inspection: " + r.outcome.Worktree
 		return err
 	}
-	checks := runCheckCommands(ctx, o.lead.Env, r.step.Checks, 0)
+	var stepChecks []Check
+	if r.step != nil {
+		stepChecks = r.step.Checks
+	}
+	checks := runCheckCommands(ctx, o.lead.Env, stepChecks, 0)
 	r.outcome.Checks = checks
 	failed := false
 	for _, c := range checks {
