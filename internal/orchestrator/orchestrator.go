@@ -153,13 +153,14 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		loadWarning: warning,
 	}
 	for _, t := range ag.Tools {
-		if t.Class() == "read" {
+		// The workers read, search, reach the web, and run bash commands that
+		// do not change anything.
+		if t.Class() == "read" || t.Class() == "network" || t.Class() == "bash" {
 			o.workerTools = append(o.workerTools, t)
 		}
 	}
 	if len(o.workerTools) == 0 {
-		// The workers do the reading and the searching, including the web.
-		o.workerTools = []tools.Tool{&tools.Read{}, &tools.Glob{}, &tools.Grep{}, &tools.WebSearch{}, &tools.WebFetch{}}
+		o.workerTools = []tools.Tool{&tools.Bash{}, &tools.Read{}, &tools.Glob{}, &tools.Grep{}, &tools.WebSearch{}, &tools.WebFetch{}}
 	}
 	for _, t := range ag.Tools {
 		switch t.Name() {
