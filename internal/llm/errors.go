@@ -24,6 +24,10 @@ func IsInvalidRequest(err error) bool {
 		"maximum context length",
 		"too many tokens",
 		"prompt is too long",
+		"must be passed back",
+		"must be followed by tool messages",
+		"supports text input only",
+		"contains an image",
 	} {
 		if strings.Contains(s, marker) {
 			return true

@@ -150,3 +150,66 @@ func TestHistoryTokensCountsOnlySentReasoning(t *testing.T) {
 		t.Fatalf("full history = %d, trimmed = %d; expected full > trimmed", withoutTrim, withTrim)
 	}
 }
+
+type reasoningThenInvalidProvider struct {
+	calls    int
+	requests [][]llm.Message
+}
+
+func (p *reasoningThenInvalidProvider) Name() string { return "mock" }
+func (p *reasoningThenInvalidProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"mock"}, nil
+}
+func (p *reasoningThenInvalidProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	p.calls++
+	p.requests = append(p.requests, req.Messages)
+	hasOld := false
+	for _, m := range req.Messages {
+		if m.Reasoning == "old note" {
+			hasOld = true
+		}
+	}
+	if p.calls == 3 {
+		return &llm.Result{Content: "fresh context works"}, nil
+	}
+	if hasOld || p.calls == 1 {
+		return nil, errors.New("opencode-go: http 400: reasoning_content must be passed back")
+	}
+	return nil, errors.New("opencode-go: http 400: reasoning_content must be passed back")
+}
+
+func TestAgentFallsBackToFreshContextWhenReasoningRetryAlsoFails(t *testing.T) {
+	dir := t.TempDir()
+	sess, err := session.CreateAt(t.TempDir(), dir, "mock", "mock", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []llm.Message{
+		{Role: "user", Content: "one"},
+		{Role: "assistant", Content: "a1", Reasoning: "old note"},
+		{Role: "user", Content: "two"},
+		{Role: "assistant", Content: "a2"},
+	} {
+		if err := sess.Append(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prov := &reasoningThenInvalidProvider{}
+	a := &Agent{
+		Provider:      prov,
+		Model:         "mock",
+		Tools:         tools.Registry(),
+		Env:           &tools.Env{Dir: dir, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		Sess:          sess,
+		TrimReasoning: true,
+	}
+	if err := a.Run(context.Background(), "three"); err != nil {
+		t.Fatal(err)
+	}
+	if prov.calls != 3 {
+		t.Fatalf("provider calls = %d, want 3 (trim, full reasoning, fresh context)", prov.calls)
+	}
+	if a.TrimReasoning {
+		t.Fatal("trimming should stay disabled for the session")
+	}
+}
