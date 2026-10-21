@@ -16,3 +16,6 @@
 .env
 .env.*
 !.env.example
+/hog-rider-blog/
+/.ember-src/
+/index.html
