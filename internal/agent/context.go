@@ -19,8 +19,9 @@ const (
 
 func (a *Agent) historyTokens() int {
 	total := 0
-	// Only the newest assistant turn keeps its reasoning in the request, so
-	// only that reasoning counts against the context window.
+	// Reasoning counts against the context window. When trim_reasoning is on,
+	// only the newest assistant turn keeps it in the request; otherwise every
+	// retained thinking turn counts.
 	last := -1
 	for i := len(a.Sess.Messages) - 1; i >= 0; i-- {
 		if a.Sess.Messages[i].Role == "assistant" {
@@ -30,7 +31,7 @@ func (a *Agent) historyTokens() int {
 	}
 	for i, m := range a.Sess.Messages {
 		reasoning := m.Reasoning
-		if i != last {
+		if a.TrimReasoning && i != last {
 			reasoning = ""
 		}
 		total += tokens.Estimate(m.Content) + tokens.Estimate(reasoning) + 6
@@ -157,6 +158,12 @@ func (a *Agent) summarize(ctx context.Context) error {
 			break
 		}
 	}
+	// If the whole history fits in the verbatim budget there is nothing
+	// older to summarize. This also guards the index below: split can be
+	// len(msgs) after the loop above.
+	if split >= len(msgs) {
+		return nil
+	}
 	for split > 0 && msgs[split].Role == "tool" {
 		split--
 	}
@@ -164,7 +171,7 @@ func (a *Agent) summarize(ctx context.Context) error {
 		split++
 	}
 	if split <= 0 || split >= len(msgs) {
-		return fmt.Errorf("nothing to summarize")
+		return nil
 	}
 	transcript := renderTranscript(msgs[:split])
 	prompt := "Summarize this coding session so a fresh context can continue seamlessly. Include: the goal; explicit instructions and preferences from the user; key discoveries about the codebase; decisions made and why; work completed; files touched; remaining todos. Be dense and factual. Output only the summary.\n\n--- transcript ---\n" + transcript
