@@ -603,7 +603,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 `mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. Worker and writer token budgets are unlimited by default, and workers run with full tool/network access unless `worker_full_access` is false. `max_parallel_scouts` and `max_parallel_writers` bound how many run at once (five and two). Checkpoints are on by default, so any change can be undone.
 
-`fallback_models` is an ordered list tried when the selected model is rate-limited, unavailable, or returns a server error. The model is only switched before any output has streamed, so a reply is never duplicated; an invalid request is reported instead of hidden by a fallback.
+`fallback_models` is an ordered list tried when the selected model is rate-limited, unavailable, or returns a server error. The model is only switched before any output has streamed, so a reply is never duplicated; an invalid request is reported instead of hidden by a fallback. Transient network failures — connection reset/refused, DNS failure, timeout, unexpected EOF — are retried up to four times with backoff before the turn fails.
 
 ## Orchestration
 

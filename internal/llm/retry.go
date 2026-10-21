@@ -6,6 +6,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"net"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -18,7 +20,8 @@ type RetryPolicy struct {
 }
 
 var DefaultRetryPolicy = RetryPolicy{
-	MaxAttempts: 4,
+	// One initial attempt plus four retries.
+	MaxAttempts: 5,
 	BaseDelay:   500 * time.Millisecond,
 	MaxDelay:    8 * time.Second,
 	MaxElapsed:  30 * time.Second,
@@ -115,7 +118,25 @@ func retryable(err error) bool {
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return netErr.Timeout() || netErr.Temporary()
+		// Connection resets, refused connections, DNS failures and timeouts
+		// are all worth another attempt; a later one may use a healthy
+		// address or connection.
+		return true
 	}
-	return errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.DeadlineExceeded)
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ETIMEDOUT) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection reset by peer", "connection refused", "broken pipe",
+		"unexpected eof", "i/o timeout", "temporary failure in name resolution",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }

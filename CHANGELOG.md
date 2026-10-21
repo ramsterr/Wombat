@@ -99,6 +99,10 @@ All notable changes to Wombat are recorded here. The format follows
   `worker_full_access false` restores read-only scouts. Worker and writer token
   budgets default to unlimited; `worker_token_budget` and the turn caps can be
   set to a positive number to opt back into limits.
+- **Transient network retries.** Connection resets, refused connections,
+  DNS failures, timeouts, and unexpected EOFs are retried up to four times
+  with backoff before the turn is allowed to fail. Non-streaming requests only,
+  so output is never duplicated.
 - **Preview-ready banner.** When a tool reports a local dev-server URL, the TUI
   shows a highlighted bar under the header with the URL and whether the agent
   is still iterating. `/preview` opens it; `esc` stops the run.

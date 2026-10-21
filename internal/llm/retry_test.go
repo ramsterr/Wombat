@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"errors"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -73,5 +75,26 @@ func TestHTTPErrorRetryable(t *testing.T) {
 	e := &HTTPError{StatusCode: 429}
 	if !e.Retryable() || !errors.As(error(e), new(*HTTPError)) {
 		t.Fatal("429 should be retryable")
+	}
+}
+
+func TestRetryConnectionResetAndExhaustion(t *testing.T) {
+	reset := &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}
+	f := &retryFake{fn: func(call int, _ func(string)) (*Result, error) {
+		if call < 3 {
+			return nil, reset
+		}
+		return &Result{Content: "ok"}, nil
+	}}
+	p := WithRetry(f, RetryPolicy{MaxAttempts: 5, BaseDelay: time.Millisecond, MaxDelay: 5 * time.Millisecond})
+	res, err := p.Chat(context.Background(), Request{}, nil)
+	if err != nil || res.Content != "ok" || f.calls != 3 {
+		t.Fatalf("res=%+v err=%v calls=%d", res, err, f.calls)
+	}
+
+	always := &retryFake{fn: func(int, func(string)) (*Result, error) { return nil, reset }}
+	limited := WithRetry(always, RetryPolicy{MaxAttempts: 5, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond})
+	if _, err := limited.Chat(context.Background(), Request{}, nil); err == nil || always.calls != 5 {
+		t.Fatalf("err=%v calls=%d", err, always.calls)
 	}
 }
