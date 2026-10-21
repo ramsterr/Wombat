@@ -20,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -31,6 +31,13 @@ func cmdConfig(args []string) error {
 		cfg.Provider = val
 	case key == "model":
 		cfg.Model = val
+	case key == "image_provider":
+		if _, ok := cfg.Providers[val]; !ok {
+			return fmt.Errorf("provider %q not in config: run `wombat setup`", val)
+		}
+		cfg.ImageProvider = val
+	case key == "image_model":
+		cfg.ImageModel = val
 	case key == "orchestrator":
 		v, err := parseBool(key, val)
 		if err != nil {

@@ -211,6 +211,7 @@ func Run(opt Options) (Action, error) {
 	if ch.ag != nil && ch.ag.Env != nil {
 		ch.ag.Env.JobManager().Close()
 		ch.ag.Env.CloseLSP()
+		ch.ag.Env.CloseBrowser()
 	}
 	if err != nil {
 		return Action{}, err

@@ -33,6 +33,8 @@ type Config struct {
 	Version             int                  `json:"version"`
 	Provider            string               `json:"provider"`
 	Model               string               `json:"model"`
+	ImageProvider       string               `json:"image_provider,omitempty"`
+	ImageModel          string               `json:"image_model,omitempty"`
 	Providers           map[string]*Provider `json:"providers"`
 	Permissions         map[string]string    `json:"permissions,omitempty"`
 	Orchestrator        bool                 `json:"orchestrator"`

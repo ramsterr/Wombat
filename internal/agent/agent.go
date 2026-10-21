@@ -544,11 +544,13 @@ func toolDetail(tc llm.ToolCall) string {
 	switch tc.Name {
 	case "bash":
 		return pick("command")
-	case "write", "edit", "read", "apply_patch", "symbols", "lsp", "rename", "verify":
+	case "write", "edit", "read", "apply_patch", "symbols", "lsp", "rename", "imagegen", "verify":
 		if v := pick("path"); v != "" {
 			return v
 		}
 		return pick("action", "kind", "name")
+	case "browser":
+		return pick("action", "url", "selector")
 	case "glob", "grep":
 		return pick("pattern")
 	case "job_output", "job_kill":

@@ -12,6 +12,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/checkpoint"
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
@@ -115,6 +116,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			return p.AskUser(q)
 		}
 	}
+	env.Images = imageClient(cfg)
 	if cfg.Checkpoints {
 		cp, err := checkpoint.New(checkpoint.RootForSession(sess.Path()), cwd)
 		if err != nil {
@@ -152,6 +154,36 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		}
 	}
 	return ag, nil
+}
+
+func imageClient(cfg *config.Config) *images.Client {
+	name := cfg.ImageProvider
+	if env := os.Getenv("WOMBAT_IMAGE_PROVIDER"); env != "" {
+		name = env
+	}
+	if name == "" {
+		name = "openai"
+	}
+	pc, ok := cfg.Providers[name]
+	if !ok {
+		return nil
+	}
+	base := pc.BaseURL
+	if env := os.Getenv("WOMBAT_IMAGE_BASE_URL"); env != "" {
+		base = env
+	}
+	key := cfg.APIKey(name, pc)
+	if env := os.Getenv("WOMBAT_IMAGE_API_KEY"); env != "" {
+		key = env
+	}
+	model := cfg.ImageModel
+	if env := os.Getenv("WOMBAT_IMAGE_MODEL"); env != "" {
+		model = env
+	}
+	if key == "" && strings.Contains(base, "api.openai.com") {
+		return nil
+	}
+	return images.New(images.Config{BaseURL: base, APIKey: key, Model: model})
 }
 
 func probeEndpoint(ctx context.Context, kind, base string) ([]string, error) {

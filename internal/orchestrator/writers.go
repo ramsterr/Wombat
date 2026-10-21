@@ -288,6 +288,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	env.Isolate()
 	defer env.CloseJobs()
 	defer env.CloseLSP()
+	defer env.CloseBrowser()
 	env.Dir = wt.Path
 	env.ReadOnly = false
 	env.Permit = nil

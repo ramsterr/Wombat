@@ -376,6 +376,7 @@ func (c *chat) rebuild(reset bool) error {
 		if c.ag.Env != nil {
 			c.ag.Env.JobManager().Close()
 			c.ag.Env.CloseLSP()
+			c.ag.Env.CloseBrowser()
 		}
 	}
 	c.ag = &agent.Agent{

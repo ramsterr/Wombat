@@ -54,6 +54,16 @@ All notable changes to Wombat are recorded here. The format follows
 - **`symbols`.** Go definitions and references come from the AST, with
   declaration patterns for other languages, so a comment is not mistaken for
   code.
+- **Browser automation and visual verification.** `browser` opens a local
+  Chromium page, clicks, types, presses keys, scrolls, runs JavaScript, resizes
+  the viewport, and captures viewport or full-page screenshots. Screenshots are
+  attached to the conversation, so frontend work can be checked instead of
+  inferred from HTML. It finds Chrome, Chromium, Edge, Brave, Playwright, and
+  Puppeteer installs, or uses `WOMBAT_BROWSER`.
+- **Image generation and editing.** `imagegen` calls an OpenAI-compatible
+  image API, saves the result in the workspace, and attaches it for review.
+  It supports generate and edit (with an optional mask), configurable through
+  `image_provider` / `image_model` or `WOMBAT_IMAGE_*` variables.
 - **Semantic code intelligence through real language servers.** `lsp` asks
   gopls (or the installed server for TypeScript, Python, Rust, C/C++, Java,
   Ruby, PHP, Lua, C#, Swift, Kotlin, or shell) for definitions, references,

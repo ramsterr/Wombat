@@ -46,7 +46,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Multimodal input** — images, video, audio, and documents, wherever the selected model supports them.
 - **Resumable sessions** stored as JSONL, keyed to the working directory, with a browsable history and transcript previews.
 - **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.
-- **Useful tools** — read, write, edit, atomic patches, shell and background jobs, search, semantic code intelligence, and project verification — with per-class allow/deny/ask permissions.
+- **Useful tools** — read, write, edit, atomic patches, shell and background jobs, search, semantic code intelligence, browser automation and screenshots, image generation, and project verification — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two working modes** — `chat` explores and explains without touching anything; `create` writes and edits. Switch with `/mode`.
 - **It just works** — no sandbox, no caps, no permission prompts by default: the agent reads, writes, and runs commands. Ask before you act by setting a permission to `ask`. File mutations are snapshotted, so you can undo with `wombat checkpoint restore`.
@@ -344,6 +344,12 @@ Presets: `openai`, `anthropic`, `openrouter`, `deepseek`, `groq`, `xai`, `mistra
 
 API keys resolve in order: config file → preset environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …) → `<PROVIDER>_API_KEY`. Local servers need no key.
 
+### Image generation
+
+`imagegen` uses an OpenAI-compatible image endpoint. By default it uses the `openai` provider, `gpt-image-1`, and the same key resolution as chat. Point it at another provider or model with `wombat config set image_provider <name>` and `wombat config set image_model <model>`, or override with `WOMBAT_IMAGE_PROVIDER`, `WOMBAT_IMAGE_BASE_URL`, `WOMBAT_IMAGE_API_KEY`, and `WOMBAT_IMAGE_MODEL`. `generate` creates an asset; `edit` takes an input image and optional mask. Both save into the workspace and attach the result for review.
+
+`browser` drives a local Chromium browser over the DevTools protocol. It finds Chrome, Chromium, Edge, Brave, Playwright, or Puppeteer installations; set `WOMBAT_BROWSER` to choose an executable. Open the page, interact with it, and take a screenshot that is attached to the conversation, so frontend work is verified visually instead of guessed from HTML.
+
 ### Reasoning models
 
 For thinking models, reasoning is streamed into the UI and saved with the assistant turn. When a provider requires it, Wombat replays that reasoning in follow-up requests: `reasoning_content` for OpenAI-compatible thinking APIs (GLM, DeepSeek), encrypted reasoning items for the OpenAI Responses API, and thought signatures attached to Gemini tool calls. This keeps multi-step tool loops valid without leaking reasoning into later prompts when a model does not need it.
@@ -379,6 +385,8 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `grep` | read | pure-Go search; skips credentials files and redacts output |
 | `symbols` | read | Go AST definitions/references plus language-specific declarations |
 | `lsp` | read | language-server definition, references, diagnostics, symbols, and outline |
+| `browser` | network | drive Chromium: open, click, type, scroll, eval, resize, and screenshot |
+| `imagegen` | write | generate or edit an image and attach it for visual review |
 | `rename` | edit | language-server rename, with a combined diff and atomic application |
 | `batch` | read | several `read`/`grep`/`glob` calls in one round-trip |
 | `verify` | bash | runs the project's own tests, build, typecheck, lint, and format |
@@ -593,7 +601,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `browser`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
 
 ### Checks, verification, and writers
 

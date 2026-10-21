@@ -81,6 +81,7 @@ func cmdRun(args []string) error {
 	}
 	defer ag.Env.JobManager().Close()
 	defer ag.Env.CloseLSP()
+	defer ag.Env.CloseBrowser()
 	ag.Hooks = r.hooks()
 	r.windowFn = func() int { return ag.ContextWindow }
 

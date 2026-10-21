@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ramsterr/Wombat/internal/browser"
+	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/lsp"
 )
 
@@ -55,6 +57,12 @@ type Env struct {
 
 	// language servers are shared by every semantic tool call in this Env.
 	lsp *lsp.Manager
+
+	// Images is the image generation/editing client, when configured.
+	Images *images.Client
+
+	// browser owns the local Chromium session used for visual verification.
+	browser *browser.Manager
 
 	// AskUser asks the user a question and waits for the answer. It is nil
 	// where nobody can answer, such as inside a worker.
@@ -137,6 +145,8 @@ func (e *Env) Isolate() {
 	e.media = nil
 	e.jobs = nil
 	e.lsp = nil
+	e.Images = nil
+	e.browser = nil
 	e.PermitPreview = nil
 }
 
@@ -198,6 +208,36 @@ func (e *Env) CloseLSP() {
 	}
 }
 
+// browserManagerInit guards the one-time construction of the browser manager.
+var browserManagerInit sync.Mutex
+
+// BrowserManager returns the browser manager for this workspace.
+func (e *Env) BrowserManager() *browser.Manager {
+	if e == nil {
+		return nil
+	}
+	browserManagerInit.Lock()
+	defer browserManagerInit.Unlock()
+	if e.browser == nil {
+		e.browser = browser.NewManager(e.Dir)
+	}
+	return e.browser
+}
+
+// CloseBrowser shuts down the browser this Env started.
+func (e *Env) CloseBrowser() {
+	if e == nil {
+		return
+	}
+	browserManagerInit.Lock()
+	m := e.browser
+	e.browser = nil
+	browserManagerInit.Unlock()
+	if m != nil {
+		m.Close()
+	}
+}
+
 // guardDangerous asks before a dangerous command runs. It never silently
 // allows one when nobody can approve it.
 func (e *Env) guardDangerous(command string) error {
@@ -234,7 +274,7 @@ type Tool interface {
 func Registry() []Tool {
 	return []Tool{
 		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{},
-		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &LSP{}, &Verify{},
+		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &LSP{}, &Browser{}, &ImageGen{}, &Verify{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},
 	}

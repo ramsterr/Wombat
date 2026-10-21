@@ -283,6 +283,7 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 	env.Isolate()
 	defer env.CloseJobs()
 	defer env.CloseLSP()
+	defer env.CloseBrowser()
 
 	runCtx, cancel := context.WithTimeout(ctx, cfg.WorkerTimeout)
 	defer cancel()

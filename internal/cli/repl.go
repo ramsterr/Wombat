@@ -193,6 +193,7 @@ func cmdRepl(args []string, resume bool) error {
 	}
 	defer ag.Env.JobManager().Close()
 	defer ag.Env.CloseLSP()
+	defer ag.Env.CloseBrowser()
 	ag.Hooks = r.hooks()
 	r.windowFn = func() int { return ag.ContextWindow }
 
@@ -239,6 +240,7 @@ func cmdRepl(args []string, resume bool) error {
 				if ag.Env != nil {
 					ag.Env.JobManager().Close()
 					ag.Env.CloseLSP()
+					ag.Env.CloseBrowser()
 				}
 				ag = newAg
 				sess = newSess
