@@ -18,7 +18,7 @@ type Provider struct {
 }
 
 const (
-	DefaultMaxDelegations        = 6
+	DefaultMaxDelegations        = 0
 	DefaultMaxParallelScouts     = 5
 	DefaultWorkerMaxSteps        = 16
 	DefaultWorkerTokenBudget     = 0

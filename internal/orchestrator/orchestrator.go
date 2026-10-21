@@ -66,9 +66,6 @@ type Config struct {
 }
 
 func (c Config) withDefaults() Config {
-	if c.MaxDelegations <= 0 {
-		c.MaxDelegations = DefaultMaxDelegations
-	}
 	if c.MaxParallelScouts <= 0 {
 		c.MaxParallelScouts = DefaultMaxParallelScouts
 	}
@@ -319,9 +316,14 @@ func (o *Orchestrator) systemPrompt() string {
 		b.WriteString("two to five independent workers at the same time, each on a different angle, then synthesize. ")
 		b.WriteString("That is faster and costs you far fewer tokens than one thread at a time. ")
 	}
+	b.WriteString("When two or more independent files, categories, pages, or audits exist, call delegate_many or use run_plan before doing them serially. Workers can fetch docs, skills, and references with websearch, webfetch, browser, or curl; give them the exact output path. ")
 	b.WriteString("Use delegate for a single investigation. ")
-	b.WriteString("Never put dependent steps in one fleet. Do the work yourself when it is small or you already know where to look. ")
-	fmt.Fprintf(&b, "At most %d delegations per turn and %d scouts at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
+	b.WriteString("Never put dependent steps in one fleet. Use one script for scraping, data transforms, and repeated shell work; agents are for independent reasoning, not plumbing. Give each worker a disjoint slice and output file, never the same dataset. Use run_plan for dependencies; delegate_many only for one independent wave. Stop when the artifact exists and its checks pass. ")
+	if maxDelegations > 0 {
+		fmt.Fprintf(&b, "At most %d delegations per turn and %d workers at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
+	} else {
+		fmt.Fprintf(&b, "Delegations are unlimited this turn, with %d workers at once; every delegation is grounded in the ledger.\n", o.cfg.MaxParallelScouts)
+	}
 	b.WriteString("Give each worker a complete objective, the context it cannot see from this conversation, and a concrete deliverable. ")
 	if o.cfg.FullWorkers {
 		b.WriteString("Workers are full-access and cannot delegate. They have every non-orchestration tool, including read/write/edit, bash, network, browser, and image generation, and run in isolated worktrees. Changes are reviewed and merged; no-change research still completes. ")
