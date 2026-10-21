@@ -2,20 +2,22 @@
 <img width="2872" height="676" alt="Wombat" src="https://github.com/user-attachments/assets/53857c41-0947-4be9-b90f-72dd92ab9f99" />
 
 [![CI](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg)](https://github.com/ramsterr/Wombat/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.2.5-blue)](https://github.com/ramsterr/Wombat)
+[![Version](https://img.shields.io/badge/version-dev-orange)](https://github.com/ramsterr/Wombat)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#install)
-[![Binary](https://img.shields.io/badge/binary-~11%20MB-brightgreen)](#install)
-[![Runtime deps](https://img.shields.io/badge/runtime%20deps-none-success)](#install)
+[![Binary](https://img.shields.io/badge/binary-~15%20MB-brightgreen)](#install)
+[![Runtime deps](https://img.shields.io/badge/runtime%20deps-core%20none-success)](#install)
 [![Multimodal](https://img.shields.io/badge/multimodal-images%20%7C%20video%20%7C%20audio%20%7C%20files-blueviolet)](#attachments)
 [![Bubble Tea](https://img.shields.io/badge/built%20with-Bubble%20Tea-ff69b4)](https://github.com/charmbracelet/bubbletea)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#contributing)
 
-Wombat is a lightweight, chat-first coding agent for the terminal. One self-contained binary, fast startup, small memory footprint.
+Wombat is a lightweight, chat-first coding agent for the terminal. One self-contained Go binary, fast startup, small memory footprint.
 
 It runs an agentic loop against any OpenAI-compatible API, Anthropic, or a local model server (Ollama, LM Studio, llama.cpp, vLLM, MLX). Gemini and OpenAI Responses models are supported through OpenCode. It reads, writes, edits, and searches files, runs shell commands, streams tool steps and model reasoning, and keeps long sessions under the model window with automatic context pruning and summarization.
 
-Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inline tool calls and permission prompts, a session browser with transcript previews, a filterable model picker, a connectivity dashboard, and usage charts.
+Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inline tool calls and permission prompts, a session browser with transcript previews, a filterable model picker, a task ledger, parallel full-access workers, a connectivity dashboard, usage charts, and a persistent local-preview banner.
+
+> **This checkout is the `11-new-features` development branch.** Tagged releases install the stable line from `main`; the release installer and `go install ...@latest` do not contain these unreleased changes. To run this branch, build it from source as shown below. The current build here is unreleased development code and may change before the next tagged release.
 
 ## Contents
 
@@ -43,23 +45,50 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 ## Features
 
 - **Chat-first terminal UI** with streaming replies, inline tool steps, and permission prompts. Reasoning is shown for thinking models, persisted with the turn, and replayed where the provider requires it.
-- **Multimodal input** — images, video, audio, and documents, wherever the selected model supports them.
-- **Resumable sessions** stored as JSONL, keyed to the working directory, with a browsable history and transcript previews.
-- **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.
-- **Useful tools** — read, write, edit, atomic patches, shell and background jobs, search, semantic code intelligence, browser automation and screenshots, image generation, and project verification — with per-class allow/deny/ask permissions.
-- **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
+- **Multimodal input** — images, video, audio, and documents, wherever the selected model supports them. Capabilities are resolved from the models.dev catalogue, with built-in fallbacks for offline use.
+- **Resumable sessions** stored as JSONL, keyed to the working directory, with a browsable history, transcript previews, a persisted task ledger, and checkpoints.
+- **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go, with a self-healing fallback when a gateway reports a protocol mismatch.
+- **Full coding toolset** — read, write, edit, multi-edit, atomic patches, shell and managed background jobs, glob/grep, AST symbols, language-server definition/references/diagnostics/completions/outline, semantic rename, AST-aware code actions, semantic search with embeddings, browser automation and screenshots, image generation/editing, and project verification — with per-class allow/deny/ask permissions.
+- **Real parallel delegation** — `delegate`, `delegate_many`, and `run_plan` give workers the full coding/research toolset by default: write/edit, bash, network, browser, imagegen, semantic search, and verification. Orchestration tools and `question` stay with the lead. Workers run in isolated git worktrees, changes are independently reviewed and three-way merged, and a failed step blocks only its dependents.
+- **Durable task manager** — a dependency-aware ledger with scout and write steps, per-step checks, structured `submit_report`/`submit_review` reports, retryable steps, and wave scheduling via `run_plan`.
+- **Preview-ready banner** — when a tool reports a local dev-server URL, the TUI shows it under the header and marks whether the agent is still iterating; `/preview` opens it and `esc` stops the run.
+- **Transient-failure recovery** — network resets, refused connections, DNS failures, and timeouts are retried with backoff. Thinking-mode `reasoning_content` rejections trigger automatic reasoning-trim repair and replay. A rejected request no longer poisons the rest of the session.
+- **Safety guardrails** — secrets, `.env` files, destructive commands, git history, writer/worktree escapes, and security-sensitive code are covered by built-in rules and warnings.
 - **Two working modes** — `chat` explores and explains without touching anything; `create` writes and edits. Switch with `/mode`.
-- **It just works** — no sandbox, no caps, no permission prompts by default: the agent reads, writes, and runs commands. Ask before you act by setting a permission to `ask`. File mutations are snapshotted, so you can undo with `wombat checkpoint restore`.
+- **It just works** — no sandbox and no permission prompts by default: the agent reads, writes, and runs commands. Ask before you act by setting a permission to `ask`. File mutations are snapshotted, so you can undo with `wombat checkpoint restore`.
 - **Two-tier context management** — prune old tool output, then summarize older history, so long sessions keep working.
-- **Task ledger, verification, and delegation** — the lead agent keeps a persistent plan, records checks and evidence, runs full-access parallel workers, and can hand independent coding tasks to writers in isolated git worktrees.
-- **Check-gated parallel writers** — writers own disjoint files, run in worktrees, and merge sequentially only after their offers pass tests; conflicts and failures are kept for inspection.
-- **No runtime dependencies on macOS and Linux** — one self-contained binary; no Python, Node, or external service required.
+- **No runtime dependencies for the core agent on macOS and Linux** — one self-contained binary; Go, Node, Python, a browser, or language servers are only needed for the optional features that use them.
 
 ## Install
 
-One self-contained binary, about 11 MB. No runtime dependencies, no Docker, no Python, no Node.
+One self-contained binary, about 15 MB. The core agent needs no Docker, Python, or Node. Optional features need their own tools: a Chromium browser for `browser`, a language server for `lsp`/`rename`/`refactor`, git for worktree writers, and `sh` for `bash`.
 
-### First time? Pick one line
+### Run this development branch
+
+The one-line installer and `go install ...@latest` install the latest tagged release from `main`. They do **not** contain the unreleased work on `11-new-features`. To run this branch:
+
+```sh
+git clone --branch 11-new-features https://github.com/ramsterr/Wombat.git
+cd Wombat
+go build -o wombat ./cmd/wombat
+./wombat version
+./wombat doctor
+./wombat
+```
+
+Requirements: Go 1.26+ and `git`. That is enough for the core agent and file/shell tools. Build a binary you can move anywhere:
+
+```sh
+CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/wombat ./cmd/wombat
+```
+
+`wombat upgrade` installs the latest tagged release, so it will replace a
+branch build with the stable line. For a branch build, rebuild from source
+instead.
+
+### Stable release install
+
+If you want the latest tagged stable release instead of this branch, pick one line:
 
 **macOS, Linux, WSL2, or Git Bash**
 
@@ -82,7 +111,7 @@ go install github.com/ramsterr/Wombat/cmd/wombat@latest
 Then check it works:
 
 ```sh
-wombat version      # wombat 0.2.5
+wombat version      # prints the installed version
 wombat setup        # pick a provider, paste your API key, pick a model
 wombat              # start chatting
 ```
@@ -196,11 +225,38 @@ wombat                 # open the chat TUI
 wombat setup           # provider + API key + model wizard (runs on first launch)
 wombat doctor          # check config, permissions, and connectivity
 wombat run "add tests for the parser and run them"
+wombat run --yolo "use delegate_many to review this repo from three angles"
 wombat sessions        # list sessions for this directory
 wombat resume last     # continue the latest session in the TUI
 ```
 
 On a fresh install the setup wizard runs once, then the chat opens. Configure a key once and it is reused. Everything also works without a TTY: `wombat chat`, `wombat run`, and piped input fall back to a line-based REPL.
+
+### Useful first runs
+
+Ask a question about the current project:
+
+```sh
+wombat run "where are errors from the HTTP client handled? cite file:line"
+```
+
+Make a plan and let the scheduler run independent steps:
+
+```text
+Use update_plan to split this into a scout step and two write steps with disjoint files,
+add checks, then call run_plan.
+```
+
+Use parallel full-access workers for independent work:
+
+```text
+Use delegate_many with three workers: audit accessibility, audit visual design, and run the test suite.
+Run them in parallel and reconcile the reports.
+```
+
+Preview a web project while the agent keeps iterating: when a tool reports
+`http://localhost:...`, the TUI shows a **preview ready** banner; use `/preview`
+to open it and `esc` to stop when it looks right.
 
 ## Modes
 
@@ -281,6 +337,7 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `/cost` | token usage and cache hits |
 | `/status` | current provider, model, session, and directory |
 | `/yolo` | toggle auto-approve for tools |
+| `/preview` | open the local preview URL the agent reported |
 | `/mouse` | toggle mouse mode |
 | `/clear` | clear the transcript view |
 | `/setup` | reconfigure providers and models |
@@ -300,13 +357,15 @@ Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny)
 | `wombat sessions` | list sessions for this directory |
 | `wombat doctor` | config, permissions, and connectivity checks |
 | `wombat config` | show config with API keys redacted |
-| `wombat config set <key> <value>` | set `provider`, `model`, `mode`, writers, or a permission |
+| `wombat config set <key> <value>` | set provider/model, image/embedding/reviewer settings, workers, budgets, mode, or permissions |
 | `wombat checkpoint list` | list snapshots for the latest session |
 | `wombat checkpoint restore <id>` | restore a snapshot (`--yes` for non-interactive use) |
 | `wombat upgrade` | update wombat to the latest release (`--check` to only look) |
 | `wombat version` | print the version |
 
 Flags for `run` and `resume`: `-m <model>`, `-p <provider>`, `--yolo` (auto-approve tools), `-c` (continue latest), `--quiet`, and for `run` also `--image`, `--video`, `--audio`, and `--file` (repeatable).
+
+Common `config set` keys: `provider`, `model`, `mode`, `parallel_agents`, `scout_model`, `fallback_models`, `reasoning`, `show_thinking`, `trim_reasoning`, `image_provider`, `image_model`, `embedding_provider`, `embedding_model`, `review_writers`, `review_model`, `worker_full_access`, `worker_max_steps`, `worker_token_budget`, `turn_worker_token_budget`, `writer_max_steps`, `writer_token_budget`, `turn_writer_token_budget`, `max_parallel_scouts`, `max_parallel_writers`, `orchestrator`, `checkpoints`, `require_verification`, `writers`, `keep_worktrees`, and `permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>`. Run `wombat config set` with no value to see the error/help.
 
 Line REPL commands: `/model`, `/models`, `/provider`, `/new`, `/compact`, `/cost`, `/status`, `/yolo`, `/mode`, `/help`, `/exit`.
 
@@ -343,7 +402,7 @@ If the selected model does not accept an attachment, the provider returns an exp
 
 ## Providers
 
-Presets: `openai`, `anthropic`, `openrouter`, `deepseek`, `groq`, `xai`, `mistral`, plus local `ollama`, `lmstudio`, `llamacpp`, `vllm`, and `mlx` — and any custom OpenAI-compatible endpoint.
+Presets: `openai`, `anthropic`, `openrouter`, `deepseek`, `groq`, `xai`, `mistral`, `opencode`, `opencode-go`, plus local `ollama`, `lmstudio`, `llamacpp`, `vllm`, and `mlx` — and any custom OpenAI-compatible endpoint.
 
 API keys resolve in order: config file → preset environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …) → `<PROVIDER>_API_KEY`. Local servers need no key.
 
@@ -372,9 +431,9 @@ Tool signatures and reasoning items are stored in the session JSONL, so a resume
 | GPT, Grok, Muse | OpenAI Responses API |
 | Gemini | Google generateContent |
 
-Unknown models start on chat completions and fall back across protocols if the gateway reports a protocol mismatch; the winning route is cached per model. Wombat sends the `User-Agent` and `x-opencode-session` headers the Go gateway expects for routing and prompt caching — the same session ID is reused across turns, so cache hits show up in `/cost`.
+Known model families and the models.dev catalogue choose the first protocol; unknown models start on chat completions and fall back across protocols if the gateway reports a protocol mismatch. The winning route is cached per model. Wombat sends the `User-Agent` and `x-opencode-session` headers the Go gateway expects for routing and prompt caching — the same session ID is reused across turns, so cache hits show up in `/cost`.
 
-If the OpenCode app is installed on the same machine, `wombat setup` detects its stored credentials and offers to reuse them — no key to paste. Note: `*-free` models are restricted to the OpenCode app and cannot be used from third-party clients.
+If the OpenCode app is installed on the same machine, `wombat setup` detects its stored credentials and offers to reuse them — no key to paste. Whether a given model is available to your key is controlled by OpenCode; list the models with `wombat models opencode-go` before selecting one.
 
 ## Tools and permissions
 
@@ -403,13 +462,18 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `question` | ask | ask the user to choose, with 2-3 options or free text |
 | `update_plan` | plan | create/replace the ledger, steps, and checks |
 | `run_checks` | verify | run a step's checks and record evidence |
-| `delegate` / `delegate_many` | delegate | full-access parallel workers with isolated worktrees |
-| `run_plan` | delegate | execute the ledger as a dependency graph: parallel scouts and reviewed writers |
-| `delegate_write` | write | isolated git worktree writers (opt-in in config) |
+| `delegate` / `delegate_many` | delegate | full-access parallel workers with isolated worktrees and optional file ownership |
+| `run_plan` | delegate | execute the ledger as a dependency graph: parallel workers, reviewed writes, three-way merge |
+| `delegate_write` | write | isolated git worktree writers with disjoint file ownership |
 
 `lsp` asks the server for definitions, references, diagnostics, completions, symbols, and outlines; `rename` and `refactor` apply the server's semantic edits. They use whichever language server is installed: `gopls` for Go, `typescript-language-server` for TypeScript/JavaScript, `pyright` or `pylsp` for Python, `rust-analyzer`, `clangd`, `jdtls`, `solargraph`, `intelephense`, `lua-language-server`, `csharp-ls`, `sourcekit-lsp`, `kotlin-language-server`, and `bash-language-server`. Override a server with `WOMBAT_LSP` or per language with `WOMBAT_LSP_GO`, `WOMBAT_LSP_PY`, and so on. If no server is installed the tool says so; `symbols` and `semantic_search` still work as fallbacks.
 
 Permissions are set per class to `ask`, `allow`, or `deny`. `bash`, `write`, `edit`, and `network` default to `allow`; `dangerous` and `sensitive-read` default to `ask`, so destructive commands and credentials files are never read automatically. Read is otherwise allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed. Credentials files are also skipped by `grep` and redacted from tool output.
+
+Delegated workers run without interactive permission prompts because there is
+nobody to answer one. Full-access workers are confined to an isolated git
+worktree for writes, and their changes are reviewed before merge. Set
+`worker_full_access false` if you want read-only workers instead.
 
 ## Craft standard
 
@@ -452,18 +516,21 @@ harnesses do it:
   one after another; anything that can change the workspace runs on its own,
   in order. Tool execution is roughly half of an agent's wall-clock time, so
   this is the biggest single win.
-- **The history stays small.** Only the newest assistant turn keeps its
-  reasoning in the request, and tool results are trimmed hard, so every
-  request is cheap to prefill.
+- **The history stays small.** Tool results are trimmed hard, and reasoning
+  can optionally be trimmed with `trim_reasoning`. The default keeps reasoning
+  because some thinking gateways require it to be replayed; if a provider
+  rejects a history for missing reasoning, Wombat repairs it and turns trimming
+  off for that session automatically.
 - **A stuck agent is stopped.** The same call repeated with the same
   arguments three times ends with "stop repeating it", instead of burning the
   turn.
 - **A script beats a pile of reads.** The prompt asks the agent to compute
   answers with one command rather than reading twenty files into its context.
-- **Parallel scouts, by default.** For anything past two steps the agent
-  dispatches a fleet of two to five workers in one `delegate_many` call, each
-  in its own context, so the lead's context stays small. When your plan has
-  independent steps, the prompt points that out. Turn it off with
+- **Parallel workers, by default.** For anything past two steps the agent can
+  dispatch a fleet of two to five workers in one `delegate_many` call, each
+  with its own context and worktree. Workers are full-access by default and can
+  write, run commands, and use the network; changes are reviewed and merged.
+  Turn the parallelism guidance off with
   `wombat config set parallel_agents false`.
 - **A scratch directory.** Each session gets `~/.wombat/tmp/<session>` and
   `$WOMBAT_TMP` points there, so temporary files never land in the project or
@@ -539,10 +606,14 @@ The prompt also tells the agent to **work in parallel**:
 > then synthesize their reports. That is faster and uses far fewer of your own
 > tokens than working through it alone.
 
-So a typical research task becomes one `delegate_many` call with two to five
-scouts, each with a different angle, instead of the lead exploring one thread
-at a time. Up to `max_parallel_scouts` run at once (five by default), so a
-fleet finishes in a single wave.
+So a typical task becomes one `delegate_many` call with two to five workers,
+each with a different angle, instead of the lead exploring one thread at a
+time. Workers are full-access by default: they can read, write, run commands,
+use the network, and use the full coding/research toolset in an isolated worktree; orchestration tools and `question` stay with the lead.
+Up to `max_parallel_scouts` run at once (five by default), so a fleet finishes
+in a single wave; changes are reviewed and merged. Set
+`worker_full_access false` to restore read-only scouts. Worker and writer token
+budgets are unlimited unless configured.
 
 ## Guardrails
 
@@ -593,15 +664,34 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   "fallback_models": ["gpt-5-mini"],
   "orchestrator": true,
   "max_parallel_scouts": 3,
+  "max_parallel_writers": 2,
+  "worker_full_access": true,
+  "worker_token_budget": 0,
+  "turn_worker_token_budget": 0,
+  "writer_token_budget": 0,
+  "turn_writer_token_budget": 0,
+  "review_writers": true,
+  "review_model": "",
   "checkpoints": true,
   "require_verification": true,
   "writers": true,
-  "max_parallel_writers": 2,
   "mouse": false
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. Worker and writer token budgets are unlimited by default, and workers run with full tool/network access unless `worker_full_access` is false. `max_parallel_scouts` and `max_parallel_writers` bound how many run at once (five and two). Checkpoints are on by default, so any change can be undone.
+`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. Worker and writer token budgets default to `0`, which means unlimited; set a positive value to opt back into a cap. `worker_full_access` defaults to true: workers get write/edit, bash, network, browser, image generation, and the rest of the coding/research toolset; orchestration tools and `question` stay with the lead. `max_parallel_scouts` and `max_parallel_writers` bound how many run at once (five and two). `review_writers` defaults true and uses `review_model` (or `scout_model`, or the lead model). Checkpoints are on by default, so any change can be undone.
+
+Useful config changes:
+
+```sh
+wombat config set worker_full_access false   # read-only scouts
+wombat config set worker_token_budget 50000  # optional per-worker cap
+wombat config set turn_worker_token_budget 260000
+wombat config set max_parallel_scouts 3
+wombat config set review_writers false       # skip the writer reviewer
+wombat config set review_model gpt-5-mini
+wombat config set writers false              # disable worktree writers
+```
 
 `fallback_models` is an ordered list tried when the selected model is rate-limited, unavailable, or returns a server error. The model is only switched before any output has streamed, so a reply is never duplicated; an invalid request is reported instead of hidden by a fallback. Transient network failures — connection reset/refused, DNS failure, timeout, unexpected EOF — are retried up to four times with backoff before the turn fails.
 
@@ -609,7 +699,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained task to a fresh worker with its own context and session. `delegate_many` runs two to five independent workers concurrently — one wave, up to `max_parallel_scouts` at a time. By default workers are full-access: they get every non-orchestration tool, including `write`, `edit`, `bash`, `browser`, `imagegen`, and network access, and run in their own git worktree. Changes are reviewed and merged like writer patches; a research task that makes no changes still completes normally. Set `worker_full_access false` to restore read-only scouts. Workers report through a `submit_report` tool (with a robust JSON fallback). There is no token budget by default; the per-worker and per-turn token caps are unlimited unless configured.
+`delegate` hands one self-contained task to a fresh worker with its own context and session. `delegate_many` runs two to five independent workers concurrently — one wave, up to `max_parallel_scouts` at a time. By default workers are full-access: they get the coding/research toolset, including `write`, `edit`, `bash`, `browser`, `imagegen`, semantic search, and network access, and run in their own git worktree. Orchestration tools and `question` stay with the lead. Changes are reviewed and merged like writer patches; a research task that makes no changes still completes normally. Set `worker_full_access false` to restore read-only scouts. Workers report through a `submit_report` tool (with a robust JSON fallback). There is no token budget or separate per-turn delegation cap by default; `max_parallel_scouts` still bounds concurrency, and token caps can be configured. Worktree isolation requires a git repository with a clean tracked tree; in a non-git workspace full workers fall back to the main workspace, so changes are applied directly.
 
 `run_plan` turns the ledger into the scheduler: it repeatedly finds ready steps, runs independent steps in parallel, waits for their wave to finish, then unlocks dependents. A step with `kind: write` gets the full writer pipeline — worktree, declared file ownership, checks, independent review, three-way merge — so delegates can write when the task needs it. A failed step blocks only its dependents; independent branches keep going. `run_plan` accepts a subset of step ids, a wave size, and `stop_on_failure` for a strict run.
 
@@ -617,7 +707,7 @@ The lead agent owns the plan, edits, commands, and final answer. For multi-step 
 
 Steps can declare `checks` in `update_plan`. `run_checks` executes them in the lead workspace, records pass/fail output in the ledger, and the completion gate refuses to mark a step completed while a check is pending or failing. Writers (`delegate_write`, or `kind: write` steps in `run_plan`) are available in git repositories when `writers` is enabled. Each writer gets a context pack and a temporary worktree, must declare the exact files it owns, runs the step checks, and is committed before merge.
 
-Writers require a clean tracked working tree (commit or stash before starting). Every writer patch is independently reviewed by a separate reviewer agent (model via `review_model`, defaulting to the scout model) before merge. `review_writers` is on by default; set it to false to skip review. Merge uses git's three-way fallback, so a writer based on an older HEAD still lands when its changes do not overlap; an unresolvable conflict is reverted, the worktree is kept, and the error is reported. After a successful merge the checks run again, `git diff --check` runs, and a failing patch is reverted. Writers cannot overlap file ownership; use them for independent implementation steps, not dependent edits. Merged writer changes are left unstaged in the lead workspace for the lead to inspect and commit.
+Workers and writers require a clean tracked working tree for worktree creation (commit or stash before starting). Every writer patch is independently reviewed by a separate reviewer agent (model via `review_model`, defaulting to the scout model) before merge. `review_writers` is on by default; set it to false to skip review. Merge uses git's three-way fallback, so a writer based on an older HEAD still lands when its changes do not overlap; an unresolvable conflict is reverted, the worktree is kept, and the error is reported. After a successful merge the checks run again, `git diff --check` runs, and a failing patch is reverted. Writers cannot overlap file ownership; use them for independent implementation steps, not dependent edits. Merged writer changes are left unstaged in the lead workspace for the lead to inspect and commit.
 
 ```sh
 wombat config set orchestrator false        # disable ledger + delegation
@@ -632,7 +722,7 @@ wombat config set review_writers false         # skip the independent patch revi
 wombat config set review_model gpt-5-mini      # reviewer model (default: scout model)
 ```
 
-Worker and writer transcripts are stored under `~/.wombat/workers/` for inspection. Writers run in `~/.wombat/worktrees/` by default; successful worktrees are removed, failures are kept. The lead remains the default writer and owns merge decisions.
+Worker and writer transcripts are stored under `~/.wombat/workers/` for inspection. Workers and writers run in `~/.wombat/worktrees/` by default; successful worktrees are removed, failures are kept. The lead can still do work directly and owns final merge decisions.
 
 ## Examples
 
@@ -656,15 +746,20 @@ Tasks are self-contained JSON fixtures under `eval/tasks/` (20 tasks today). The
 cmd/wombat        entry point
 cmd/eval          eval harness CLI
 internal/cli      REPL, headless run, setup wizard, doctor, checkpoints, upgrade
-internal/agent    agent loop, system prompt, hooks, budgets, usage, compaction
-internal/orchestrator  ledger, checks, parallel workers, writers, review, merge queue
-internal/worktree isolated git worktree manager and patch merge queue
+internal/agent    agent loop, system prompt, hooks, usage, compaction, repair
+internal/orchestrator  ledger, scheduler, checks, workers, writers, review, merge queue
+internal/worktree isolated git worktree manager, three-way patch merge, index snapshots
+internal/modelinfo models.dev capability catalogue and cache
+internal/embeddings OpenAI-compatible embeddings plus the offline fallback
+internal/lsp      language-server client: definition, references, diagnostics, completion, rename, code actions
+internal/browser  Chromium CDP browser automation and screenshots
+internal/images   image generation and editing client
 internal/checkpoint workspace snapshots and scoped restore
 internal/trace    append-only JSONL run events
 internal/eval     task loader, protection, repeats, reports, pricing
 internal/llm      provider adapters, HTTP errors, retry/backoff
 internal/release  GitHub release lookup, checksums, version comparison
-internal/tools    read/write/edit/bash/glob/grep, batch, multi_edit, web tools, permissions
+internal/tools    read/write/edit/bash/glob/grep, symbols, LSP/refactor, semantic search, browser, imagegen, web tools, permissions
 internal/tui      Bubble Tea chat UI, sessions, models, usage, doctor
 internal/session  JSONL session persistence and attachment store
 internal/config   config load/save, presets, key resolution
@@ -686,7 +781,7 @@ go test ./...
 go build -o /tmp/wombat ./cmd/wombat
 ```
 
-CI runs the same checks on every push to `main` and on pull requests.
+CI runs the same checks on the default branch and on pull requests.
 
 ### Cutting a release
 

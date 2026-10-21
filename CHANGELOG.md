@@ -99,6 +99,14 @@ All notable changes to Wombat are recorded here. The format follows
   `worker_full_access false` restores read-only scouts. Worker and writer token
   budgets default to unlimited; `worker_token_budget` and the turn caps can be
   set to a positive number to opt back into limits.
+- **Compaction crash fixed.** Summarizing a short history no longer indexes past
+  the message slice; the TUI also recovers an internal panic and reports it
+  instead of terminating the session.
+- **Unlimited delegations by default.** The per-turn delegation cap is gone;
+  `max_parallel_scouts` still bounds concurrency and tokens remain optional.
+- **Delegation discipline.** The lead is told to use scripts for scraping and
+  repeated shell work, give each worker a disjoint slice and output file, use
+  `run_plan` for dependencies, and stop when the artifact and checks pass.
 - **Transient network retries.** Connection resets, refused connections,
   DNS failures, timeouts, and unexpected EOFs are retried up to four times
   with backoff before the turn is allowed to fail. Non-streaming requests only,
