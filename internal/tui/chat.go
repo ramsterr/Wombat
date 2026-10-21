@@ -153,6 +153,9 @@ type chat struct {
 
 	// showThinking controls whether the model's thinking is displayed.
 	showThinking bool
+	// scrollback is true while the alternate screen is off and the terminal's
+	// own scrollback is available.
+	scrollback bool
 
 	// cmdList is the palette of matching commands or options. cmdSel is the
 	// highlighted entry and cmdTop is the first visible one.
@@ -1520,6 +1523,21 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	case "ctrl+v":
 		return c.pasteImage()
+	case "ctrl+o":
+		c.scrollback = !c.scrollback
+		if c.scrollback {
+			c.note("terminal scrollback on — use the terminal scrollbar or wheel; ctrl+o to return", false)
+			return tea.Batch(
+				func() tea.Msg { return tea.DisableMouse() },
+				func() tea.Msg { return tea.ExitAltScreen() },
+			)
+		}
+		c.note("full-screen mode", false)
+		cmds := []tea.Cmd{func() tea.Msg { return tea.EnterAltScreen() }}
+		if c.mouse {
+			cmds = append(cmds, func() tea.Msg { return tea.EnableMouseCellMotion() })
+		}
+		return tea.Batch(cmds...)
 	case "pgup", "ctrl+u":
 		c.scrollUp(max(1, c.vp.Height-2))
 		return nil
@@ -1614,7 +1632,7 @@ func (c *chat) hint() string {
 	case c.streaming:
 		left = styleDim.Render("esc interrupt · wheel/pgup scroll · working…")
 	default:
-		left = styleFaint.Render("enter send · alt+enter newline · ctrl+v image · pgup scroll · /help")
+		left = styleFaint.Render("enter send · alt+enter newline · ctrl+v image · wheel/pgup scroll · ctrl+o scrollback")
 	}
 	if c.cumIn+c.cumOut == 0 || c.w <= 0 {
 		return " " + left

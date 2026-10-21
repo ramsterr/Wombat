@@ -259,7 +259,9 @@ Type a message and press `enter`. Responses stream in; tool calls appear as they
 | `/mouse` | toggle mouse: wheel scroll vs. native text selection |
 | `/` | slash commands |
 
-The mouse is **off by default** so drag-select and your terminal's copy shortcut work normally. `/mouse` enables wheel scrolling; hold Option or Shift to select text while it is on.
+The mouse is **on by default** so the wheel scrolls the chat in any terminal, including Terminal.app. Hold Option or Shift to select text while it is on, or run `/mouse` to turn mouse capture off and use normal drag-select.
+
+`Ctrl+O` turns the alternate screen off so the terminal's own scrollback works; press it again to return to full-screen mode. `PgUp`/`PgDn` scroll the chat viewport without touching the mouse.
 
 Permission prompts accept `y` (allow), `a` (always allow this class), `n` (deny), or `f` (deny with instructions the model will see).
 
@@ -631,11 +633,11 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   "parallel_agents": true,
   "checkpoints": true,
   "writers": true,
-  "mouse": false
+  "mouse": true
 }
 ```
 
-`mouse` defaults to false so terminal text selection works; `/mouse` toggles it and saves the choice. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `parallel_agents` makes a fleet the default. There are no step, token, delegation, worker, writer, or command time limits: a turn ends when the model stops calling tools, the user interrupts, or the provider fails. Checkpoints are on by default and only snapshot the files a write or edit is about to touch.
+`mouse` defaults to true so the wheel scrolls the chat in any terminal; `/mouse` toggles it and saves the choice. `Ctrl+O` toggles terminal scrollback mode without changing the setting. `orchestrator` defaults to true; set it to false to run the original single-agent loop. `parallel_agents` makes a fleet the default. There are no step, token, delegation, worker, writer, or command time limits: a turn ends when the model stops calling tools, the user interrupts, or the provider fails. Checkpoints are on by default and only snapshot the files a write or edit is about to touch.
 
 ## Orchestration
 

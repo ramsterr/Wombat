@@ -123,6 +123,7 @@ func Defaults() *Config {
 		ParallelAgents: true,
 		Checkpoints:    true,
 		Writers:        true,
+		Mouse:          true,
 	}
 	for _, p := range Presets {
 		c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}

@@ -19,6 +19,10 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Changed
 
+- Mouse-wheel scrolling is on by default, so the chat viewport scrolls in
+  Terminal.app and other terminal apps that do not scroll the alternate
+  screen. `Ctrl+O` toggles terminal scrollback mode (leaves the alternate
+  screen and releases mouse capture); press it again to return.
 - Permissions default to `allow` for bash, write, edit, network, and outside
   paths, so a headless run works without `--yolo`. A version-1 config with the
   old ask-by-default permissions is migrated automatically; an explicit deny

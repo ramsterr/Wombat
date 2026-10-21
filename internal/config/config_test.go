@@ -22,6 +22,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Mode != "create" {
 		t.Fatalf("mode = %q", cfg.Mode)
 	}
+	if !cfg.Mouse {
+		t.Fatal("mouse wheel scrolling should be on by default")
+	}
 	if _, ok := cfg.Providers["ollama"]; !ok {
 		t.Fatalf("ollama preset missing")
 	}
