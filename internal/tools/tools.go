@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/ramsterr/Wombat/internal/lsp"
 )
 
 type Checkpointer interface {
@@ -50,6 +52,9 @@ type Env struct {
 
 	// jobs owns background processes started through this environment.
 	jobs *JobManager
+
+	// language servers are shared by every semantic tool call in this Env.
+	lsp *lsp.Manager
 
 	// AskUser asks the user a question and waits for the answer. It is nil
 	// where nobody can answer, such as inside a worker.
@@ -131,6 +136,7 @@ func (e *Env) Isolate() {
 	}
 	e.media = nil
 	e.jobs = nil
+	e.lsp = nil
 	e.PermitPreview = nil
 }
 
@@ -159,6 +165,37 @@ func (e *Env) JobManager() *JobManager {
 		e.jobs = NewJobManager()
 	}
 	return e.jobs
+}
+
+// lspManagerInit guards the one-time construction of the language server
+// manager, just like jobManagerInit guards background jobs.
+var lspManagerInit sync.Mutex
+
+// LSPManager returns the language server manager for this workspace.
+func (e *Env) LSPManager() *lsp.Manager {
+	if e == nil {
+		return nil
+	}
+	lspManagerInit.Lock()
+	defer lspManagerInit.Unlock()
+	if e.lsp == nil {
+		e.lsp = lsp.NewManager(e.Dir)
+	}
+	return e.lsp
+}
+
+// CloseLSP shuts down every language server this Env started.
+func (e *Env) CloseLSP() {
+	if e == nil {
+		return
+	}
+	lspManagerInit.Lock()
+	m := e.lsp
+	e.lsp = nil
+	lspManagerInit.Unlock()
+	if m != nil {
+		m.Close()
+	}
 }
 
 // guardDangerous asks before a dangerous command runs. It never silently
@@ -196,8 +233,8 @@ type Tool interface {
 
 func Registry() []Tool {
 	return []Tool{
-		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{},
-		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &Verify{},
+		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{},
+		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &LSP{}, &Verify{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},
 	}

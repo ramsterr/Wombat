@@ -54,6 +54,13 @@ All notable changes to Wombat are recorded here. The format follows
 - **`symbols`.** Go definitions and references come from the AST, with
   declaration patterns for other languages, so a comment is not mistaken for
   code.
+- **Semantic code intelligence through real language servers.** `lsp` asks
+  gopls (or the installed server for TypeScript, Python, Rust, C/C++, Java,
+  Ruby, PHP, Lua, C#, Swift, Kotlin, or shell) for definitions, references,
+  diagnostics, workspace symbols, or a file outline. `rename` computes a
+  semantic rename, shows one combined diff, and applies every file atomically
+  with a snapshot and rollback. Servers are discovered on `PATH`, in Go and
+  Cargo bin directories, or through `WOMBAT_LSP` / `WOMBAT_LSP_<LANG>`.
 - **Provider fallback.** `fallback_models` tries the next model on a
   rate-limit, outage, or server error, but never after output has streamed.
 - **Binary and image safety.** `read` refuses binary files and attaches images

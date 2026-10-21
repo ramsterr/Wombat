@@ -46,7 +46,7 @@ Run `wombat` with no arguments to open the full-screen TUI: streaming chat, inli
 - **Multimodal input** — images, video, audio, and documents, wherever the selected model supports them.
 - **Resumable sessions** stored as JSONL, keyed to the working directory, with a browsable history and transcript previews.
 - **14 provider presets** plus any OpenAI-compatible endpoint; automatic protocol routing for OpenCode Zen and Go.
-- **Useful tools** — read, write, edit, atomic patches, shell and background jobs, search, symbols, and project verification — with per-class allow/deny/ask permissions.
+- **Useful tools** — read, write, edit, atomic patches, shell and background jobs, search, semantic code intelligence, and project verification — with per-class allow/deny/ask permissions.
 - **Safety guardrails** — secrets, `.env` files, destructive commands, git history, and security-sensitive code are covered by built-in rules and warnings.
 - **Two working modes** — `chat` explores and explains without touching anything; `create` writes and edits. Switch with `/mode`.
 - **It just works** — no sandbox, no caps, no permission prompts by default: the agent reads, writes, and runs commands. Ask before you act by setting a permission to `ask`. File mutations are snapshotted, so you can undo with `wombat checkpoint restore`.
@@ -378,6 +378,8 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `glob` | read | `**` patterns; skips `.git` and `node_modules` |
 | `grep` | read | pure-Go search; skips credentials files and redacts output |
 | `symbols` | read | Go AST definitions/references plus language-specific declarations |
+| `lsp` | read | language-server definition, references, diagnostics, symbols, and outline |
+| `rename` | edit | language-server rename, with a combined diff and atomic application |
 | `batch` | read | several `read`/`grep`/`glob` calls in one round-trip |
 | `verify` | bash | runs the project's own tests, build, typecheck, lint, and format |
 | `jobs` / `job_output` / `job_kill` | read/bash | list, stream, and stop background processes |
@@ -388,6 +390,8 @@ If the OpenCode app is installed on the same machine, `wombat setup` detects its
 | `run_checks` | verify | run a step's checks and record evidence |
 | `delegate` / `delegate_many` | delegate | read-only investigation workers |
 | `delegate_write` | write | isolated git worktree writers (opt-in in config) |
+
+`lsp` and `rename` use whichever language server is installed: `gopls` for Go, `typescript-language-server` for TypeScript/JavaScript, `pyright` or `pylsp` for Python, `rust-analyzer`, `clangd`, `jdtls`, `solargraph`, `intelephense`, `lua-language-server`, `csharp-ls`, `sourcekit-lsp`, `kotlin-language-server`, and `bash-language-server`. Override a server with `WOMBAT_LSP` or per language with `WOMBAT_LSP_GO`, `WOMBAT_LSP_PY`, and so on. If no server is installed the tool says so; `symbols` still works as a fallback.
 
 Permissions are set per class to `ask`, `allow`, or `deny`. `bash`, `write`, `edit`, and `network` default to `allow`; `dangerous` and `sensitive-read` default to `ask`, so destructive commands and credentials files are never read automatically. Read is otherwise allowed. In non-interactive runs, `ask` behaves as `deny` unless `--yolo` is passed. Credentials files are also skipped by `grep` and redacted from tool output.
 
@@ -589,7 +593,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
 
 The lead agent owns the plan, edits, commands, and final answer. For multi-step work it maintains a task ledger (`update_plan`) with a goal, durable facts, and steps that are `pending`, `in_progress`, `completed`, `blocked`, or `failed`. The ledger is injected into the system prompt and persisted next to the session, so plans survive resume and compaction.
 
-`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
+`delegate` hands one self-contained investigation to a fresh worker with its own context and session. `delegate_many` runs two to five independent scouts concurrently — one wave, up to `max_parallel_scouts` at a time. Workers are read-only — they get `read`, `glob`, `grep`, `symbols`, `lsp`, `batch`, `websearch`, and `webfetch`, cannot edit files, run mutating commands, prompt for credentials, or delegate further — and return a structured JSON report with a status, summary, findings, path:line evidence, tests, risks, and next steps. Worker usage is counted in the lead's totals and in the hard per-turn budget. Delegation is deliberately sparse: the lead should use it when exploration would flood its context, not for work it can do directly. Dependent steps run sequentially; only independent scouting tasks belong in one fleet.
 
 ### Checks, verification, and writers
 

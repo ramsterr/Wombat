@@ -210,6 +210,7 @@ func Run(opt Options) (Action, error) {
 	final, err := p.Run()
 	if ch.ag != nil && ch.ag.Env != nil {
 		ch.ag.Env.JobManager().Close()
+		ch.ag.Env.CloseLSP()
 	}
 	if err != nil {
 		return Action{}, err
