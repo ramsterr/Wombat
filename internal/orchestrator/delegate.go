@@ -247,9 +247,10 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		SystemExtra: func() string {
 			return workerSystemPrompt(a, step, goal, facts)
 		},
-		Hooks:     hooks,
-		Reasoning: "off",
-		NoVision:  !vision,
+		Hooks:         hooks,
+		Reasoning:     "off",
+		TrimReasoning: o.lead.TrimReasoning,
+		NoVision:      !vision,
 	}
 
 	runErr := worker.Run(ctx, workerBrief(a, goal, facts))

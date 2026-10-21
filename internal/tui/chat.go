@@ -388,6 +388,7 @@ func (c *chat) rebuild(reset bool) error {
 		ContextWindow: tokens.Window(c.modelName),
 		NumCtx:        pc.NumCtx,
 		Reasoning:     c.cfg.Reasoning,
+		TrimReasoning: c.cfg.TrimReasoning,
 		NoVision:      !vision,
 		ModeNote:      c.mode.Note(),
 	}

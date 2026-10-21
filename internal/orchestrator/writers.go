@@ -253,9 +253,10 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		SystemExtra: func() string {
 			return writerSystemPrompt(r.task, r.step, goal, facts, r.context)
 		},
-		Hooks:     hooks,
-		Reasoning: "off",
-		NoVision:  !vision,
+		Hooks:         hooks,
+		Reasoning:     "off",
+		TrimReasoning: o.lead.TrimReasoning,
+		NoVision:      !vision,
 	}
 	runErr := writer.Run(ctx, writerBriefWriter(r.task, goal, facts))
 	stats := writer.Usage()

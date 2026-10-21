@@ -25,6 +25,9 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.Mouse {
 		t.Fatal("mouse wheel scrolling should be on by default")
 	}
+	if !cfg.TrimReasoning {
+		t.Fatal("trim_reasoning should be on by default")
+	}
 	if cfg.CheckpointKeep != DefaultCheckpointKeep {
 		t.Fatalf("checkpoint_keep = %d, want %d", cfg.CheckpointKeep, DefaultCheckpointKeep)
 	}

@@ -31,3 +31,25 @@ func IsInvalidRequest(err error) bool {
 	}
 	return false
 }
+
+// RequiresReasoning reports whether a provider rejected a request because
+// older reasoning_content was not sent back. This is a compatibility
+// requirement, not a quality signal: retry the same request with the full
+// reasoning.
+func RequiresReasoning(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	for _, marker := range []string{"reasoning_content", "reasoning item", "reasoning_content is required", "thinking mode"} {
+		if !strings.Contains(s, marker) {
+			continue
+		}
+		for _, need := range []string{"passed back", "required", "missing", "must be"} {
+			if strings.Contains(s, need) {
+				return true
+			}
+		}
+	}
+	return false
+}

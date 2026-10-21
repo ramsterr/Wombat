@@ -19,8 +19,8 @@ const (
 
 func (a *Agent) historyTokens() int {
 	total := 0
-	// Only the newest assistant turn keeps its reasoning in the request, so
-	// only that reasoning counts against the context window.
+	// Count exactly the reasoning that requestMessages will send: everything
+	// when trimming is off, otherwise the newest turn and tool-call turns.
 	last := -1
 	for i := len(a.Sess.Messages) - 1; i >= 0; i-- {
 		if a.Sess.Messages[i].Role == "assistant" {
@@ -30,7 +30,7 @@ func (a *Agent) historyTokens() int {
 	}
 	for i, m := range a.Sess.Messages {
 		reasoning := m.Reasoning
-		if i != last {
+		if a.TrimReasoning && i != last && len(m.ToolCalls) == 0 {
 			reasoning = ""
 		}
 		total += tokens.Estimate(m.Content) + tokens.Estimate(reasoning) + 6

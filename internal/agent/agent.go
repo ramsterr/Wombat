@@ -48,6 +48,10 @@ type Agent struct {
 	// set for text-only models, and after a provider says it cannot see
 	// images.
 	NoVision bool
+	// TrimReasoning drops older non-tool reasoning from requests. It is on by
+	// default; a provider that requires reasoning replay turns it off for the
+	// session automatically.
+	TrimReasoning bool
 
 	mu    sync.Mutex
 	usage UsageStats
@@ -129,7 +133,11 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		}
 		a.Trace.Emit("model_start", map[string]any{"step": step + 1})
 		defs := a.toolDefs()
-		messages := llm.NormalizeToolCalls(llm.TrimStaleReasoning(a.Sess.Messages))
+		messages := a.Sess.Messages
+		if a.TrimReasoning {
+			messages = llm.TrimStaleReasoning(messages)
+		}
+		messages = llm.NormalizeToolCalls(messages)
 		if a.NoVision {
 			messages = llm.TextOnlyMessages(messages)
 		}
@@ -144,6 +152,19 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			OnReasoning: a.Hooks.OnReasoning,
 		}
 		res, err := a.Provider.Chat(ctx, req, a.Hooks.OnText)
+		if err != nil && a.TrimReasoning && llm.RequiresReasoning(err) {
+			// The gateway wants the older reasoning back. Keep it for the rest
+			// of this session and retry the same request without trimming.
+			a.TrimReasoning = false
+			if a.Hooks.OnNotice != nil {
+				a.Hooks.OnNotice("provider requires older reasoning; keeping it for this session (set trim_reasoning false to make it permanent)")
+			}
+			req.Messages = llm.NormalizeToolCalls(a.Sess.Messages)
+			if a.NoVision {
+				req.Messages = llm.TextOnlyMessages(req.Messages)
+			}
+			res, err = a.Provider.Chat(ctx, req, a.Hooks.OnText)
+		}
 		if err != nil && !a.NoVision && llm.IsImageUnsupported(err) {
 			// The model is text-only even though its name did not say so.
 			// Retry once without the image attachments and remember it.

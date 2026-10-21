@@ -580,15 +580,21 @@ headless run never stalls on a prompt. Change any class with
 
 Thinking (reasoning) tokens are **billed as output tokens** — generating them
 costs money, usually more per token than ordinary output. *Displaying* them in
-the TUI is free, but keeping them in the conversation is not: Wombat replays
-the reasoning of the most recent turn on every request, and older turns are
-now stripped of it (the session file still keeps it for the transcript and
-`/history`).
+the TUI is free, but keeping them in the conversation is not.
+
+By default Wombat keeps the newest turn's reasoning and the reasoning attached
+to tool calls, and drops older non-tool reasoning from requests. The session
+file still keeps it for the transcript and `/history`. Set
+`trim_reasoning false` to send all reasoning. If a provider rejects a request
+because older `reasoning_content` is missing, Wombat retries with the full
+reasoning and keeps it for the rest of the session automatically.
 
 To spend less on thinking:
 
 ```sh
 wombat config set reasoning low      # off | low | medium | high
+wombat config set trim_reasoning true  # drop older non-tool reasoning (default)
+wombat config set trim_reasoning false # keep all reasoning for compatibility
 ```
 
 `off` is the cheapest, `low` is a good default for everyday work, and `high`
@@ -636,6 +642,7 @@ Config lives at `~/.wombat/config.json` (mode 0600). Overrides: `WOMBAT_HOME`, `
   "parallel_agents": true,
   "checkpoints": true,
   "checkpoint_keep": 20,
+  "trim_reasoning": true,
   "writers": true,
   "mouse": true
 }

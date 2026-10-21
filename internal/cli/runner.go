@@ -134,6 +134,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		ContextWindow: tokens.Window(model),
 		NumCtx:        pc.NumCtx,
 		Reasoning:     cfg.Reasoning,
+		TrimReasoning: cfg.TrimReasoning,
 		NoVision:      !vision,
 		ModeNote:      sessionMode.Note(),
 	}

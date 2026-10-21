@@ -232,6 +232,7 @@ func RunTask(ctx context.Context, task Task, opts Options) Result {
 		Sess:          sess,
 		Compact:       false,
 		ContextWindow: opts.ContextWindow,
+		TrimReasoning: true,
 		NumCtx:        opts.NumCtx,
 	}
 	var orch *orchestrator.Orchestrator

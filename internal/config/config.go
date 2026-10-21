@@ -27,22 +27,25 @@ const configVersion = 2
 const DefaultCheckpointKeep = 20
 
 type Config struct {
-	Version        int                  `json:"version"`
-	Provider       string               `json:"provider"`
-	Model          string               `json:"model"`
-	Providers      map[string]*Provider `json:"providers"`
-	Permissions    map[string]string    `json:"permissions,omitempty"`
-	Orchestrator   bool                 `json:"orchestrator"`
-	Mode           string               `json:"mode"`
-	Reasoning      string               `json:"reasoning,omitempty"`
-	ShowThinking   bool                 `json:"show_thinking"`
-	ParallelAgents bool                 `json:"parallel_agents"`
-	ScoutModel     string               `json:"scout_model,omitempty"`
-	Checkpoints    bool                 `json:"checkpoints"`
-	CheckpointKeep int                  `json:"checkpoint_keep"`
-	Writers        bool                 `json:"writers"`
-	KeepWorktrees  bool                 `json:"keep_worktrees,omitempty"`
-	Mouse          bool                 `json:"mouse,omitempty"`
+	Version      int                  `json:"version"`
+	Provider     string               `json:"provider"`
+	Model        string               `json:"model"`
+	Providers    map[string]*Provider `json:"providers"`
+	Permissions  map[string]string    `json:"permissions,omitempty"`
+	Orchestrator bool                 `json:"orchestrator"`
+	Mode         string               `json:"mode"`
+	Reasoning    string               `json:"reasoning,omitempty"`
+	// TrimReasoning drops older non-tool reasoning from requests. On by
+	// default; providers that require replay turn it off at runtime.
+	TrimReasoning  bool   `json:"trim_reasoning"`
+	ShowThinking   bool   `json:"show_thinking"`
+	ParallelAgents bool   `json:"parallel_agents"`
+	ScoutModel     string `json:"scout_model,omitempty"`
+	Checkpoints    bool   `json:"checkpoints"`
+	CheckpointKeep int    `json:"checkpoint_keep"`
+	Writers        bool   `json:"writers"`
+	KeepWorktrees  bool   `json:"keep_worktrees,omitempty"`
+	Mouse          bool   `json:"mouse,omitempty"`
 }
 
 type Preset struct {
@@ -126,6 +129,7 @@ func Defaults() *Config {
 		Orchestrator:   true,
 		Mode:           "create",
 		ParallelAgents: true,
+		TrimReasoning:  true,
 		Checkpoints:    true,
 		CheckpointKeep: DefaultCheckpointKeep,
 		Writers:        true,

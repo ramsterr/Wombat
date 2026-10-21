@@ -44,3 +44,18 @@ func TestIsImageUnsupported(t *testing.T) {
 		t.Fatal("unrelated error matched")
 	}
 }
+
+func TestRequiresReasoning(t *testing.T) {
+	for _, msg := range []string{
+		"The reasoning_content in the thinking mode must be passed back to the API",
+		"reasoning_content is required",
+		"missing reasoning item",
+	} {
+		if !RequiresReasoning(errors.New(msg)) {
+			t.Errorf("%q should require reasoning", msg)
+		}
+	}
+	if RequiresReasoning(errors.New("http 429: too many requests")) {
+		t.Fatal("unrelated error matched")
+	}
+}

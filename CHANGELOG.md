@@ -78,6 +78,11 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- `trim_reasoning` (default `true`): keep the newest turn and tool-call
+  reasoning, drop older non-tool reasoning from requests. If a provider
+  rejects a request because older reasoning is missing, Wombat retries with
+  the full reasoning and keeps it for the session automatically. Set it to
+  `false` to always send all reasoning.
 - `/undo [N]` restores the files touched by the last N checkpoints (and consumes them, so repeated undo walks backwards), and
   `/prune keep N` deletes old checkpoints while keeping the newest N. Both
   show a note before acting; `/prune` accepts 0 to delete all.
