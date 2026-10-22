@@ -54,6 +54,10 @@ type Agent struct {
 
 	mu    sync.Mutex
 	usage UsageStats
+
+	// visualPasses counts artifact-producing turns in the current run. It is
+	// used as a headless safety cap when there is no user to review the work.
+	visualPasses int
 }
 
 func (a *Agent) toolDefs() []llm.Tool {
@@ -81,6 +85,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		defer a.RunEnd()
 	}
 	a.markStarted()
+	a.visualPasses = 0
 	traceStart := time.Now()
 	traceUsage := a.Usage()
 	a.Trace.Emit("run_start", map[string]any{"model": a.Model, "max_steps": a.MaxSteps})
@@ -229,6 +234,14 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		}
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		// A visual artifact is a hand-off point, not an invitation to keep
+		// polishing. The harness asks the user once and stops the run on
+		// approval, before the model gets another step.
+		if stop, err := a.visualReview(ctx, res.ToolCalls, results); err != nil {
+			return err
+		} else if stop {
+			return nil
 		}
 	}
 	// The step limit is not a failure: the model got its last word in

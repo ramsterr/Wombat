@@ -831,6 +831,9 @@ func (c *chat) askUser(q tools.Question) (string, error) {
 	c.emit(questionMsg{question: q, reply: reply})
 	select {
 	case answer := <-reply:
+		if strings.TrimSpace(answer) != "" {
+			c.emit(noteMsg{text: "you: " + answer, isErr: false})
+		}
 		return answer, nil
 	case <-time.After(30 * time.Minute):
 		return "", fmt.Errorf("the user did not answer")
@@ -1731,6 +1734,10 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.questionSel = 0
 		c.questionTyping = false
 		c.initQuestionInput()
+		if len(q.Options) == 0 {
+			c.questionTyping = true
+			c.questionText.Focus()
+		}
 		c.layout()
 		c.refresh()
 		return nil
@@ -2206,6 +2213,8 @@ func (c *chat) questionView() string {
 	if c.questionTyping {
 		b.WriteString("  " + c.questionText.View() + "\n")
 		b.WriteString(styleFaint.Render("  enter send · esc cancel"))
+	} else if len(q.Options) == 0 {
+		b.WriteString(styleFaint.Render("  type your answer · enter send · esc skip"))
 	} else {
 		b.WriteString(styleFaint.Render("  1-9 pick · f type your own · esc skip"))
 	}
@@ -2230,6 +2239,9 @@ func (c *chat) view() string {
 	body := c.bodyView()
 	if c.modal != modalNone {
 		body = c.modalView()
+	}
+	if c.previewRailVisible() {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, c.previewRailView(), inspectorGutter(), body)
 	}
 	if c.panelVisible() {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, body, inspectorGutter(), c.panelView())

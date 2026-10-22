@@ -29,11 +29,15 @@ All notable changes to Wombat are recorded here. The format follows
 - **An interactive sources browser** (`/sources`) with all/sites/files tabs;
   enter opens a site or attaches a file.
 - A scrollbar for the transcript, `ctrl+up/down` and `ctrl+home/end` scrolling,
-  mouse-wheel scrolling on by default, and a themed terminal background that is
-  restored when Wombat exits.
+  optional mouse-wheel scrolling via `/mouse`, and a themed terminal background
+  that is restored when Wombat exits.
 - **Multiple previews**: local servers, HTML, PDFs, images, and video are
-  collected, de-duplicated by origin or file path, ordered newest-first in the
-  inspector, and browsable with `/previews` or `/preview <n>`.
+  collected, de-duplicated by origin or file path, ordered newest-first in a
+  left preview rail, and browsable with `/previews` or `/preview <n>`.
+- **A visual hand-off gate**: after the first complete visual artifact, the
+  harness asks "Looks good" / "Needs changes" before another modelling step.
+  Approval stops the run; feedback continues it. Headless runs stop after three
+  visual passes instead of polishing without a reviewer.
 - **Copy support**: `ctrl+y` copies the last reply; `/copy` opens a picker for
   any earlier reply; `/copy all` copies the transcript. A terminal-clipboard
   fallback keeps copy working when the platform helper is unavailable. Mouse

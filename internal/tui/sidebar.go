@@ -5,17 +5,36 @@ import (
 	"strings"
 )
 
+// previewRailWidth is the total width of the left preview rail.
+func (c *chat) previewRailWidth() int { return 24 }
+
+// previewRailVisible keeps previews on the left once there is enough room for
+// a left rail, the transcript, and the inspector.
+func (c *chat) previewRailVisible() bool {
+	return len(c.previews) > 0 && c.w >= 100 && c.vp.Height >= 8
+}
+
+// availableWidth is the terminal width minus the left rail.
+func (c *chat) availableWidth() int {
+	w := c.w
+	if c.previewRailVisible() {
+		w -= c.previewRailWidth() + 1
+	}
+	return w
+}
+
 // panelWidth is the total width of the inspector, including its border.
 func (c *chat) panelWidth() int {
-	pw := c.w / 4
+	avail := c.availableWidth()
+	pw := avail / 4
 	if pw < 32 {
 		pw = 32
 	}
 	if pw > 44 {
 		pw = 44
 	}
-	if c.w-pw-1 < 44 {
-		pw = c.w - 45
+	if avail-pw-1 < 44 {
+		pw = avail - 45
 	}
 	if pw < 24 {
 		pw = 24
@@ -25,15 +44,27 @@ func (c *chat) panelWidth() int {
 
 // panelVisible reports whether the inspector has room to render.
 func (c *chat) panelVisible() bool {
-	return c.panel && c.w >= 96 && c.vp.Height >= 8
+	if !c.panel || c.w < 96 || c.vp.Height < 8 {
+		return false
+	}
+	// On narrow wide screens the preview rail is the priority; the right
+	// inspector returns once there is room for both.
+	if c.previewRailVisible() && c.w < 120 {
+		return false
+	}
+	return true
 }
 
 // mainWidth is the width available to the transcript, excluding the inspector.
 func (c *chat) mainWidth() int {
-	if !c.panelVisible() {
-		return c.w
+	w := c.w
+	if c.previewRailVisible() {
+		w -= c.previewRailWidth() + 1
 	}
-	return c.w - c.panelWidth() - 1
+	if c.panelVisible() {
+		w -= c.panelWidth() + 1
+	}
+	return w
 }
 
 // contentWidth is the transcript width, excluding the inspector and the
@@ -108,6 +139,30 @@ func (c *chat) togglePanel() {
 	}
 }
 
+// previewRailView is the left preview list. The right inspector keeps
+// references, sources, context, and workspace facts.
+func (c *chat) previewRailView() string {
+	w := c.previewRailWidth()
+	inner := max(12, w-4)
+	h := c.vp.Height
+	lines := []string{stylePanelTitle.Render("PREVIEWS"), ""}
+	for i, p := range c.previews {
+		if i >= 8 {
+			lines = append(lines, styleFaint.Render(fmt.Sprintf("+%d more", len(c.previews)-i)))
+			break
+		}
+		glyph, gs := previewGlyph(p.Kind)
+		lines = append(lines, styleFaint.Render(fmt.Sprintf("%d ", i+1))+
+			gs.Render(glyph)+" "+styleDim.Render(clip(previewLabel(p), inner-4)))
+	}
+	lines = append(lines, "", styleFaint.Render("ctrl+o open"), styleFaint.Render("/previews list"))
+	lines = fitLines(lines, max(1, h-2))
+	return stylePanel.
+		Width(inner + 2).
+		Height(max(1, h-2)).
+		Render(strings.Join(lines, "\n"))
+}
+
 // panelView renders the right-hand inspector: session facts, context usage,
 // live preview, pending files, recent tool calls, and the key map.
 func (c *chat) panelView() string {
@@ -174,10 +229,12 @@ func (c *chat) panelView() string {
 	}
 	blank()
 
-	for _, line := range c.previewsSection(contentW) {
-		add(line)
+	if !c.previewRailVisible() {
+		for _, line := range c.previewsSection(contentW) {
+			add(line)
+		}
+		blank()
 	}
-	blank()
 
 	add(sectionLabel("sources"))
 	if c.sourceSites+c.sourceFiles == 0 {

@@ -13,6 +13,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/tools"
 )
 
 func testChat(t *testing.T) *chat {
@@ -440,6 +441,59 @@ func TestPaletteShowsThemeOptions(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("theme options are missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestPreviewRailLayout(t *testing.T) {
+	c := testChat(t)
+	c.resize(140, 40)
+	c.panel = true
+	c.previews = []preview{
+		{Ref: "http://localhost:5173/", Kind: "site", Label: "http://localhost:5173/"},
+		{Ref: "report.pdf", Kind: "pdf", Label: "report.pdf"},
+	}
+	if !c.previewRailVisible() {
+		t.Fatal("the preview rail should be visible at 140 columns")
+	}
+	total := c.previewRailWidth() + 1 + c.mainWidth() + 1 + c.panelWidth()
+	if total != c.w {
+		t.Errorf("panes take %d columns, want %d", total, c.w)
+	}
+	c.layout()
+	c.refresh()
+	view := c.view()
+	if !strings.Contains(view, "PREVIEWS") {
+		t.Error("the view is missing the preview rail")
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > c.w {
+			t.Errorf("line is %d wide, terminal %d", got, c.w)
+		}
+	}
+	c.resize(100, 34)
+	if !c.previewRailVisible() {
+		t.Error("the preview rail should be visible at 100 columns")
+	}
+	if c.panelVisible() {
+		t.Error("the right inspector should yield to the preview rail on a 100-column terminal")
+	}
+}
+
+func TestQuestionWithoutOptionsFocusesInput(t *testing.T) {
+	c := testChat(t)
+	c.update(questionMsg{question: tools.Question{
+		Header:   "changes",
+		Question: "What should change?",
+	}})
+	if c.question == nil || !c.questionTyping {
+		t.Fatalf("a question without options should focus the text input: typing=%v", c.questionTyping)
+	}
+	c.questionText.SetValue("make it blue")
+	if cmd := c.key(keyMsg("enter")); cmd != nil {
+		t.Fatal("enter should send the typed answer")
+	}
+	if c.question != nil {
+		t.Error("the question should close after the answer")
 	}
 }
 
