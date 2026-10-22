@@ -299,6 +299,7 @@ func Registry() []Tool {
 	return []Tool{
 		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{}, &Refactor{},
 		&Glob{}, &Grep{}, &Batch{}, &Symbols{}, &LSP{}, &SemanticSearch{}, &Browser{}, &ImageGen{}, &Verify{},
+		&VerifySite{}, &Replace{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},
 	}

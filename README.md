@@ -2,6 +2,13 @@
 
 <img width="2872" height="676" alt="Wombat" src="https://github.com/user-attachments/assets/53857c41-0947-4be9-b90f-72dd92ab9f99" />
 
+<p align="center">
+  <a href="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
+  <a href="https://github.com/ramsterr/Wombat/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/ramsterr/Wombat?style=flat-square"></a>
+  <a href="https://github.com/ramsterr/Wombat/blob/main/go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/ramsterr/Wombat?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/ramsterr/Wombat?style=flat-square"></a>
+</p>
+
 Wombat is a coding agent for your terminal. It reads and edits files, runs commands, searches the web, uses a browser, and works through multi-step tasks with a plan. It runs against OpenAI-compatible APIs, Anthropic, OpenCode, or a local model server.
 
 ## Install
@@ -166,8 +173,9 @@ Browser screenshots stay in memory and are not saved in the project.
 
 ## What it does
 
-- **Reads and writes code** — read, write, edit, multi-edit, and atomic multi-file patches.
+- **Reads and writes code** — read, write, edit, multi-edit, atomic multi-file patches, and regex or literal replacement across files.
 - **Runs commands** — shell, managed background jobs, tests, builds, and project verification.
+- **Checks sites** — `verify_site` runs the project check and audits pages for console errors, failed requests, broken links and anchors, missing assets, syntax errors, and overflow; unchanged pages are cached.
 - **Searches** — glob, grep, AST symbols, semantic search, and web search/fetch.
 - **Understands code** — language-server definitions, references, diagnostics, completions, rename, and AST-aware code actions.
 - **Sees** — screenshots, images, video, audio, and documents on models that support them.

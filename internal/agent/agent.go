@@ -660,6 +660,16 @@ func toolDetail(tc llm.ToolCall) string {
 		}
 		return ""
 	}
+	pickList := func(key string) string {
+		items, _ := m[key].([]any)
+		var values []string
+		for _, item := range items {
+			if v, ok := item.(string); ok && v != "" {
+				values = append(values, v)
+			}
+		}
+		return strings.Join(values, ", ")
+	}
 	switch tc.Name {
 	case "bash":
 		return pick("command")
@@ -670,6 +680,15 @@ func toolDetail(tc llm.ToolCall) string {
 		return pick("action", "kind", "name")
 	case "browser":
 		return pick("action", "url", "selector")
+	case "verify_site":
+		return pick("url", "script")
+	case "replace":
+		if v := pick("pattern"); v != "" {
+			return v
+		}
+		return pickList("paths")
+	case "multi_edit":
+		return pickList("paths")
 	case "glob", "grep":
 		return pick("pattern")
 	case "job_output", "job_kill":

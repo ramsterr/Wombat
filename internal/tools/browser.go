@@ -9,6 +9,8 @@ import (
 	_ "image/png"
 	"strings"
 	"time"
+
+	"github.com/ramsterr/Wombat/internal/browser"
 )
 
 // Browser drives a real Chromium page, so frontend work can be opened,
@@ -16,29 +18,35 @@ import (
 type Browser struct{}
 
 type browserArgs struct {
-	Action     string `json:"action"`
-	URL        string `json:"url"`
-	Selector   string `json:"selector"`
-	Text       string `json:"text"`
-	Key        string `json:"key"`
-	Expression string `json:"expression"`
-	FullPage   bool   `json:"full_page"`
-	Width      int    `json:"width"`
-	Height     int    `json:"height"`
-	X          int    `json:"x"`
-	Y          int    `json:"y"`
-	TimeoutMS  int    `json:"timeout_ms"`
-	Clear      *bool  `json:"clear"`
+	Action     string        `json:"action"`
+	URL        string        `json:"url"`
+	Selector   string        `json:"selector"`
+	Text       string        `json:"text"`
+	Key        string        `json:"key"`
+	Expression string        `json:"expression"`
+	FullPage   bool          `json:"full_page"`
+	Width      int           `json:"width"`
+	Height     int           `json:"height"`
+	X          int           `json:"x"`
+	Y          int           `json:"y"`
+	TimeoutMS  int           `json:"timeout_ms"`
+	Clear      *bool         `json:"clear"`
+	Steps      []browserArgs `json:"steps"`
+	Quiet      bool          `json:"quiet"`
+	Verbose    bool          `json:"verbose"`
 }
 
 func (t *Browser) Name() string  { return "browser" }
 func (t *Browser) Class() string { return "network" }
 func (t *Browser) Description() string {
-	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Screenshots are attached in memory and never written to disk. Use one desktop and one mobile screenshot to verify frontend work, then stop and ask the user before polishing further. Use browser for local UI and web apps instead of guessing from HTML."
+	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Use action=script to run a whole batch (navigate, eval, click, screenshot) in one call; it returns one compact line per assertion and full details only for failures, so use it instead of many separate calls. Write eval assertions as {ok, failures}; assertion JSON is compacted automatically. Screenshots are attached in memory and never written to disk. Take one desktop and one mobile screenshot after assertions pass, not after every edit. Use browser for local UI and web apps instead of guessing from HTML."
 }
 func (t *Browser) Schema() map[string]any {
 	return obj(map[string]any{
-		"action":     map[string]any{"type": "string", "enum": []string{"open", "navigate", "screenshot", "click", "type", "press", "scroll", "eval", "text", "wait", "resize", "back", "forward", "reload", "close"}},
+		"action":     map[string]any{"type": "string", "enum": []string{"open", "navigate", "screenshot", "click", "type", "press", "scroll", "eval", "text", "wait", "resize", "back", "forward", "reload", "script", "close"}},
+		"steps":      map[string]any{"type": "array", "description": "for action=script: the ordered browser steps to run in one call", "maxItems": 50, "items": map[string]any{"type": "object", "properties": map[string]any{"action": map[string]any{"type": "string", "enum": []string{"open", "navigate", "screenshot", "click", "type", "press", "scroll", "eval", "text", "wait", "resize", "back", "forward", "reload"}}, "url": desc("URL for open or navigate"), "selector": desc("CSS selector"), "text": desc("text to type"), "key": desc("key to press"), "expression": desc("JavaScript expression for eval; return {ok, failures} for assertions"), "full_page": map[string]any{"type": "boolean"}, "width": map[string]any{"type": "integer"}, "height": map[string]any{"type": "integer"}, "timeout_ms": map[string]any{"type": "integer"}, "quiet": map[string]any{"type": "boolean", "description": "suppress this step's successful output"}, "verbose": map[string]any{"type": "boolean", "description": "include this step's successful output"}}, "required": []string{"action"}}},
+		"quiet":      map[string]any{"type": "boolean", "description": "suppress successful step output in a script"},
+		"verbose":    map[string]any{"type": "boolean", "description": "include every successful step output in a script"},
 		"url":        desc("URL to open; http, https, file, and data URLs are supported"),
 		"selector":   desc("CSS selector for click, type, text, scroll, or wait"),
 		"text":       desc("text to type"),
@@ -66,6 +74,9 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 	if env == nil {
 		return "", fmt.Errorf("browser is unavailable")
 	}
+	if action == "script" {
+		return t.runScript(ctx, env, a)
+	}
 	if action == "close" {
 		env.CloseBrowser()
 		return "browser closed", nil
@@ -74,6 +85,10 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 	if err != nil {
 		return "", err
 	}
+	return t.runAction(ctx, env, session, action, a)
+}
+
+func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Session, action string, a browserArgs) (string, error) {
 	timeout := time.Duration(a.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 5 * time.Second
@@ -158,6 +173,9 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 		if len(value) == 0 || string(value) == "null" {
 			return "undefined", nil
 		}
+		if compact, ok := compactAssertion(string(value)); ok && !a.Verbose {
+			return compact, nil
+		}
 		return Truncate(string(value), 0, 0, 32*1024), nil
 	case "text":
 		text, err := session.Text(ctx, a.Selector)
@@ -212,5 +230,134 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 		}
 		return fmt.Sprintf("reloaded %s\n%s", info.URL, info.Title), nil
 	}
-	return "", fmt.Errorf("action must be open, navigate, screenshot, click, type, press, scroll, eval, text, wait, resize, back, forward, reload, or close")
+	return "", fmt.Errorf("action must be open, navigate, screenshot, click, type, press, scroll, eval, text, wait, resize, back, forward, reload, script, or close")
+}
+
+// runScript executes several browser actions in one round-trip. Successful
+// navigation and interaction output is suppressed unless verbose is set;
+// passing assertions are one compact line, and failures include their detail.
+func (t *Browser) runScript(ctx context.Context, env *Env, a browserArgs) (string, error) {
+	if len(a.Steps) == 0 {
+		return "", fmt.Errorf("script needs at least one step")
+	}
+	if len(a.Steps) > 50 {
+		return "", fmt.Errorf("script takes at most 50 steps, got %d", len(a.Steps))
+	}
+	session, err := env.BrowserManager().Session(ctx)
+	if err != nil {
+		return "", err
+	}
+	var details []string
+	failed, assertions := 0, 0
+	for i, step := range a.Steps {
+		action := strings.ToLower(strings.TrimSpace(step.Action))
+		if action == "" {
+			return "", fmt.Errorf("step %d: action is required", i+1)
+		}
+		if action == "script" || action == "close" {
+			return "", fmt.Errorf("step %d: %s is not allowed inside a script", i+1, action)
+		}
+		step.Verbose = a.Verbose || step.Verbose
+		step.Quiet = a.Quiet || step.Quiet
+		verbose, quiet := step.Verbose, step.Quiet
+		out, err := t.runAction(ctx, env, session, action, step)
+		if err != nil {
+			failed++
+			details = append(details, fmt.Sprintf("step %d %s: %s", i+1, action, compactLine(err.Error(), 500)))
+			continue
+		}
+		switch action {
+		case "eval":
+			compact, assertion := compactAssertion(out)
+			if assertion {
+				assertions++
+				var parsed struct {
+					OK *bool `json:"ok"`
+				}
+				_ = json.Unmarshal([]byte(compact), &parsed)
+				if parsed.OK != nil && !*parsed.OK {
+					failed++
+					details = append(details, fmt.Sprintf("step %d eval: %s", i+1, compact))
+				} else if !quiet {
+					details = append(details, fmt.Sprintf("step %d eval: %s", i+1, compact))
+				}
+				continue
+			}
+			if !quiet {
+				details = append(details, fmt.Sprintf("step %d eval: %s", i+1, compactLine(out, 500)))
+			}
+		case "text":
+			if !quiet {
+				details = append(details, fmt.Sprintf("step %d text: %s", i+1, compactLine(out, 500)))
+			}
+		case "screenshot":
+			details = append(details, fmt.Sprintf("step %d screenshot: %s", i+1, out))
+		default:
+			if verbose {
+				details = append(details, fmt.Sprintf("step %d %s: %s", i+1, action, compactLine(out, 300)))
+			}
+		}
+	}
+	header := fmt.Sprintf("script: %d steps, %d assertions, %d failed", len(a.Steps), assertions, failed)
+	body := strings.Join(details, "\n")
+	if failed > 0 {
+		if body != "" {
+			return "", fmt.Errorf("%s\n%s", header, body)
+		}
+		return "", fmt.Errorf("%s", header)
+	}
+	if body == "" {
+		return header, nil
+	}
+	return header + "\n" + body, nil
+}
+
+// compactAssertion recognizes an eval result shaped like an assertion and
+// keeps only the fields needed to decide whether it passed.
+func compactAssertion(raw string) (string, bool) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil || len(m) == 0 {
+		return "", false
+	}
+	_, hasOK := m["ok"]
+	_, hasFailures := m["failures"]
+	_, hasErrors := m["errors"]
+	if !hasOK && !hasFailures && !hasErrors {
+		return "", false
+	}
+	out := make(map[string]any, 6)
+	for _, key := range []string{"ok", "failures", "errors", "failed", "passed", "total", "count"} {
+		value, ok := m[key]
+		if !ok {
+			continue
+		}
+		var decoded any
+		if json.Unmarshal(value, &decoded) == nil {
+			out[key] = decoded
+		}
+	}
+	if _, ok := out["ok"]; !ok {
+		out["ok"] = emptyJSONList(out["failures"]) && emptyJSONList(out["errors"])
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+func emptyJSONList(v any) bool {
+	if v == nil {
+		return true
+	}
+	list, ok := v.([]any)
+	return ok && len(list) == 0
+}
+
+func compactLine(s string, max int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if max > 0 && len(s) > max {
+		return s[:max] + "..."
+	}
+	return s
 }

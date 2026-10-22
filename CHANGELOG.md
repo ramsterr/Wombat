@@ -48,6 +48,18 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Batched browser checks.** `browser action=script` runs a whole sequence of
+  navigate, click, type, eval, and screenshot steps in one call. Assertions
+  written as `{ok, failures}` are compacted, and only failed steps are shown
+  by default.
+- **Site verification.** `verify_site` runs the project's check script and
+  audits pages for console errors, failed requests, broken links and anchors,
+  missing assets, JavaScript syntax errors, and horizontal overflow at desktop
+  and mobile widths. Results are cached by page fingerprint, so unchanged
+  pages are skipped.
+- **Multi-file replacement.** `replace` applies a literal or regular
+  expression across files, directories, or globs in one call, with capture
+  groups and case-insensitive matching.
 - **Workers can ask instead of guessing.** A worker or writer can finish with
   `status=needs_input` and questions. `resume_worker` answers it and continues
   the same session (and worktree, for writers), so no work is thrown away.

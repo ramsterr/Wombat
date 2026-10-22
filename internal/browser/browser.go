@@ -86,6 +86,7 @@ type Session struct {
 	conn   *cdp
 	stderr *tail
 	done   chan error
+	audit  bool
 }
 
 func launch(ctx context.Context, root string) (*Session, error) {
@@ -255,6 +256,81 @@ func (s *Session) enable(ctx context.Context) error {
 	}
 	return s.Resize(ctx, 1280, 900)
 }
+
+// EnableAudit installs a small script that runs before each new document and
+// records console errors, uncaught exceptions, rejected promises, failed
+// resource loads, and failed fetch/XHR requests in window.__wombatAudit.
+func (s *Session) EnableAudit(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return errors.New("browser is closed")
+	}
+	if s.audit {
+		return nil
+	}
+	if err := s.conn.Call(ctx, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": auditShim}, nil); err != nil {
+		return err
+	}
+	s.audit = true
+	return nil
+}
+
+const auditShim = `(() => {
+  if (window.__wombatAuditInstalled) return;
+  window.__wombatAuditInstalled = true;
+  const audit = window.__wombatAudit = {errors: [], failed: []};
+  const push = (list, value) => {
+    if (list.length >= 100) return;
+    try { list.push(String(value)); } catch (e) {}
+  };
+  const originalError = console.error;
+  console.error = function(...args) {
+    push(audit.errors, "console.error: " + args.map(String).join(" "));
+    return originalError.apply(this, args);
+  };
+  window.addEventListener("error", (event) => {
+    if (event.target && event.target !== window) {
+      const target = event.target;
+      const src = target.src || target.href || "";
+      if (src) push(audit.failed, "resource failed: " + src);
+      return;
+    }
+    push(audit.errors, "uncaught: " + (event.message || event.error || "error"));
+  }, true);
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    push(audit.errors, "unhandled rejection: " + ((reason && reason.message) || reason));
+  });
+  if (window.fetch) {
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+      const target = String(args[0] && (args[0].url || args[0]));
+      return originalFetch.apply(this, args).then((response) => {
+        if (!response.ok) push(audit.failed, "fetch " + response.status + ": " + target);
+        return response;
+      }).catch((error) => {
+        push(audit.failed, "fetch failed: " + target + ": " + error);
+        throw error;
+      });
+    };
+  }
+  if (window.XMLHttpRequest) {
+    const open = XMLHttpRequest.prototype.open;
+    const send = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+      this.__wombatURL = String(url);
+      return open.call(this, method, url, ...rest);
+    };
+    XMLHttpRequest.prototype.send = function(...args) {
+      this.addEventListener("error", () => push(audit.failed, "xhr failed: " + this.__wombatURL));
+      this.addEventListener("load", () => {
+        if (this.status >= 400) push(audit.failed, "xhr " + this.status + ": " + this.__wombatURL);
+      });
+      return send.apply(this, args);
+    };
+  }
+})();`
 
 func (s *Session) Alive() bool {
 	if s == nil {

@@ -36,6 +36,10 @@ func TestCraftStandardInPrompt(t *testing.T) {
 		"before you claim it works",
 		"never loop",
 		"Looks good",
+		"action=script",
+		"verify_site",
+		"multi_edit",
+		"replace",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the system prompt is missing %q", want)

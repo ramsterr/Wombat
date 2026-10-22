@@ -68,3 +68,46 @@ func quoteJSON(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+func TestBrowserScriptBatchesActionsAndCompactsAssertions(t *testing.T) {
+	if _, ok := browser.FindExecutable(); !ok {
+		t.Skip("no Chromium browser installed")
+	}
+	page := `<!doctype html><html><head><title>Batch</title><link rel="icon" href="data:,"></head><body>
+<button id="go" onclick="document.getElementById('out').textContent='clicked'">Go</button>
+<div id="out">waiting</div>
+</body></html>`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(page))
+	}))
+	defer server.Close()
+	env := testEnv(t.TempDir())
+	defer env.CloseBrowser()
+	args := `{"action":"script","steps":[
+		{"action":"open","url":` + quoteJSON(server.URL) + `},
+		{"action":"click","selector":"#go"},
+		{"action":"eval","expression":"(() => ({ok: document.querySelector('#out').textContent === 'clicked', passed: 1, total: 1, noise: 'drop me'}))()"},
+		{"action":"text","selector":"#out","quiet":true}
+	]}`
+	out := run(t, &Browser{}, env, args)
+	if !strings.HasPrefix(out, "script: 4 steps, 1 assertions, 0 failed") {
+		t.Fatalf("script = %q", out)
+	}
+	if !strings.Contains(out, `"ok":true`) || strings.Contains(out, "noise") {
+		t.Fatalf("assertion was not compacted: %q", out)
+	}
+	if strings.Contains(out, "step 4 text") {
+		t.Fatalf("quiet text leaked into output: %q", out)
+	}
+	failed := `{"action":"script","steps":[
+		{"action":"eval","expression":"({ok: false, failures: ['button missing']})"}
+	]}`
+	if err := runErr(t, &Browser{}, env, failed); !strings.Contains(err.Error(), "1 failed") || !strings.Contains(err.Error(), "button missing") {
+		t.Fatalf("failure = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(env.Dir, "shots")); !os.IsNotExist(err) {
+		t.Fatalf("script wrote screenshots to disk: %v", err)
+	}
+	run(t, &Browser{}, env, `{"action":"close"}`)
+}
