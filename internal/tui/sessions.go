@@ -88,10 +88,10 @@ func newSessions(opt Options) sessionsModel {
 	d := list.NewDefaultDelegate()
 	d.ShowDescription = true
 	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Background(cAccent).Foreground(cInk).Bold(true).BorderLeftForeground(cAccent)
+		Background(cAccent).Foreground(cPanel).Bold(true).BorderLeftForeground(cAccent)
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
-		Background(cAccent).Foreground(cInk).BorderLeftForeground(cAccent)
-	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(styleAccent))
+		Background(cAccent).Foreground(cPanel).BorderLeftForeground(cAccent)
+	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	l := list.New(items, d, 40, 20)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
@@ -268,8 +268,7 @@ func (m sessionsModel) currentID() string {
 }
 
 func (m sessionsModel) view() string {
-	header := " " + styleKey.Render(" esc ") + styleDim.Render("back") + "  " +
-		styleTitle.Render("sessions") + "  " + styleDim.Render("enter resume · / filter")
+	header := chromeLine(screenTabs(scrSessions), keyHint("esc", "back")+"  "+keyHint("enter", "resume")+"  "+keyHint("/", "filter"), m.w) + "\n" + rule(m.w)
 	if m.empty {
 		body := lipgloss.Place(m.w, m.h-2, lipgloss.Center, lipgloss.Center,
 			styleDim.Render("no sessions in this directory yet — start a chat first"))

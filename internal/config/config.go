@@ -65,6 +65,9 @@ type Config struct {
 	Writers               bool                 `json:"writers"`
 	KeepWorktrees         bool                 `json:"keep_worktrees,omitempty"`
 	Mouse                 bool                 `json:"mouse,omitempty"`
+	Theme                 string               `json:"theme,omitempty"`
+	Panel                 bool                 `json:"panel,omitempty"`
+	PaintBackground       bool                 `json:"paint_background,omitempty"`
 }
 
 type Preset struct {
@@ -154,6 +157,10 @@ func Defaults() *Config {
 		Checkpoints:         true,
 		RequireVerification: false,
 		Writers:             true,
+		Mouse:               true,
+		Theme:               "wombat",
+		Panel:               true,
+		PaintBackground:     true,
 	}
 	for _, p := range Presets {
 		c.Providers[p.Name] = &Provider{Kind: p.Kind, BaseURL: p.Base}

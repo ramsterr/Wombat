@@ -55,7 +55,7 @@ func newDoctor(opt Options) doctorModel {
 	return doctorModel{
 		opt:    opt,
 		checks: checks,
-		spin:   spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(styleAccent)),
+		spin:   spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
 }
 
@@ -201,7 +201,7 @@ func (m doctorModel) update(msg tea.Msg) (doctorModel, tea.Cmd) {
 }
 
 func (m doctorModel) view() string {
-	header := " " + styleTitle.Render("doctor") + "  " + styleDim.Render("r re-run · esc back")
+	header := chromeLine(screenTabs(scrDoctor), keyHint("esc", "back")+"  "+keyHint("r", "re-run"), m.w) + "\n" + rule(m.w)
 	var lines []string
 	for i, c := range m.checks {
 		var mark, detail string

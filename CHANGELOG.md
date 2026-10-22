@@ -6,6 +6,33 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A rebuilt terminal interface.** The chat now has a framed inspector with
+  session facts, context usage, live preview, attachments, recent tool calls,
+  and the key map; a live `ctrl+o` preview opener; prompt history; a searchable
+  command palette with command groups and inline options; and `@`-file
+  completion with `Tab`.
+- **Seven colour themes** — `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
+  `nord`, `rosepine`, and `dracula` — with `/theme`, a live picker, and
+  `ctrl+t` cycling. The choice is saved in the config.
+- **A help and command centre** on `ctrl+g`/`?`/`/help` (`/keys`), plus a
+  grouped command reference. `alt+1..5` jumps between chat, sessions, models,
+  usage, and doctor.
+- **Richer transcripts**: tool glyphs and live timers, diff-coloured tool
+  output, box tables, numbered lists, links, fenced-code labels, and gradient
+  headings.
+- A compact ASCII mascot and quick-start card on the welcome screen, and a
+  shared navigation bar on every secondary screen.
+- **Project references** in the inspector (`ctrl+r`, `/reference add|rm|clear`).
+  Files, folders, and URLs are stored per project under `~/.wombat/references/`
+  and survive sessions.
+- **An interactive sources browser** (`/sources`) with all/sites/files tabs;
+  enter opens a site or attaches a file.
+- A scrollbar for the transcript, `ctrl+up/down` and `ctrl+home/end` scrolling,
+  mouse-wheel scrolling on by default, and a themed terminal background that is
+  restored when Wombat exits.
+
 ### Fixed
 
 - A checkpoint restore now aborts when git reports a real error instead of

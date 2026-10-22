@@ -8,15 +8,16 @@ import (
 )
 
 // toolsetView lists the tools this session can use and how each one is
-// gated.
+// gated. It is rendered with the transcript's monospace spacing intact.
 func (c *chat) toolsetView() string {
 	if c.ag == nil {
 		return "no tools yet"
 	}
 	var b strings.Builder
-	b.WriteString("tools:\n")
+	b.WriteString(styleSection.Render("TOOLS") + styleFaint.Render(fmt.Sprintf("  %d available", len(c.ag.Tools))) + "\n")
 	for _, t := range c.ag.Tools {
 		gate := "allowed"
+		gateStyle := styleGood
 		switch t.Class() {
 		case "bash", "write", "edit", "network":
 			gate = c.cfg.Permissions[t.Class()]
@@ -26,13 +27,22 @@ func (c *chat) toolsetView() string {
 		case "read":
 			gate = "always"
 		}
-		if c.mode == "chat" && (t.Class() == "write" || t.Class() == "edit") {
-			gate = "off in chat mode"
+		switch gate {
+		case "deny":
+			gateStyle = styleBad
+		case "ask", "allow for the session":
+			gateStyle = styleWarn
 		}
-		fmt.Fprintf(&b, "  %-14s %-9s %s\n", t.Name(), t.Class(), gate)
+		if c.mode == "chat" && (t.Class() == "write" || t.Class() == "edit") {
+			gate = "off in chat"
+			gateStyle = styleFaint
+		}
+		glyph, gs := toolGlyph(t.Name())
+		fmt.Fprintf(&b, "  %s %-16s %-9s %s\n",
+			gs.Render(glyph), styleToolName.Render(t.Name()), styleDim.Render(t.Class()), gateStyle.Render(gate))
 	}
 	if c.mode == "chat" {
-		b.WriteString("\n  chat mode: writing and mutating commands are off — /mode create to enable them")
+		b.WriteString("\n" + styleWarn.Render("chat mode") + styleDim.Render(": writing and mutating commands are off — /mode create to enable them"))
 	}
 	return b.String()
 }
@@ -44,26 +54,25 @@ func (c *chat) sourcesView() string {
 	}
 	path := strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"
 	urls, files, err := trace.Sources(path)
-	if err != nil {
-		return "no sources recorded yet"
-	}
-	if len(urls) == 0 && len(files) == 0 {
+	if err != nil || (len(urls) == 0 && len(files) == 0) {
 		return "no sources recorded yet"
 	}
 	var b strings.Builder
 	if len(urls) > 0 {
-		b.WriteString("sites:\n")
+		b.WriteString(styleSection.Render("SITES") + styleFaint.Render(fmt.Sprintf("  %d", len(urls))) + "\n")
 		for _, u := range urls {
-			fmt.Fprintf(&b, "  %-52s %d\n", clip(u.Value, 52), u.Calls)
+			fmt.Fprintf(&b, "  %s %s %s\n",
+				styleLink.Render("⌁"), clip(u.Value, 58), styleFaint.Render(fmt.Sprintf("%d×", u.Calls)))
 		}
 	}
 	if len(files) > 0 {
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("files:\n")
+		b.WriteString(styleSection.Render("FILES") + styleFaint.Render(fmt.Sprintf("  %d", len(files))) + "\n")
 		for _, f := range files {
-			fmt.Fprintf(&b, "  %-52s %d\n", clip(f.Value, 52), f.Calls)
+			fmt.Fprintf(&b, "  %s %s %s\n",
+				styleAccent2.Render("◫"), clip(f.Value, 58), styleFaint.Render(fmt.Sprintf("%d×", f.Calls)))
 		}
 	}
 	return b.String()
@@ -75,7 +84,7 @@ func (c *chat) historyView() string {
 		return "this session is empty"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "history (%d messages):\n", len(c.sess.Messages))
+	b.WriteString(styleSection.Render("HISTORY") + styleFaint.Render(fmt.Sprintf("  %d messages", len(c.sess.Messages))) + "\n")
 	shown := 0
 	for i, m := range c.sess.Messages {
 		if m.Role != "user" && m.Role != "assistant" {
@@ -86,7 +95,12 @@ func (c *chat) historyView() string {
 			continue
 		}
 		shown++
-		fmt.Fprintf(&b, "  %3d %-9s %s\n", i+1, m.Role, clip(strings.ReplaceAll(content, "\n", " "), 70))
+		role := styleUserRail.Render("▌ you")
+		if m.Role == "assistant" {
+			role = styleBrand.Render("◆ wombat")
+		}
+		fmt.Fprintf(&b, " %s %s %s\n", styleFaint.Render(fmt.Sprintf("%3d", i+1)), role,
+			clip(oneline(content), 76))
 	}
 	if shown == 0 {
 		return "this session has no messages yet"

@@ -161,26 +161,59 @@ runs.
 
 Type a request and press Enter. Useful shortcuts:
 
-- `esc` — stop the current run
+- `esc` — stop the current run, close an overlay
 - `ctrl+c` — quit
-- `/` — show commands
-- `@path` — attach a file
+- `/` — command palette (options appear inline)
+- `@` — file picker with tab completion
 - `ctrl+v` — attach an image from the clipboard (macOS/Linux)
+- `ctrl+b` — toggle the inspector panel
+- `ctrl+o` — open the live preview
+- `ctrl+g` or `?` — help and key map
+- `ctrl+t` — cycle colour themes
+- `ctrl+p` / `ctrl+n` — prompt history
+- `ctrl+r` — add a project reference (file, folder, or URL)
+- `alt+1..5` — jump between chat, sessions, models, usage, and doctor
+- `pgup` / `pgdn` or `ctrl+up/down` — scroll the transcript
+- mouse wheel — scroll when mouse mode is on (the default)
 
 Common slash commands:
 
 ```text
-/help          commands
+/help          keyboard map and every command
+/keys          alias for /help
+/reference     keep files and links in the inspector
+/sources       browse the sites and files the session used
 /model         switch model
 /mode          chat or create mode
 /attach <path> attach a file
+/panel         toggle the inspector
 /preview       open the local preview URL
+/theme         open the live theme picker
 /new           new session
 /compact       compact context now
 /status        current provider, model, and directory
 /cost          token and cache usage
 /exit          quit
 ```
+
+Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
+`nord`, `rosepine`, and `dracula`. Pick one with `/theme`, or cycle with
+`ctrl+t`; the choice is saved in `~/.wombat/config.json`. The theme also tints
+the terminal background while Wombat is open and restores it on exit
+(`wombat config set paint_background false` disables this).
+
+**References** are project-scoped notes that stay in the right-hand inspector.
+Press `ctrl+r` to add a path or URL, or use `/reference add <path|url>`. Remove
+them with `/reference rm <n>` or clear the list with `/reference clear`. They are
+stored under `~/.wombat/references/`, never in your repository.
+
+**Sources** (`/sources`) opens an interactive browser of every site and file the
+session has used. Switch tabs with `tab`, move with the arrows, and press enter
+to open a URL or attach a file.
+
+Wombat inherits your terminal's font; a terminal UI cannot install a font.
+For the intended look and complete glyph set, use a Nerd Font such as JetBrains
+Mono, Berkeley Mono, or MesloLGS NF in your terminal profile.
 
 When the agent starts a local web server, a highlighted **preview ready** bar
 appears under the header. Use `/preview` to open it, and `esc` to stop when it

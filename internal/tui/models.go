@@ -73,13 +73,13 @@ func newModels(opt Options) modelsModel {
 			pi = i
 		}
 	}
-	sp := spinner.New(spinner.WithSpinner(spinner.Dot), spinner.WithStyle(styleAccent))
+	sp := spinner.New(spinner.WithSpinner(spinner.Dot))
 	d := list.NewDefaultDelegate()
 	d.ShowDescription = true
 	d.Styles.SelectedTitle = d.Styles.SelectedTitle.
-		Background(cAccent).Foreground(cInk).Bold(true).BorderLeftForeground(cAccent)
+		Background(cAccent).Foreground(cPanel).Bold(true).BorderLeftForeground(cAccent)
 	d.Styles.SelectedDesc = d.Styles.SelectedDesc.
-		Background(cAccent).Foreground(cInk).BorderLeftForeground(cAccent)
+		Background(cAccent).Foreground(cPanel).BorderLeftForeground(cAccent)
 	l := list.New(nil, d, 40, 20)
 	l.SetShowTitle(false)
 	l.SetShowHelp(false)
@@ -223,8 +223,7 @@ func (m modelsModel) update(msg tea.Msg) (modelsModel, tea.Cmd) {
 }
 
 func (m modelsModel) view() string {
-	header := " " + styleTitle.Render("models") + "  " +
-		styleDim.Render("enter select · p switch provider · / filter · esc back")
+	header := chromeLine(screenTabs(scrModels), keyHint("esc", "back")+"  "+keyHint("enter", "select")+"  "+keyHint("p", "provider")+"  "+keyHint("/", "filter"), m.w) + "\n" + rule(m.w)
 	var tabs []string
 	start, end := 0, len(m.providers)
 	if max := 9; end-start > max {

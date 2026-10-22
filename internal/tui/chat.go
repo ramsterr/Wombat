@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,12 +57,23 @@ type chatEntry struct {
 	detail    string
 	result    string
 	dur       time.Duration
+	started   time.Time
 	running   bool
 	ok        bool
 	streaming bool
 	isErr     bool
 	pre       bool
 }
+
+type modalKind int
+
+const (
+	modalNone modalKind = iota
+	modalHelp
+	modalTheme
+	modalReference
+	modalSources
+)
 
 type textMsg string
 type reasoningMsg string
@@ -156,6 +168,7 @@ type chat struct {
 
 	provName  string
 	modelName string
+	branch    string
 
 	mode mode.Mode
 
@@ -210,6 +223,51 @@ type chat struct {
 	history, window          int
 
 	send func(tea.Msg)
+
+	// panel is the right-hand inspector.
+	panel bool
+
+	// live run status
+	runStart time.Time
+	runTools int
+
+	// modal overlays
+	modal     modalKind
+	themeSel  int
+	themeOrig string
+	helpTop   int
+
+	// prompt history (ctrl+p / ctrl+n)
+	prompts   []string
+	histIdx   int
+	histDraft string
+
+	// project references shown in the inspector
+	refs     []reference
+	refInput textinput.Model
+
+	// sites and files browser
+	sourceItems []sourceItem
+	sourceTab   int
+	sourceSel   int
+	sourceSites int
+	sourceFiles int
+
+	// @-file completion
+	fileActive bool
+	fileList   []fileEntry
+	fileSel    int
+	fileTop    int
+	fileQuery  string
+	fileStart  int
+	fileEnd    int
+	fileCache  []fileEntry
+	fileCacheT time.Time
+}
+
+type fileEntry struct {
+	path  string
+	isDir bool
 }
 
 func newChat(opt Options) (*chat, error) {
@@ -223,11 +281,15 @@ func newChat(opt Options) (*chat, error) {
 		opt:    opt,
 		cfg:    opt.Cfg,
 		mouse:  opt.Mouse,
+		panel:  opt.Cfg.Panel,
 		always: map[string]bool{},
 		follow: true,
 	}
+	applyTheme(c.cfg.Theme)
 	c.provName = c.cfg.Provider
 	c.modelName = c.cfg.ActiveModel()
+	c.branch = gitBranch(c.opt.Cwd)
+	c.refs = loadReferences(c.opt.Cwd)
 
 	var err error
 	if opt.SessionID != "" {
@@ -252,32 +314,99 @@ func newChat(opt Options) (*chat, error) {
 	ta.CharLimit = 0
 	ta.MaxHeight = 6
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
-	ta.FocusedStyle.Prompt = styleAccent
-	ta.FocusedStyle.Placeholder = styleFaint
-	ta.FocusedStyle.Text = lipgloss.NewStyle()
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.BlurredStyle.Prompt = styleFaint
-	ta.BlurredStyle.Placeholder = styleFaint
-	ta.BlurredStyle.Text = lipgloss.NewStyle()
-	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
 	c.ta = ta
 
 	c.vp = viewport.New(80, 20)
-	c.sp = spinner.New(spinner.WithSpinner(spinner.Line), spinner.WithStyle(styleAccent))
+	c.sp = spinner.New(spinner.WithSpinner(spinner.Spinner{
+		Frames: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+		FPS:    80 * time.Millisecond,
+	}))
 	c.permInput = textinput.New()
 	c.permInput.Placeholder = "tell wombat what to do instead…"
 	c.permInput.Prompt = "› "
 	c.permInput.CharLimit = 500
-	c.permInput.PromptStyle = styleKey
-	c.permInput.PlaceholderStyle = styleFaint
+	c.applyThemeStyles()
 
 	if c.sess != nil {
 		if err := c.rebuild(false); err != nil {
 			return nil, err
 		}
 		c.loadHistory()
+		c.refreshSourceCounts()
 	}
 	return c, nil
+}
+
+// applyThemeStyles refreshes the widgets that keep their own copy of the
+// theme. Package-level styles update immediately; textarea and textinput
+// styles are values, so they need to be copied again.
+func (c *chat) applyThemeStyles() {
+	c.ta.FocusedStyle.Prompt = styleAccent
+	c.ta.FocusedStyle.Placeholder = styleFaint
+	c.ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(cText)
+	c.ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	c.ta.BlurredStyle.Prompt = styleFaint
+	c.ta.BlurredStyle.Placeholder = styleFaint
+	c.ta.BlurredStyle.Text = lipgloss.NewStyle().Foreground(cText)
+	c.ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	c.ta.Cursor.Style = styleAccent
+	c.sp.Style = styleAccent
+	c.permInput.PromptStyle = styleAccent
+	c.permInput.PlaceholderStyle = styleFaint
+	c.permInput.TextStyle = lipgloss.NewStyle().Foreground(cText)
+	c.permInput.Cursor.Style = styleAccent
+	if c.questionText.Placeholder != "" {
+		c.questionText.PromptStyle = styleAccent
+		c.questionText.PlaceholderStyle = styleFaint
+		c.questionText.TextStyle = lipgloss.NewStyle().Foreground(cText)
+		c.questionText.Cursor.Style = styleAccent
+	}
+	if c.refInput.Placeholder != "" {
+		c.refInput.PromptStyle = styleAccent
+		c.refInput.PlaceholderStyle = styleFaint
+		c.refInput.TextStyle = lipgloss.NewStyle().Foreground(cText)
+		c.refInput.Cursor.Style = styleAccent
+	}
+}
+
+// setTheme applies and persists a theme. It returns false for an unknown
+// name without changing anything.
+// updatePlaceholder keeps the input hint in step with the current mode.
+func (c *chat) updatePlaceholder() {
+	switch {
+	case c.mode == mode.Chat:
+		c.ta.Placeholder = "Ask about the code, or /help"
+	case c.mode == mode.Create:
+		c.ta.Placeholder = "Describe what to build, or /help"
+	default:
+		c.ta.Placeholder = "Ask anything, or /help"
+	}
+	if c.ta.Placeholder == "" {
+		c.ta.Placeholder = "Ask anything, or /help"
+	}
+}
+
+func (c *chat) setTheme(name string) (string, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if _, ok := themeCatalog[name]; !ok {
+		return activeTheme, false
+	}
+	applyTheme(name)
+	c.applyThemeStyles()
+	if c.cfg != nil {
+		c.cfg.Theme = name
+		_ = c.cfg.Save()
+	}
+	c.layout()
+	c.refresh()
+	return name, true
+}
+
+// cycleTheme rotates through the built-in themes and reports the new one.
+func (c *chat) cycleTheme() string {
+	name := nextTheme(activeTheme, false)
+	c.setTheme(name)
+	return name
 }
 
 func (c *chat) Init() tea.Cmd {
@@ -363,6 +492,7 @@ func (c *chat) rebuild(reset bool) error {
 			c.mode = mode.Create
 		}
 	}
+	c.updatePlaceholder()
 	env := &tools.Env{
 		Dir:           cwd,
 		Permit:        c.permit,
@@ -446,6 +576,7 @@ func (c *chat) openSession(id string) error {
 	}
 	c.sess = s
 	c.entries = nil
+	c.refs = loadReferences(c.opt.Cwd)
 	c.cumIn, c.cumOut, c.cumCached, c.history = 0, 0, 0, 0
 	if s.Meta.Provider != "" {
 		if _, ok := c.cfg.Providers[s.Meta.Provider]; ok {
@@ -457,6 +588,7 @@ func (c *chat) openSession(id string) error {
 	}
 	buildErr := c.rebuild(false)
 	c.loadHistory()
+	c.refreshSourceCounts()
 	c.follow = true
 	c.layout()
 	c.refresh()
@@ -523,21 +655,46 @@ func (c *chat) updatePalette() {
 	c.cmdCommand = ""
 	c.cmdOptions = nil
 	prefix := name
-	entries := make([]paletteEntry, 0, len(commands.Match(prefix)))
-	for _, cmd := range commands.Match(prefix) {
+	matches := commands.Match(prefix)
+	if len(matches) == 0 && len(prefix) > 2 {
+		matches = fuzzyCommands(prefix)
+	}
+	entries := make([]paletteEntry, 0, len(matches))
+	for _, cmd := range matches {
 		entries = append(entries, paletteEntry{
 			label:      cmd.Usage(),
 			summary:    cmd.Summary,
 			insert:     cmd.Name,
+			group:      cmd.Group,
 			isCommand:  true,
 			hasOptions: len(cmd.Options) > 0,
 		})
 	}
+	sortPaletteByGroup(entries)
 	c.cmdList = entries
 	if c.cmdSel >= len(c.cmdList) {
 		c.cmdSel = 0
 	}
 	c.cmdTop = 0
+}
+
+// sortPaletteByGroup keeps related commands together while preserving the
+// canonical order inside each group.
+func sortPaletteByGroup(entries []paletteEntry) {
+	order := map[string]int{
+		"Session": 1, "Models": 2, "Context": 3, "Tools": 4, "Files": 5,
+		"Appearance": 6, "Safety": 7, "Help": 8, "System": 9,
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		gi, gj := order[entries[i].group], order[entries[j].group]
+		if gi == 0 {
+			gi = 99
+		}
+		if gj == 0 {
+			gj = 99
+		}
+		return gi < gj
+	})
 }
 
 // splitCommand splits an input like "/sandbox net" into the command and the
@@ -550,6 +707,29 @@ func splitCommand(text string) (name string, arg string, hasArg bool) {
 		hasArg = true
 	}
 	return name, arg, hasArg
+}
+
+// fuzzyCommands falls back to a subsequence match when no command starts
+// with the typed prefix. Ties keep the canonical command order.
+func fuzzyCommands(query string) []commands.Command {
+	q := strings.ToLower(strings.TrimPrefix(query, "/"))
+	if q == "" {
+		return nil
+	}
+	var out []commands.Command
+	for _, cmd := range commands.List {
+		name := strings.ToLower(strings.TrimPrefix(cmd.Name, "/"))
+		qi := 0
+		for _, r := range name {
+			if qi < len(q) && byte(r) == q[qi] {
+				qi++
+			}
+		}
+		if qi == len(q) {
+			out = append(out, cmd)
+		}
+	}
+	return out
 }
 
 // optionEntries turns a command's options into palette rows.
@@ -793,7 +973,7 @@ func (c *chat) loadHistory() {
 			pending = pending[1:]
 			e.running = false
 			e.ok = !strings.HasPrefix(m.Content, "error:")
-			e.result = clip(oneline(m.Content), 120)
+			e.result = clip(strings.TrimRight(m.Content, "\n"), 700)
 			e.dur = 0
 		}
 	}
@@ -862,12 +1042,69 @@ func (c *chat) layout() {
 	if c.previewURL != "" {
 		extra++
 	}
-	vh := c.h - 1 - (lines + 2) - 1 - extra
+	overlay := 0
+	if c.modal == modalNone {
+		overlay = c.commandOverlayRows() + c.fileOverlayRows()
+	}
+	vh := c.h - 2 - (lines + 2) - 1 - extra - overlay
 	if vh < 3 {
 		vh = 3
 	}
-	c.vp.Width = c.w
+	c.vp.Width = c.contentWidth()
 	c.vp.Height = vh
+}
+
+// commandOverlayRows estimates the height the slash palette adds below the
+// transcript, so the chat view always fits the terminal.
+func (c *chat) commandOverlayRows() int {
+	if !c.paletteOpen() {
+		return 0
+	}
+	limit := min(c.paletteLimit(), len(c.cmdList))
+	c.syncPaletteWindow(limit)
+	n := limit
+	rows := n + 4
+	if c.h >= 26 && c.cmdCommand == "" && strings.TrimSpace(c.ta.Value()) == "/" {
+		end := min(len(c.cmdList), c.cmdTop+limit)
+		rows += paletteGroupCount(c.cmdList[c.cmdTop:end])
+	}
+	if c.selectedCommandHasOptions() {
+		rows++
+	}
+	return rows
+}
+
+// paletteGroupCount is the number of group headings the palette can draw.
+func paletteGroupCount(entries []paletteEntry) int {
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.group != "" {
+			seen[e.group] = true
+		}
+	}
+	return len(seen)
+}
+
+func (c *chat) selectedCommandHasOptions() bool {
+	if c.cmdCommand != "" || len(c.cmdList) == 0 {
+		return false
+	}
+	sel := c.cmdSel
+	if sel < 0 || sel >= len(c.cmdList) {
+		return false
+	}
+	return c.cmdList[sel].hasOptions
+}
+
+// fileOverlayRows is the same estimate for @-file completion.
+func (c *chat) fileOverlayRows() int {
+	if !c.fileActive {
+		return 0
+	}
+	if len(c.fileList) == 0 {
+		return 1
+	}
+	return min(c.fileLimit(), len(c.fileList)) + 3
 }
 
 func (c *chat) refresh() {
@@ -883,8 +1120,8 @@ func (c *chat) refresh() {
 				blocks = append(blocks, strings.Join(lines, "\n"))
 			}
 		}
-		content := strings.Join(blocks, "\n\n") + "\n"
-		if pad := c.vp.Height - strings.Count(content, "\n"); pad > 0 {
+		content := strings.Join(blocks, "\n\n")
+		if pad := c.vp.Height - (strings.Count(content, "\n") + 1); pad > 0 {
 			content = strings.Repeat("\n", pad) + content
 		}
 		c.vp.SetContent(content)
@@ -892,25 +1129,6 @@ func (c *chat) refresh() {
 	if c.follow {
 		c.vp.GotoBottom()
 	}
-}
-
-func (c *chat) welcome() string {
-	cwd := c.opt.Cwd
-	if home, err := os.UserHomeDir(); err == nil {
-		if rel, err := filepath.Rel(home, cwd); err == nil && !strings.HasPrefix(rel, "..") {
-			cwd = "~/" + rel
-		}
-	}
-	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString("  " + styleAccent.Bold(true).Render("◆ wombat") + "  " + styleDim.Render(c.opt.Version) + "\n\n")
-	b.WriteString("  " + styleTitle.Render("a lightweight coding agent") + "\n\n")
-	b.WriteString("  " + styleDim.Render("provider ") + c.provName + "/" + c.modelName + "\n")
-	b.WriteString("  " + styleDim.Render("mode     ") + c.modeLabel() + styleFaint.Render("  (/mode chat to explore without changing anything)") + "\n")
-	b.WriteString("  " + styleDim.Render("session  ") + c.sessionID() + "\n")
-	b.WriteString("  " + styleDim.Render("dir      ") + clip(cwd, max(10, c.w-12)) + "\n\n")
-	b.WriteString("  " + styleFaint.Render("type a message to begin · type / for commands") + "\n")
-	return b.String()
 }
 
 func max(a, b int) int {
@@ -973,6 +1191,8 @@ func (c *chat) submit(text string) tea.Cmd {
 	c.cmdList = nil
 	c.cmdSel = 0
 	c.cmdTop = 0
+	c.closeFilePalette()
+	c.recordHistory(text)
 	c.layout()
 	if looksLikeCommand(text) {
 		cmd := c.command(text)
@@ -1024,6 +1244,8 @@ func (c *chat) submit(text string) tea.Cmd {
 	c.entries = append(c.entries, &chatEntry{kind: entryUser, text: text, atts: atts})
 	c.entries = append(c.entries, &chatEntry{kind: entryAssistant, streaming: true})
 	c.streaming = true
+	c.runStart = time.Now()
+	c.runTools = 0
 	c.follow = true
 	c.refresh()
 
@@ -1159,8 +1381,10 @@ func (c *chat) command(line string) tea.Cmd {
 			return nil
 		}
 		return exit("quit", "")
-	case "/help":
-		c.note(commands.Help(), false)
+	case "/help", "/keys":
+		return c.openHelp()
+	case "/panel":
+		c.togglePanel()
 	case "/model":
 		if busy() {
 			return nil
@@ -1210,6 +1434,16 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.note("mouse off — select and copy normally; pgup/pgdn scroll", false)
 		return func() tea.Msg { return tea.DisableMouse() }
+	case "/theme":
+		if arg == "" {
+			return c.openThemePicker()
+		}
+		name, ok := c.setTheme(arg)
+		if !ok {
+			c.note("unknown theme "+arg+" — use /theme to list", true)
+			break
+		}
+		c.note("theme: "+themeLabel+" ("+name+") · ctrl+t cycles", false)
 	case "/attach":
 		path := strings.TrimSpace(strings.Trim(arg, `"'`))
 		if path == "" {
@@ -1309,11 +1543,13 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.note(msg, false)
 	case "/toolset":
-		c.note(c.toolsetView(), false)
+		c.notePre(c.toolsetView())
 	case "/sources":
-		c.note(c.sourcesView(), false)
+		return c.openSources()
+	case "/reference", "/ref":
+		return c.referenceCommand(arg)
 	case "/history":
-		c.note(c.historyView(), false)
+		c.notePre(c.historyView())
 	case "/clear":
 		c.entries = nil
 	case "/setup":
@@ -1384,7 +1620,11 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case toolStartMsg:
 		c.finishAssistant()
-		c.entries = append(c.entries, &chatEntry{kind: entryTool, name: msg.name, detail: msg.detail, running: true})
+		c.runTools++
+		c.entries = append(c.entries, &chatEntry{
+			kind: entryTool, name: msg.name, detail: msg.detail,
+			running: true, started: time.Now(),
+		})
 		c.refresh()
 		return nil
 	case toolDoneMsg:
@@ -1395,7 +1635,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 				e.running = false
 				e.ok = !strings.HasPrefix(msg.result, "error:")
 				e.dur = msg.dur
-				e.result = clip(oneline(msg.result), 120)
+				e.result = clip(strings.TrimRight(msg.result, "\n"), 700)
 				break
 			}
 		}
@@ -1421,6 +1661,9 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.note(msg.text, msg.isErr)
 		return nil
 	case questionMsg:
+		if c.modal != modalNone {
+			c.restoreAndClose()
+		}
 		q := msg.question
 		c.question = &q
 		c.questionSel = 0
@@ -1430,6 +1673,9 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.refresh()
 		return nil
 	case permAskMsg:
+		if c.modal != modalNone {
+			c.restoreAndClose()
+		}
 		p := msg
 		if p.preview != "" {
 			c.note("proposed change for "+p.detail+":\n"+p.preview, false)
@@ -1442,6 +1688,8 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.streaming = false
 		c.interrupting = false
 		c.cancel = nil
+		c.runStart = time.Time{}
+		c.runTools = 0
 		c.finishAssistant()
 		switch {
 		case msg.err == nil:
@@ -1453,6 +1701,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		if c.ag != nil {
 			c.history = c.ag.HistoryTokens()
 		}
+		c.refreshSourceCounts()
 		c.refresh()
 		return nil
 	case clipImageMsg:
@@ -1482,6 +1731,11 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	c.ta, cmd = c.ta.Update(msg)
 	c.updatePalette()
+	if !c.paletteOpen() {
+		c.updateFilePalette()
+	} else {
+		c.closeFilePalette()
+	}
 	c.layout()
 	if c.follow {
 		c.vp.GotoBottom()
@@ -1541,6 +1795,15 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if c.modal != modalNone {
+		return c.modalKey(msg)
+	}
+	// The @-file picker owns the arrow keys while it is open.
+	if c.fileActive && !c.streaming {
+		if cmd, ok := c.filePaletteKey(msg); ok {
+			return cmd
+		}
+	}
 	// The command palette takes over the arrow keys while it is open, so the
 	// list can be walked without moving the cursor in the input.
 	if c.paletteOpen() && !c.streaming {
@@ -1563,6 +1826,7 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		case "tab":
 			c.completeCommand()
+			c.updatePalette()
 			c.layout()
 			c.refresh()
 			return nil
@@ -1576,6 +1840,45 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 	switch msg.String() {
+	case "ctrl+b":
+		c.togglePanel()
+		return nil
+	case "ctrl+o":
+		if c.previewURL == "" {
+			c.note("no local preview detected yet", true)
+			return nil
+		}
+		if err := openLocalURL(c.previewURL); err != nil {
+			c.note("could not open preview: "+err.Error(), true)
+			return nil
+		}
+		c.note("opened "+c.previewURL, false)
+		return nil
+	case "ctrl+g":
+		return c.openHelp()
+	case "ctrl+r":
+		return c.openReferencePrompt()
+	case "?":
+		if c.ta.Value() == "" {
+			return c.openHelp()
+		}
+	case "ctrl+p":
+		if c.ta.Value() == "" && len(c.prompts) > 0 {
+			c.historyPrev()
+			return nil
+		}
+	case "ctrl+n":
+		if c.ta.Value() == "" && len(c.prompts) > 0 {
+			c.historyNext()
+			return nil
+		}
+	case "ctrl+t":
+		if c.streaming || c.perm != nil || c.question != nil {
+			return nil
+		}
+		name := c.cycleTheme()
+		c.note("theme: "+themeLabel+" ("+name+")", false)
+		return nil
 	case "ctrl+c":
 		if c.streaming {
 			c.interrupt()
@@ -1594,6 +1897,20 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	case "pgdown", "ctrl+d":
 		c.scrollDown(max(1, c.vp.Height-2))
+		return nil
+	case "ctrl+up":
+		c.scrollUp(1)
+		return nil
+	case "ctrl+down":
+		c.scrollDown(1)
+		return nil
+	case "ctrl+home":
+		c.follow = false
+		c.vp.GotoTop()
+		return nil
+	case "ctrl+end":
+		c.follow = true
+		c.vp.GotoBottom()
 		return nil
 	case "up":
 		if c.ta.Value() == "" {
@@ -1623,6 +1940,11 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	c.ta, cmd = c.ta.Update(msg)
 	c.updatePalette()
+	if !c.paletteOpen() {
+		c.updateFilePalette()
+	} else {
+		c.closeFilePalette()
+	}
 	c.layout()
 	if c.follow {
 		c.vp.GotoBottom()
@@ -1720,57 +2042,101 @@ func (c *chat) previewBar() string {
 	} else if c.streaming {
 		status = "still iterating · esc to stop"
 	}
-	text := " ● preview ready — " + c.previewURL + "  ·  " + status + " "
-	if c.w > 0 && len([]rune(text)) > c.w {
-		text = string([]rune(text)[:max(0, c.w-1)]) + "…"
-	}
-	return lipgloss.NewStyle().Background(cAccent).Foreground(cInk).Bold(true).Render(text)
-}
-
-func (c *chat) header() string {
-	left := " " + styleAccent.Bold(true).Render("◆ wombat")
+	icon := "●"
 	if c.streaming {
-		left += " " + c.sp.View()
+		icon = c.sp.View()
 	}
-	modeTag := styleDim.Render("[" + c.modeLabel() + "]")
-	right := styleDim.Render(c.provName+"/"+c.modelName) + " " + modeTag + "  " + styleFaint.Render(c.sessionID())
+	left := stylePreviewText.Render(" "+icon+" preview ready ") + " " +
+		styleLink.Render(c.previewURL) + "  " + styleFaint.Render(status)
+	right := ""
+	if c.w >= 84 && c.modal == modalNone {
+		right = keyHint("ctrl+o", "open") + " "
+	}
 	if c.w <= 0 {
 		return left
 	}
 	gap := c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
-		right = styleDim.Render(clip(c.provName+"/"+c.modelName, 30)) + " " + modeTag
-		gap = c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
+		return lipgloss.NewStyle().Background(cPanel).Width(c.w).Render(clipANSI(" "+left+" ", c.w))
 	}
-	if gap < 1 {
-		gap = 1
+	line := " " + left + strings.Repeat(" ", gap) + right + " "
+	return lipgloss.NewStyle().Background(cPanel).Width(c.w).Render(line)
+}
+
+func (c *chat) header() string {
+	left := styleBrand.Render("◈ WOMBAT")
+	if c.opt.Version != "" {
+		left += " " + styleFaint.Render(clip(c.opt.Version, 18))
 	}
-	return left + strings.Repeat(" ", gap) + right
+	if c.streaming {
+		left += " " + c.sp.View()
+		if d := c.runDuration(); d > 0 && c.w >= 90 {
+			left += " " + styleWarn.Render(elapsedLabel(d))
+		}
+	}
+	cwd := shortPath(c.opt.Cwd, max(12, c.w/3))
+	if c.w >= 62 {
+		left += "  " + styleDim.Render("in ") + styleDim.Render(cwd)
+	}
+	if c.branch != "" && c.w >= 120 {
+		left += "  " + styleFaint.Render("⎇ "+clip(c.branch, 18))
+	}
+	model := c.provName + "/" + c.modelName
+	mode := modeBadge(c.modeLabel())
+	right := styleDim.Render(clip(model, 28))
+	if c.auto {
+		right += "  " + styleWarn.Render("yolo")
+	}
+	right += "  " + mode
+	if c.w >= 110 {
+		right += "  " + styleFaint.Render(clip(c.sessionID(), 18))
+	}
+	if c.w < 52 {
+		right = mode
+	}
+	return chromeLine(left, right, c.w) + "\n" + accentRule(c.w)
 }
 
 func (c *chat) hint() string {
 	var left string
 	switch {
+	case c.modal == modalHelp:
+		left = keyHint("j/k", "scroll") + "   " + keyHint("g/G", "top/bottom") + "   " + keyHint("esc", "close")
+	case c.modal == modalTheme:
+		left = keyHint("↑↓", "preview") + "   " + keyHint("enter", "apply") + "   " + keyHint("esc", "restore")
 	case c.perm != nil && c.permFeedback:
-		left = styleDim.Render("enter send feedback · esc back")
+		left = keyHint("enter", "send feedback") + "   " + keyHint("esc", "back")
 	case c.perm != nil:
 		left = lipgloss.NewStyle().Foreground(permColor(c.perm.perm)).Render("waiting for " + c.perm.kind)
+	case c.question != nil:
+		left = keyHint("1-9", "pick") + "   " + keyHint("f", "type") + "   " + keyHint("esc", "skip")
 	case c.interrupting:
 		left = styleWarn.Render("interrupting…")
 	case c.streaming:
-		left = styleDim.Render("esc interrupt · wheel/pgup scroll · working…")
+		left = c.sp.View() + " " + styleWarn.Render("working "+elapsedLabel(c.runDuration()))
+		if c.runTools > 0 {
+			left += styleFaint.Render(fmt.Sprintf(" · %d tools", c.runTools))
+		}
+		left += "   " + keyHint("esc", "interrupt")
 	default:
-		left = styleFaint.Render("enter send · alt+enter newline · ctrl+v image · pgup scroll · /help")
+		left = keyHint("enter", "send") + "   " + keyHint("/", "commands") + "   " +
+			keyHint("@", "files") + "   " + keyHint("ctrl+g", "help")
 	}
-	if c.cumIn+c.cumOut == 0 || c.w <= 0 {
+	right := ""
+	if c.window > 0 {
+		if c.w >= 104 {
+			right = contextGaugeTokens(c.history, c.window)
+		} else {
+			right = contextGauge(c.history, c.window)
+		}
+	}
+	if c.w <= 0 {
 		return " " + left
 	}
-	right := styleFaint.Render(fmt.Sprintf("ctx %s/%s", humanN(c.history), humanN(c.window)))
-	gap := c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 1 {
-		return " " + left
+	if lipgloss.Width(left)+lipgloss.Width(right)+4 > c.w {
+		right = ""
 	}
-	return " " + left + strings.Repeat(" ", gap) + right + " "
+	return chromeLine(left, right, c.w)
 }
 
 func (c *chat) permView() string {
@@ -1807,17 +2173,15 @@ func (c *chat) questionView() string {
 	}
 	b.WriteString(styleAccent.Render(q.Question) + "\n")
 	for i, o := range q.Options {
-		marker := "  "
-		style := styleDim
-		if c.questionSel == i {
-			marker = styleKey.Render(" > ")
-			style = styleAccent
-		}
-		b.WriteString(marker + style.Render(fmt.Sprintf("%d) %s", i+1, o.Label)))
+		text := fmt.Sprintf("%d) %s", i+1, o.Label)
 		if o.Description != "" {
-			b.WriteString(styleDim.Render(" - " + o.Description))
+			text += "  " + o.Description
 		}
-		b.WriteString("\n")
+		if c.questionSel == i {
+			b.WriteString(styleSelected.Render(" > "+pad(text, max(12, c.mainWidth()-8))) + "\n")
+		} else {
+			b.WriteString("   " + styleDim.Render(text) + "\n")
+		}
 	}
 	if c.questionTyping {
 		b.WriteString("  " + c.questionText.View() + "\n")
@@ -1833,27 +2197,38 @@ func (c *chat) view() string {
 		return ""
 	}
 	var box string
-	if c.question != nil {
-		box = styleInputIdle.BorderForeground(cAccent).Width(c.w - 4).Render(c.questionView())
-	} else if c.perm != nil {
+	switch {
+	case c.question != nil:
+		box = styleInputBox.BorderForeground(cAccent).Width(c.w - 4).Render(c.questionView())
+	case c.perm != nil:
 		box = styleInputIdle.BorderForeground(permColor(c.perm.perm)).Width(c.w - 4).Render(c.permView())
-	} else {
-		style := styleInputIdle
-		if !c.streaming {
-			style = styleInputBox
-		}
-		box = style.Width(c.w - 4).Render(c.ta.View())
+	case c.streaming:
+		box = styleInputBusy.Width(c.w - 4).Render(c.ta.View())
+	default:
+		box = styleInputBox.Width(c.w - 4).Render(c.ta.View())
+	}
+	body := c.bodyView()
+	if c.modal != modalNone {
+		body = c.modalView()
+	}
+	if c.panelVisible() {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, body, inspectorGutter(), c.panelView())
 	}
 	parts := []string{c.header()}
 	if bar := c.previewBar(); bar != "" {
 		parts = append(parts, bar)
 	}
-	parts = append(parts, c.vp.View())
+	parts = append(parts, body)
 	if line := c.pendingView(); line != "" {
 		parts = append(parts, line)
 	}
-	if pal := c.paletteView(); pal != "" {
-		parts = append(parts, pal)
+	if c.modal == modalNone {
+		if pal := c.paletteView(); pal != "" {
+			parts = append(parts, pal)
+		}
+		if files := c.filePaletteView(); files != "" {
+			parts = append(parts, files)
+		}
 	}
 	parts = append(parts, box, c.hint())
 	return strings.Join(parts, "\n")
@@ -1868,6 +2243,8 @@ type paletteEntry struct {
 	summary string
 	// insert is the text placed in the input when the row is chosen.
 	insert string
+	// group is the command section shown in the palette.
+	group string
 	// isCommand is true for a command row, false for an option.
 	isCommand bool
 	// hasOptions is true when picking this command should offer its options
@@ -1925,7 +2302,11 @@ func (c *chat) paletteView() string {
 	}
 	c.syncPaletteWindow(limit)
 
+	inner := max(20, c.mainWidth()-4)
+	showGroups := c.h >= 26 && c.cmdCommand == "" && strings.TrimSpace(c.ta.Value()) == "/"
 	var b strings.Builder
+	header := " " + styleAccent2.Render("commands") + " " + styleFaint.Render(itoa(len(c.cmdList))+" matches")
+	b.WriteString(header + "\n")
 	if c.cmdTop > 0 {
 		b.WriteString(styleFaint.Render(fmt.Sprintf("  … %d more above", c.cmdTop)) + "\n")
 	}
@@ -1936,20 +2317,35 @@ func (c *chat) paletteView() string {
 	if c.cmdCommand != "" {
 		b.WriteString(styleFaint.Render("  options for "+c.cmdCommand) + "\n")
 	}
+	lastGroup := ""
 	for i := c.cmdTop; i < end; i++ {
 		entry := c.cmdList[i]
-		marker := "  "
-		style := styleDim
-		if i == c.cmdSel {
-			marker = styleKey.Render(" > ")
-			style = lipgloss.NewStyle().Foreground(cAccent)
+		if showGroups && entry.group != "" && entry.group != lastGroup {
+			b.WriteString(" " + styleSection.Render(strings.ToUpper(entry.group)) + "\n")
+			lastGroup = entry.group
 		}
-		b.WriteString(marker + style.Render(pad(entry.label, 30)) + styleDim.Render(entry.summary) + "\n")
+		label := pad(entry.label, 26)
+		if i == c.cmdSel {
+			row := " > " + label + entry.summary
+			b.WriteString(styleSelected.Render(pad(row, inner)) + "\n")
+		} else {
+			b.WriteString("   " + styleAccent.Render(label) + styleDim.Render(entry.summary) + "\n")
+		}
+		if i == c.cmdSel && entry.isCommand && entry.hasOptions {
+			if cmd, ok := commands.Find(entry.insert); ok {
+				var opts []string
+				for _, o := range cmd.Options {
+					opts = append(opts, o.Value)
+				}
+				hint := "↳ " + strings.Join(opts, " · ") + "  ·  enter to choose"
+				b.WriteString("       " + styleFaint.Render(clip(hint, max(8, inner-7))) + "\n")
+			}
+		}
 	}
 	if end < len(c.cmdList) {
 		b.WriteString(styleFaint.Render(fmt.Sprintf("  … %d more below", len(c.cmdList)-end)) + "\n")
 	}
-	b.WriteString(styleFaint.Render("  ↑↓ select · tab complete · esc dismiss"))
+	b.WriteString(styleFaint.Render("  ↑↓ select · tab complete · enter run · esc dismiss"))
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -1978,30 +2374,31 @@ func (c *chat) pendingView() string {
 }
 
 func (c *chat) entryLines(e *chatEntry) []string {
-	w := c.w - 6
+	w := c.contentWidth() - 6
 	if w < 20 {
 		w = 20
 	}
 	switch e.kind {
 	case entryUser:
-		lines := []string{" " + styleAccent.Bold(true).Render("you")}
-		for _, ln := range wrap(e.text, w) {
-			lines = append(lines, "   "+ln)
+		rail := styleUserRail.Render("▌")
+		lines := []string{" " + rail + " " + styleAccent.Bold(true).Render("you")}
+		for _, ln := range wrap(e.text, max(12, w-5)) {
+			lines = append(lines, " "+rail+"   "+ln)
 		}
 		for _, a := range e.atts {
-			lines = append(lines, "   "+styleFaint.Render("↳ "+a.Kind+" · "+a.Name+" · "+llm.HumanSize(a.Size)))
+			lines = append(lines, " "+rail+"   "+styleFaint.Render("↳ "+a.Kind+" · "+a.Name+" · "+llm.HumanSize(a.Size)))
 		}
 		return lines
 	case entryAssistant:
-		lines := []string{" " + styleAccent.Bold(true).Render("◆ wombat")}
+		lines := []string{" " + styleBrand.Render("◆") + " " + styleAccent.Bold(true).Render("wombat")}
 		if e.reasoning != "" {
 			if c.showThinking {
-				lines = append(lines, "   "+styleFaint.Render("thinking"))
+				lines = append(lines, "   "+styleFaint.Render("◇ thinking"))
 				for _, ln := range wrap(e.reasoning, max(10, w-2)) {
 					lines = append(lines, "   "+styleThought.Render(ln))
 				}
 			} else {
-				lines = append(lines, "   "+styleFaint.Render(fmt.Sprintf("thought · /thinking to show (%d chars)", len(e.reasoning))))
+				lines = append(lines, "   "+styleFaint.Render(fmt.Sprintf("◇ thinking · /thinking to show (%d chars)", len(e.reasoning))))
 			}
 		}
 		var body []string
@@ -2027,7 +2424,8 @@ func (c *chat) entryLines(e *chatEntry) []string {
 		}
 		return lines
 	case entryTool:
-		head := " "
+		glyph, glyphStyle := toolGlyph(e.name)
+		head := "  "
 		switch {
 		case e.running:
 			head += c.sp.View() + " "
@@ -2036,37 +2434,67 @@ func (c *chat) entryLines(e *chatEntry) []string {
 		default:
 			head += styleBad.Render("✗") + " "
 		}
-		head += styleTitle.Render(e.name)
+		head += glyphStyle.Render(glyph) + " " + styleToolName.Render(e.name)
 		if e.detail != "" {
-			head += "  " + styleDim.Render(clip(oneline(e.detail), max(8, w-12)))
+			head += "  " + styleDim.Render(clip(oneline(e.detail), max(8, w-18)))
+		}
+		switch {
+		case e.running && !e.started.IsZero():
+			head += "  " + styleFaint.Render(elapsedLabel(time.Since(e.started)))
+		case !e.running && e.dur > 0:
+			head += "  " + styleFaint.Render(fmtDuration(e.dur))
 		}
 		lines := []string{head}
-		if !e.running {
-			meta := styleFaint.Render("→ " + fmtDuration(e.dur))
-			if e.result != "" {
-				meta += styleFaint.Render(" · " + clip(e.result, max(8, w-24)))
+		if !e.running && e.result != "" {
+			shown := 0
+			for _, rl := range strings.Split(e.result, "\n") {
+				rl = strings.TrimRight(rl, " \t")
+				if strings.TrimSpace(rl) == "" {
+					continue
+				}
+				if shown >= 3 {
+					lines = append(lines, "       "+styleFaint.Render("…"))
+					break
+				}
+				prefix := "       "
+				if shown == 0 {
+					prefix = "     " + styleTree.Render("↳ ")
+				}
+				lines = append(lines, prefix+resultStyle(rl).Render(clip(rl, max(8, w-14))))
+				shown++
 			}
-			lines = append(lines, "   "+meta)
 		}
 		return lines
 	default:
 		st := styleFaint
+		mark := "·"
 		if e.isErr {
 			st = styleBad
+			mark = "!"
 		}
 		var out []string
 		if e.pre {
+			out = append(out, "  "+styleFaint.Render(mark))
 			for _, ln := range strings.Split(e.text, "\n") {
-				out = append(out, " "+st.Render(clip(ln, w+4)))
+				if e.isErr {
+					ln = st.Render(ln)
+				}
+				out = append(out, "  "+clipANSI(ln, w+2))
 			}
 			return out
 		}
-		for _, ln := range wrap(e.text, w) {
-			out = append(out, " "+st.Render(ln))
+		for i, ln := range wrap(e.text, max(12, w-2)) {
+			if i == 0 {
+				out = append(out, "  "+st.Render(mark+" "+ln))
+			} else {
+				out = append(out, "    "+st.Render(ln))
+			}
 		}
 		return out
 	}
 }
+
+var inlineLinkPattern = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
 func inlineStyle(s string) string {
 	parts := strings.Split(s, "`")
@@ -2087,48 +2515,231 @@ func inlineStyle(s string) string {
 		}
 		s = strings.Join(parts, "")
 	}
+	s = inlineLinkPattern.ReplaceAllStringFunc(s, func(m string) string {
+		sub := inlineLinkPattern.FindStringSubmatch(m)
+		if len(sub) != 3 {
+			return m
+		}
+		label := lipgloss.NewStyle().Foreground(cLink).Underline(true).Render(sub[1])
+		if sub[1] == sub[2] {
+			return label
+		}
+		return label + styleFaint.Render(" ("+clip(sub[2], 48)+")")
+	})
 	return s
 }
 
+// numberedPrefix recognizes "1. ", "12) " and similar ordered-list markers.
+func numberedPrefix(s string) (string, string, bool) {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 || i+1 >= len(s) {
+		return "", s, false
+	}
+	if (s[i] == '.' || s[i] == ')') && s[i+1] == ' ' {
+		return s[:i+1] + " ", strings.TrimSpace(s[i+2:]), true
+	}
+	return "", s, false
+}
+
+func isTableSeparator(s string) bool {
+	t := strings.TrimSpace(s)
+	if !strings.Contains(t, "|") || !strings.Contains(t, "-") {
+		return false
+	}
+	for _, r := range t {
+		switch r {
+		case '|', '-', ':', ' ', '\t':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func splitTableRow(line string) []string {
+	t := strings.TrimSpace(line)
+	t = strings.TrimPrefix(t, "|")
+	t = strings.TrimSuffix(t, "|")
+	parts := strings.Split(t, "|")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts
+}
+
+// renderTable draws a compact box table. Columns are shrunk from the right
+// when the terminal is narrow.
+func renderTable(header []string, rows [][]string, width int) []string {
+	cols := len(header)
+	if cols == 0 {
+		return nil
+	}
+	widths := make([]int, cols)
+	for i, h := range header {
+		widths[i] = len([]rune(h))
+	}
+	for _, row := range rows {
+		for i := 0; i < cols && i < len(row); i++ {
+			if n := len([]rune(row[i])); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	// +---+ per column, plus the outer frame
+	total := func() int {
+		n := cols + 1
+		for _, w := range widths {
+			n += w + 2
+		}
+		return n
+	}
+	for total() > width && cols > 0 {
+		big := 0
+		for i := 1; i < cols; i++ {
+			if widths[i] > widths[big] {
+				big = i
+			}
+		}
+		if widths[big] <= 3 {
+			break
+		}
+		widths[big]--
+	}
+	line := func(left, mid, right string) string {
+		var b strings.Builder
+		b.WriteString(styleRule.Render(left))
+		for i, w := range widths {
+			b.WriteString(styleRule.Render(strings.Repeat("─", w+2)))
+			if i == cols-1 {
+				b.WriteString(styleRule.Render(right))
+			} else {
+				b.WriteString(styleRule.Render(mid))
+			}
+		}
+		return b.String()
+	}
+	row := func(cells []string, header bool) string {
+		var b strings.Builder
+		b.WriteString(styleRule.Render("│"))
+		for i := 0; i < cols; i++ {
+			cell := ""
+			if i < len(cells) {
+				cell = cells[i]
+			}
+			cell = clip(cell, widths[i])
+			padN := widths[i] - len([]rune(cell))
+			style := styleDim
+			if header {
+				style = styleTitle
+			}
+			b.WriteString(" " + style.Render(cell) + strings.Repeat(" ", padN) + " " + styleRule.Render("│"))
+		}
+		return b.String()
+	}
+	out := []string{line("┌", "┬", "┐"), row(header, true), line("├", "┼", "┤")}
+	for _, r := range rows {
+		out = append(out, row(r, false))
+	}
+	out = append(out, line("└", "┴", "┘"))
+	return out
+}
+
 func renderMarkdown(s string, width int) []string {
+	lines := strings.Split(s, "\n")
 	var out []string
 	inCode := false
-	for _, raw := range strings.Split(s, "\n") {
-		line := strings.TrimRight(raw, " \t")
-		trimmed := strings.TrimSpace(line)
+	codeLang := ""
+	for i := 0; i < len(lines); i++ {
+		raw := strings.TrimRight(lines[i], " \t")
+		trimmed := strings.TrimSpace(raw)
 		if strings.HasPrefix(trimmed, "```") {
-			inCode = !inCode
-			if !inCode {
-				out = append(out, "")
+			if inCode {
+				inCode = false
+				out = append(out, styleFaint.Render("╰"+strings.Repeat("─", max(4, min(40, width-2)))))
+				codeLang = ""
+			} else {
+				inCode = true
+				codeLang = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+				label := "code"
+				if codeLang != "" {
+					label = codeLang
+				}
+				out = append(out, styleFaint.Render("╭─ ")+styleAccent2.Render(label))
 			}
 			continue
 		}
 		if inCode {
-			out = append(out, styleCode.Render(" "+clip(line, width-2)))
+			style := styleCode
+			if codeLang == "diff" || codeLang == "patch" {
+				style = resultStyle(raw)
+			}
+			out = append(out, styleFaint.Render("│ ")+style.Render(clip(raw, max(4, width-2))))
 			continue
 		}
 		if trimmed == "" {
 			out = append(out, "")
 			continue
 		}
-		if strings.HasPrefix(trimmed, "#") {
-			out = append(out, styleTitle.Render(strings.TrimSpace(strings.TrimLeft(trimmed, "#"))))
+		if strings.Contains(trimmed, "|") && i+1 < len(lines) && isTableSeparator(lines[i+1]) {
+			header := splitTableRow(trimmed)
+			j := i + 2
+			var rows [][]string
+			for j < len(lines) {
+				next := strings.TrimSpace(lines[j])
+				if next == "" || !strings.Contains(next, "|") {
+					break
+				}
+				rows = append(rows, splitTableRow(next))
+				j++
+			}
+			out = append(out, renderTable(header, rows, max(10, width-2))...)
+			i = j - 1
 			continue
 		}
+		if strings.Trim(trimmed, "-*_ ") == "" && len(trimmed) >= 3 {
+			out = append(out, rule(max(4, width-2)))
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			level := 0
+			for level < len(trimmed) && trimmed[level] == '#' {
+				level++
+			}
+			text := clip(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), max(8, width-2))
+			switch {
+			case level <= 1:
+				left, right := themeGradient()
+				out = append(out, styleTitle.Render(gradientText(text, left, right)))
+			case level == 2:
+				out = append(out, styleTitle.Render(text))
+			default:
+				out = append(out, styleAccent2.Bold(true).Render(text))
+			}
+			continue
+		}
+		indent := len(raw) - len(strings.TrimLeft(raw, " "))
+		pad := strings.Repeat("  ", min(4, indent/2))
 		prefix := ""
 		body := trimmed
 		switch {
-		case strings.HasPrefix(trimmed, "- "), strings.HasPrefix(trimmed, "* "):
-			prefix, body = "• ", trimmed[2:]
+		case strings.HasPrefix(trimmed, "- "), strings.HasPrefix(trimmed, "* "), strings.HasPrefix(trimmed, "+ "):
+			prefix, body = "• ", strings.TrimSpace(trimmed[2:])
 		case strings.HasPrefix(trimmed, "> "):
-			prefix, body = "│ ", trimmed[2:]
+			prefix, body = "│ ", strings.TrimSpace(trimmed[2:])
+		default:
+			if p, rest, ok := numberedPrefix(trimmed); ok {
+				prefix, body = p, rest
+			}
 		}
-		for i, ln := range wrap(body, max(8, width-2-len(prefix))) {
+		for k, ln := range wrap(body, max(8, width-2-len(prefix))) {
 			ln = inlineStyle(ln)
-			if i == 0 {
-				out = append(out, " "+styleDim.Render(prefix)+ln)
+			if k == 0 {
+				out = append(out, " "+pad+styleDim.Render(prefix)+ln)
 			} else {
-				out = append(out, "  "+strings.Repeat(" ", len(prefix))+ln)
+				out = append(out, "  "+pad+strings.Repeat(" ", len(prefix))+ln)
 			}
 		}
 	}

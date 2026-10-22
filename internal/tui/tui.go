@@ -5,7 +5,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ramsterr/Wombat/internal/config"
 )
@@ -31,54 +30,6 @@ const (
 	scrModels
 	scrDoctor
 	scrUsage
-)
-
-var (
-	cInk    = lipgloss.Color("#0A1020")
-	cDim    = lipgloss.AdaptiveColor{Light: "240", Dark: "244"}
-	cFaint  = lipgloss.AdaptiveColor{Light: "248", Dark: "238"}
-	cGreen  = lipgloss.AdaptiveColor{Light: "28", Dark: "78"}
-	cRed    = lipgloss.AdaptiveColor{Light: "160", Dark: "203"}
-	cWarn   = lipgloss.AdaptiveColor{Light: "166", Dark: "214"}
-	cAccent = lipgloss.AdaptiveColor{Light: "26", Dark: "75"}
-	cLink   = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
-	cBorder = lipgloss.AdaptiveColor{Light: "110", Dark: "60"}
-	cCode   = lipgloss.AdaptiveColor{Light: "25", Dark: "117"}
-	// cSandbox marks requests that go beyond the sandbox, so they are easy
-	// to tell apart from ordinary tool permission.
-	cSandbox = lipgloss.AdaptiveColor{Light: "90", Dark: "177"}
-	// cOutside marks writes that leave the working directory.
-	cOutside = lipgloss.AdaptiveColor{Light: "25", Dark: "111"}
-)
-
-var (
-	styleTitle   = lipgloss.NewStyle().Bold(true)
-	styleDim     = lipgloss.NewStyle().Foreground(cDim)
-	styleFaint   = lipgloss.NewStyle().Foreground(cFaint)
-	styleThought = lipgloss.NewStyle().Foreground(cDim).Italic(true)
-	styleGood    = lipgloss.NewStyle().Foreground(cGreen)
-	styleBad     = lipgloss.NewStyle().Foreground(cRed)
-	styleWarn    = lipgloss.NewStyle().Foreground(cWarn)
-	styleAccent  = lipgloss.NewStyle().Foreground(cAccent)
-	styleLink    = lipgloss.NewStyle().Foreground(cLink)
-	styleSandbox = lipgloss.NewStyle().Foreground(cSandbox)
-	styleOutside = lipgloss.NewStyle().Foreground(cOutside)
-	styleButton  = lipgloss.NewStyle().Background(cAccent).Foreground(cInk).Bold(true)
-	styleKey     = lipgloss.NewStyle().Foreground(cInk).Background(cAccent).Bold(true)
-	stylePanel   = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(cBorder).
-			Padding(0, 1)
-	stylePanelTitle = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
-	styleCode       = lipgloss.NewStyle().Foreground(cCode)
-	styleInputBox   = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(cAccent).
-			Padding(0, 1)
-	styleInputIdle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(cBorder).
-			Padding(0, 1)
 )
 
 type loadErrMsg struct{ err error }
@@ -191,6 +142,10 @@ func Run(opt Options) (Action, error) {
 	if opt.Cwd == "" {
 		opt.Cwd, _ = os.Getwd()
 	}
+	if opt.Cfg != nil {
+		terminalBackground = opt.Cfg.PaintBackground
+	}
+	defer resetTerminalBackground()
 	ch, err := newChat(opt)
 	if err != nil {
 		return Action{}, err
@@ -251,6 +206,11 @@ func (m *rootModel) open(id screenID) tea.Cmd {
 }
 
 func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		if cmd, handled := m.globalKey(key); handled {
+			return m, cmd
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -311,6 +271,46 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	async := m.chat.updateAsync(msg)
 	return m, tea.Batch(overlay, async)
+}
+
+// globalKey switches screens from anywhere with alt+1..5. It stays out of
+// the way while a prompt or overlay owns the keyboard.
+func (m *rootModel) globalKey(key tea.KeyMsg) (tea.Cmd, bool) {
+	if m.chat == nil {
+		return nil, false
+	}
+	if m.chat.streaming || m.chat.perm != nil || m.chat.question != nil || m.chat.modal != modalNone {
+		return nil, false
+	}
+	switch key.String() {
+	case "alt+1":
+		if m.screen == scrChat {
+			return nil, false
+		}
+		m.screen = scrChat
+		return m.chat.focusInput(), true
+	case "alt+2":
+		if m.screen == scrSessions {
+			return nil, false
+		}
+		return m.open(scrSessions), true
+	case "alt+3":
+		if m.screen == scrModels {
+			return nil, false
+		}
+		return m.open(scrModels), true
+	case "alt+4":
+		if m.screen == scrUsage {
+			return nil, false
+		}
+		return m.open(scrUsage), true
+	case "alt+5":
+		if m.screen == scrDoctor {
+			return nil, false
+		}
+		return m.open(scrDoctor), true
+	}
+	return nil, false
 }
 
 func (m *rootModel) View() string {

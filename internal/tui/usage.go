@@ -105,8 +105,7 @@ func (m usageModel) update(msg tea.Msg) (usageModel, tea.Cmd) {
 }
 
 func (m usageModel) view() string {
-	header := " " + styleTitle.Render("usage") + "  " +
-		styleDim.Render("last 14 days · "+clip(m.opt.Cwd, 40)) + "  " + styleDim.Render("esc back")
+	header := chromeLine(screenTabs(scrUsage), keyHint("esc", "back")+"  "+styleDim.Render("last 14 days · "+shortPath(m.opt.Cwd, 40)), m.w) + "\n" + rule(m.w)
 	if !m.ready {
 		return header + "\n\n  " + styleDim.Render("scanning sessions…")
 	}
