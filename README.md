@@ -22,6 +22,14 @@ go build -o wombat ./cmd/wombat
 ./wombat
 ```
 
+Already have the checkout? Update it and rebuild the binary:
+
+```sh
+git pull
+go build -o wombat ./cmd/wombat
+./wombat
+```
+
 Install it somewhere on your PATH:
 
 ```sh
@@ -162,7 +170,7 @@ looks right.
 - **Understands code** — language-server definitions, references, diagnostics, completions, rename, and AST-aware code actions.
 - **Sees** — screenshots, images, video, audio, and documents on models that support them.
 - **Creates** — image generation and editing, plus browser automation.
-- **Plans** — a persistent task ledger with dependencies, checks, retries, and structured reports.
+- **Plans** — a persistent task ledger with dependencies, checks, structured reports, and continuous scheduling: a slow step does not hold back ready work, and timed-out or transient steps retry once.
 - **Delegates** — parallel workers in isolated git worktrees, with independent review and three-way merge.
 - **Recovers** — retries transient network failures, repairs rejected thinking-mode histories, and keeps long sessions usable.
 - **Caches** — context pruning and summarization, checkpoints, and resumable sessions.
@@ -174,7 +182,7 @@ use the network, browse, generate images, and use the coding/research toolset.
 Orchestration tools and `question` stay with the lead.
 
 - `delegate_many` runs independent workers in one wave.
-- `run_plan` executes the ledger as a dependency graph with continuous scheduling: free slots start newly-ready work instead of waiting for a slow step, and timed-out/transient steps retry once.
+- `run_plan` executes the ledger as a dependency graph with continuous scheduling. Free slots start newly-ready work instead of waiting for a slow step; writers can review and merge while scouts are still running; timed-out/transient steps retry once; and slots are shared between scouts and writers.
 - `delegate_write` gives writers explicit file ownership.
 - `rename` and `refactor` use a real language server.
 - Workers run in git worktrees when possible; changes are reviewed and merged.
