@@ -22,7 +22,7 @@ All notable changes to Wombat are recorded here. The format follows
 - Checkpoints now use a private shadow git repository instead of copying the
   workspace. Unchanged files are stored once, old full-copy snapshots are gone,
   and restoring a checkpoint still reverts added files while preserving files
-  ignored by `.gitignore`.
+  that were already present but ignored by `.gitignore`.
 - Permissions default to `allow` for `bash`, `write`, `edit` and `network`,
   so a headless `wombat run` actually does the work instead of refusing
   every call. Set a class to `ask` to be consulted first.

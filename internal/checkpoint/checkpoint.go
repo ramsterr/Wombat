@@ -108,6 +108,9 @@ func (m *Manager) ensure() error {
 			{"config", "core.bare", "false"},
 			{"config", "core.worktree", m.workspace},
 			{"config", "core.autocrlf", "false"},
+			{"config", "commit.gpgsign", "false"},
+			{"config", "tag.gpgsign", "false"},
+			{"config", "core.hooksPath", filepath.Join(m.gitDir, "hooks")},
 		} {
 			if _, err := m.git(args...); err != nil {
 				return err
@@ -167,7 +170,7 @@ func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
 	// --ignore-errors keeps one unreadable protected directory from making
 	// the whole snapshot fail.
 	_, _ = m.git("add", "-A", "--ignore-errors", "--", ".")
-	if _, err := m.git("commit", "--allow-empty", "-m", oneLine(reason)); err != nil {
+	if _, err := m.git("commit", "--allow-empty", "--no-verify", "-m", oneLine(reason)); err != nil {
 		return "", err
 	}
 	id, err := m.git("rev-parse", "HEAD")
