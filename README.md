@@ -1,6 +1,9 @@
-# Wombat
+  # Wombat General Agent
 
-<img width="2872" height="676" alt="Wombat" src="https://github.com/user-attachments/assets/53857c41-0947-4be9-b90f-72dd92ab9f99" />
+  <img width="1408" height="736" alt="image" src="https://github.com/user-attachments/assets/0057c372-f231-4bcc-a99f-5fb217ea5b7b" />
+
+
+
 
 <p align="center">
   <a href="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
@@ -9,7 +12,9 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/ramsterr/Wombat?style=flat-square"></a>
 </p>
 
-Wombat is a coding agent for your terminal. It reads and edits files, runs commands, searches the web, uses a browser, and works through multi-step tasks with a plan. It runs against OpenAI-compatible APIs, Anthropic, OpenCode, or a local model server.
+Wombat is a general purpose agent.
+Can do anything and beyond than your standard agent harness , that too for lesser tokens at times.
+
 
 ## Quick start
 
@@ -372,3 +377,7 @@ go build -o /tmp/wombat ./cmd/wombat
 
 CI runs on the default branch and on pull requests. Issues and pull requests
 are welcome.
+
+regards
+    ____
+   
