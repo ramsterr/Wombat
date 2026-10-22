@@ -19,6 +19,15 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Changed
 
+- Writer slots are counted while writers are active instead of being reserved
+  for a whole turn, so a writer reuses the slot as soon as its patch merges.
+- Warm worktrees are pooled and reset between writers (ignored files such as
+  `node_modules` survive), and writer checks run once before merge when the
+  base is unchanged.
+- `delegate_many` accepts `id` and `depends_on` to run a dependency DAG; a
+  dependent starts after its upstream reports are available.
+- `run_plan` prefers the critical path (longest chain of dependents) when
+  slots are contested.
 - Browser screenshots are attached in memory and are never written into the
   project. A site or UI task checks one desktop and one mobile view, starts
   the preview, and asks for feedback ("Looks good" / "Needs changes" / a typed
@@ -39,6 +48,16 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Workers can ask instead of guessing.** A worker or writer can finish with
+  `status=needs_input` and questions. `resume_worker` answers it and continues
+  the same session (and worktree, for writers), so no work is thrown away.
+- **Background plans.** `run_plan background=true` returns immediately; the
+  lead can do other work and join with a plain `run_plan`, or stop it with
+  `cancel=true`. Cancellation leaves unfinished steps pending, and a later
+  `run_plan` resumes them while skipping completed steps.
+- **Policy controls.** `check_policy` chooses whether checks run in the
+  worktree, after merge, both, or automatically; `review_policy` chooses
+  whether every writer is reviewed, only risky ones, or none.
 - **Credentials are gated and redacted.** Reads of `.env`, `~/.ssh`, `~/.aws`,
   `~/.wombat/config.json`, and other credentials files require a
   `sensitive-read` decision; shell commands that name one require the same

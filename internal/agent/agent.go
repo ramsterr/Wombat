@@ -39,6 +39,7 @@ type Agent struct {
 	NumCtx        int
 	SystemExtra   func() string
 	RunStart      func()
+	RunEnd        func()
 	Hooks         Hooks
 	Trace         *trace.Logger
 
@@ -75,6 +76,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	defer func() { _ = a.Sess.Flush() }()
 	if a.RunStart != nil {
 		a.RunStart()
+	}
+	if a.RunEnd != nil {
+		defer a.RunEnd()
 	}
 	a.markStarted()
 	traceStart := time.Now()
@@ -257,8 +261,9 @@ func (a *Agent) runToolCalls(ctx context.Context, toolCalls []llm.ToolCall, seen
 	for i, tc := range toolCalls {
 		exclusive[i] = a.exclusiveTool(tc)
 		// Count repeats before dispatching, so the map is never touched
-		// from the worker goroutines.
-		key := tc.Name + " " + tc.Arguments
+		// from the worker goroutines. Normalize the JSON so formatting or
+		// key order changes do not hide an identical call.
+		key := normalizedCallKey(tc.Name, tc.Arguments)
 		seen[key]++
 		if seen[key] > maxRepeatedToolCall {
 			blocked[i] = true
@@ -295,6 +300,18 @@ func (a *Agent) runToolCalls(ctx context.Context, toolCalls []llm.ToolCall, seen
 		results[i] = a.callTool(ctx, tc, blocked[i])
 	}
 	return results, nil
+}
+
+// normalizedCallKey canonicalizes tool arguments so key order and whitespace
+// do not defeat the repeated-call guard.
+func normalizedCallKey(name, args string) string {
+	var v any
+	if err := json.Unmarshal([]byte(args), &v); err == nil {
+		if b, err := json.Marshal(v); err == nil {
+			return name + " " + string(b)
+		}
+	}
+	return name + " " + strings.TrimSpace(args)
 }
 
 // exclusiveTool reports whether a call must run on its own. Anything that can

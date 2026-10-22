@@ -39,6 +39,8 @@ type Config struct {
 	EmbeddingModel        string               `json:"embedding_model,omitempty"`
 	ReviewWriters         *bool                `json:"review_writers,omitempty"`
 	ReviewModel           string               `json:"review_model,omitempty"`
+	CheckPolicy           string               `json:"check_policy,omitempty"`
+	ReviewPolicy          string               `json:"review_policy,omitempty"`
 	WorkerFullAccess      *bool                `json:"worker_full_access,omitempty"`
 	Providers             map[string]*Provider `json:"providers"`
 	Permissions           map[string]string    `json:"permissions,omitempty"`

@@ -199,3 +199,24 @@ func TestCheckPathRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal("write through a symlink outside the workspace was allowed")
 	}
 }
+
+func TestWritePathsRestrictWrites(t *testing.T) {
+	dir := t.TempDir()
+	env := &Env{Dir: dir, WritePaths: []string{"allowed.txt", "src/owned.go"}}
+	if err := env.CheckPath("write", "allowed.txt"); err != nil {
+		t.Fatalf("allowed write rejected: %v", err)
+	}
+	if err := env.CheckPath("write", filepath.Join(dir, "allowed.txt")); err != nil {
+		t.Fatalf("absolute allowed write rejected: %v", err)
+	}
+	if err := env.CheckPath("write", "other.txt"); err == nil || !strings.Contains(err.Error(), "declared files") {
+		t.Fatalf("unowned write err = %v", err)
+	}
+	if err := env.CheckPath("edit", "src/owned.go"); err != nil {
+		t.Fatalf("owned edit rejected: %v", err)
+	}
+	env.WritePaths = nil
+	if err := env.CheckPath("write", "other.txt"); err != nil {
+		t.Fatalf("unrestricted write rejected: %v", err)
+	}
+}

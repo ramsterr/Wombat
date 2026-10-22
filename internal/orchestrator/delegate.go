@@ -43,7 +43,7 @@ type delegationResult struct {
 }
 
 func (o *Orchestrator) delegate(ctx context.Context, a delegateArgs) (string, error) {
-	batch, err := o.prepareDelegations([]delegateArgs{a})
+	batch, err := o.prepareDelegations([]delegateArgs{a}, false)
 	if err != nil {
 		return "", err
 	}
@@ -62,13 +62,22 @@ func (o *Orchestrator) delegate(ctx context.Context, a delegateArgs) (string, er
 
 func (o *Orchestrator) delegateMany(ctx context.Context, tasks []delegateArgs) (string, error) {
 	if len(tasks) < 2 {
-		return "", fmt.Errorf("delegate_many needs at least 2 independent tasks; use delegate for a single task")
+		return "", fmt.Errorf("delegate_many needs at least 2 tasks; use delegate for a single task")
 	}
-	batch, err := o.prepareDelegations(tasks)
+	deps, err := validateFleetDAG(tasks)
 	if err != nil {
 		return "", err
 	}
-	result := o.runDelegations(ctx, batch)
+	batch, err := o.prepareDelegations(tasks, deps != nil)
+	if err != nil {
+		return "", err
+	}
+	var result *delegationResult
+	if deps != nil {
+		result = o.runDelegationDAG(ctx, batch, deps)
+	} else {
+		result = o.runDelegations(ctx, batch)
+	}
 	raw := fleetResult{
 		Usage:   result.usage,
 		Ledger:  result.ledger,
@@ -87,7 +96,7 @@ func (o *Orchestrator) delegateMany(ctx context.Context, tasks []delegateArgs) (
 	return jsonMarshalIndent(raw)
 }
 
-func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch, error) {
+func (o *Orchestrator) prepareDelegations(args []delegateArgs, allowFleetDeps bool) (*delegationBatch, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("no delegations requested")
 	}
@@ -109,10 +118,15 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 		}
 	}
 	ids := make(map[string]bool, len(args))
+	fleetKeys := make(map[string]bool, len(args)*2)
 	for _, a := range args {
+		if a.ID != "" {
+			fleetKeys[a.ID] = true
+		}
 		if a.StepID == "" {
 			continue
 		}
+		fleetKeys[a.StepID] = true
 		if ids[a.StepID] {
 			// Several workers may work on the same step: that is how a
 			// step gets researched from different angles at once.
@@ -133,6 +147,9 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs) (*delegationBatch
 				return nil, fmt.Errorf("unknown step id %q: call update_plan first or omit step_id", a.StepID)
 			}
 			for _, dep := range s.DependsOn {
+				if allowFleetDeps && fleetKeys[dep] {
+					continue
+				}
 				if ids[dep] {
 					return nil, fmt.Errorf("steps %q and %q are dependent; run dependent steps sequentially", s.ID, dep)
 				}
@@ -205,45 +222,187 @@ func (o *Orchestrator) runDelegations(ctx context.Context, batch *delegationBatc
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
 			case <-ctx.Done():
-				outcomes[i] = delegationOutcome{
-					args: batch.items[i].args,
-					report: &WorkerReport{
-						Status:  "failed",
-						Summary: "worker did not start: " + ctx.Err().Error(),
-					},
-					err: ctx.Err(),
-				}
+				outcomes[i] = failedDelegation(batch.items[i].args, ctx.Err())
 				return
 			}
-			d := batch.items[i]
-			var report *WorkerReport
-			var usage ReportUsage
-			var workerSession string
-			var merged bool
-			var err error
-			if o.cfg.FullWorkers && o.worktrees != nil {
-				report, usage, workerSession, merged, err = o.runFullWorker(ctx, d.args, d.step, batch.goal, batch.facts, d.maxSteps, d.tokenBudget)
-			} else {
-				report, usage, workerSession, err = o.runWorker(ctx, d.args, d.step, batch.goal, batch.facts, d.maxSteps, d.tokenBudget, o.cfg.FullWorkers)
-			}
-			if report == nil {
-				report = &WorkerReport{Status: "failed", Summary: "worker returned no report"}
-			}
-			if err != nil && report.Summary == "" {
-				report.Status = "failed"
-				report.Summary = err.Error()
-			}
-			outcomes[i] = delegationOutcome{
-				args:          d.args,
-				report:        report,
-				usage:         usage,
-				workerSession: workerSession,
-				merged:        merged,
-				err:           err,
-			}
+			outcomes[i] = o.runOneDelegation(ctx, batch.items[i], batch.goal, batch.facts)
 		}(i)
 	}
 	wg.Wait()
+	return o.finalizeDelegations(outcomes)
+}
+
+// runDelegationDAG executes a fleet whose tasks may depend on earlier tasks in
+// the same fleet. A dependent only starts after its upstream tasks complete,
+// and receives their reports in its context.
+func (o *Orchestrator) runDelegationDAG(ctx context.Context, batch *delegationBatch, deps map[string][]string) *delegationResult {
+	if o.cfg.FullWorkers && o.worktrees != nil {
+		o.ensureWriterBase()
+	}
+	n := len(batch.items)
+	outcomes := make([]delegationOutcome, n)
+	status := make([]string, n)
+	index := make(map[string]int, n)
+	for i, item := range batch.items {
+		index[fleetID(item.args)] = i
+		status[i] = "pending"
+	}
+	type dagResult struct {
+		index   int
+		outcome delegationOutcome
+	}
+	parallel := o.cfg.MaxParallelScouts
+	if parallel < 1 {
+		parallel = 1
+	}
+	ch := make(chan dagResult, n)
+	running := 0
+	started := 0
+	remaining := n
+	for remaining > 0 {
+		for running < parallel && started < n {
+			next := -1
+			for i := range batch.items {
+				if status[i] != "pending" {
+					continue
+				}
+				ready, blocked, reason := dagReady(fleetID(batch.items[i].args), deps, status, index)
+				if blocked {
+					status[i] = "blocked"
+					remaining--
+					outcomes[i] = failedDelegation(batch.items[i].args, fmt.Errorf("%s", reason))
+					next = -1
+					break
+				}
+				if ready {
+					next = i
+					break
+				}
+			}
+			if next < 0 {
+				break
+			}
+			status[next] = "running"
+			started++
+			running++
+			item := batch.items[next]
+			if len(deps[fleetID(item.args)]) > 0 {
+				item.args = withUpstreamContext(item.args, deps[fleetID(item.args)], index, outcomes)
+			}
+			go func(i int, item delegation) {
+				ch <- dagResult{index: i, outcome: o.runOneDelegation(ctx, item, batch.goal, batch.facts)}
+			}(next, item)
+		}
+		if running == 0 {
+			// Every remaining task is blocked; the loop above already
+			// accounted for them.
+			break
+		}
+		res := <-ch
+		running--
+		remaining--
+		status[res.index] = res.outcome.report.Status
+		if status[res.index] == "" {
+			status[res.index] = "failed"
+		}
+		outcomes[res.index] = res.outcome
+	}
+	for i := range batch.items {
+		if status[i] == "pending" {
+			status[i] = "blocked"
+			outcomes[i] = failedDelegation(batch.items[i].args, fmt.Errorf("dependency did not complete"))
+		}
+	}
+	return o.finalizeDelegations(outcomes)
+}
+
+func dagReady(id string, deps map[string][]string, status []string, index map[string]int) (ready, blocked bool, reason string) {
+	for _, dep := range deps[id] {
+		j, ok := index[dep]
+		if !ok {
+			blocked = true
+			reason = "unknown dependency " + dep
+			return
+		}
+		switch status[j] {
+		case "pending", "running":
+			return false, false, ""
+		case "completed":
+		default:
+			blocked = true
+			reason = "dependency " + dep + " is " + status[j]
+			return
+		}
+	}
+	return true, false, ""
+}
+
+func fleetID(a delegateArgs) string {
+	if strings.TrimSpace(a.ID) != "" {
+		return strings.TrimSpace(a.ID)
+	}
+	return strings.TrimSpace(a.StepID)
+}
+
+func withUpstreamContext(a delegateArgs, depIDs []string, index map[string]int, outcomes []delegationOutcome) delegateArgs {
+	var b strings.Builder
+	if strings.TrimSpace(a.Context) != "" {
+		b.WriteString(a.Context)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Upstream results\n")
+	for _, id := range depIDs {
+		j, ok := index[id]
+		if !ok || outcomes[j].report == nil {
+			continue
+		}
+		out := outcomes[j]
+		fmt.Fprintf(&b, "- [%s] %s: %s\n", id, out.args.Title, oneLine(out.report.Summary, 1200))
+		for _, f := range out.report.Findings {
+			fmt.Fprintf(&b, "  - %s (%s)\n", oneLine(f.Claim, 400), oneLine(f.Evidence, 300))
+		}
+		for _, c := range out.report.Changes {
+			fmt.Fprintf(&b, "  - changed %s: %s\n", c.Path, oneLine(c.Summary, 200))
+		}
+	}
+	a.Context = strings.TrimSpace(b.String())
+	return a
+}
+
+func failedDelegation(a delegateArgs, err error) delegationOutcome {
+	report := &WorkerReport{Status: "failed", Summary: err.Error()}
+	return delegationOutcome{args: a, report: report, err: err}
+}
+
+func (o *Orchestrator) runOneDelegation(ctx context.Context, d delegation, goal string, facts []string) delegationOutcome {
+	var report *WorkerReport
+	var usage ReportUsage
+	var workerSession string
+	var merged bool
+	var err error
+	if o.cfg.FullWorkers && o.worktrees != nil {
+		report, usage, workerSession, merged, err = o.runFullWorker(ctx, d.args, d.step, goal, facts, d.maxSteps, d.tokenBudget)
+	} else {
+		report, usage, workerSession, err = o.runWorker(ctx, d.args, d.step, goal, facts, d.maxSteps, d.tokenBudget, o.cfg.FullWorkers)
+	}
+	if report == nil {
+		report = &WorkerReport{Status: "failed", Summary: "worker returned no report"}
+	}
+	if err != nil && report.Summary == "" {
+		report.Status = "failed"
+		report.Summary = err.Error()
+	}
+	return delegationOutcome{
+		args:          d.args,
+		report:        report,
+		usage:         usage,
+		workerSession: workerSession,
+		merged:        merged,
+		err:           err,
+	}
+}
+
+func (o *Orchestrator) finalizeDelegations(outcomes []delegationOutcome) *delegationResult {
 	mergedAny := false
 	for _, out := range outcomes {
 		if out.merged {
@@ -371,6 +530,7 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		}
 	}
 	report.Usage = usage
+	report.Status = normalizeReportStatus(report.Status)
 	if budget.exceeded {
 		runErr = fmt.Errorf("worker exceeded token budget (%d/%d tokens)", budget.used, budget.limit)
 		report.Status = "failed"
@@ -384,6 +544,18 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 		if report.Summary == "" || report.Status == "failed" {
 			report.Summary = "worker stopped: " + runErr.Error()
 		}
+	}
+	if report.Status == "needs_input" {
+		kind := "scout"
+		if full {
+			kind = "worker"
+		}
+		o.rememberResumable(&resumableWorker{
+			Path: ws.Path(), Kind: kind, Args: a, Step: step,
+			MaxSteps: maxSteps, Tokens: tokenBudget, Model: model, Goal: goal,
+			Facts: append([]string(nil), facts...), Report: trimReport(report),
+			Usage: usage, Session: ws, Full: full,
+		})
 	}
 	return trimReport(report), usage, ws.Path(), runErr
 }
@@ -481,10 +653,10 @@ func workerSystemPromptAccess(a delegateArgs, step *Step, goal string, facts []s
 		b.WriteString("You may read, write, edit, run bash, use the network, and use every available tool in your workspace (a worktree when available). Fetch any local or web docs, skills, and references you need, and cite what you use. ")
 		b.WriteString("Your changes are committed, reviewed, and merged into the lead workspace; keep them scoped to the objective. ")
 		b.WriteString("Stay inside the slice and output file in your brief; do not re-derive the whole dataset or repeat the same reads. Research only unknown external facts; after at most four sources, write the partial file and finish. Never run find / or root recursive searches. ")
-		b.WriteString("Do not ask the user questions or delegate further. Make reasonable assumptions, state them in risks, and prefer evidence.\n\n")
+		b.WriteString("You cannot ask the user directly, and you cannot delegate further. Make reasonable assumptions, state them in risks, and prefer evidence. If a decision only the lead can make blocks the work, return status=needs_input with specific questions.\n\n")
 	} else {
 		b.WriteString("You are a read-only research worker for a coding agent. You cannot see the lead conversation. ")
-		b.WriteString("Do not modify files, run mutating commands, ask the user questions, or request more work. ")
+		b.WriteString("Do not modify files, run mutating commands, or request more work. If a decision only the lead can make blocks the work, return status=needs_input with specific questions. ")
 		b.WriteString("You have read, glob, grep, batch, websearch, webfetch, and bash for non-mutating commands. ")
 		b.WriteString("Bash is read-only: ls, which, grep, and curl or HTTP to stdout are fine, but mkdir, redirection, " +
 			"downloads to disk, ffmpeg output, git mutations, and file writes are refused. ")
@@ -584,4 +756,69 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// validateFleetDAG returns the dependency edges when any task uses depends_on.
+// A fleet without dependencies keeps the original all-at-once behavior.
+func validateFleetDAG(tasks []delegateArgs) (map[string][]string, error) {
+	any := false
+	for _, task := range tasks {
+		if len(task.DependsOn) > 0 {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return nil, nil
+	}
+	index := make(map[string]int, len(tasks))
+	deps := make(map[string][]string, len(tasks))
+	for i, task := range tasks {
+		id := fleetID(task)
+		if id == "" {
+			return nil, fmt.Errorf("task %d: set id (or step_id) when using depends_on", i+1)
+		}
+		if len(id) > 80 {
+			return nil, fmt.Errorf("task %d: id is too long (max 80 chars)", i+1)
+		}
+		if prev, ok := index[id]; ok {
+			return nil, fmt.Errorf("task %d: duplicate id %q (also task %d)", i+1, id, prev+1)
+		}
+		index[id] = i
+		deps[id] = append([]string(nil), task.DependsOn...)
+	}
+	for id, edges := range deps {
+		if len(edges) > maxFleetTasks {
+			return nil, fmt.Errorf("task %q has too many dependencies (max %d)", id, maxFleetTasks)
+		}
+		for _, dep := range edges {
+			if _, ok := index[dep]; !ok {
+				return nil, fmt.Errorf("task %q depends on unknown fleet id %q", id, dep)
+			}
+		}
+	}
+	state := make(map[string]int, len(tasks))
+	var visit func(string) error
+	visit = func(id string) error {
+		switch state[id] {
+		case 1:
+			return fmt.Errorf("dependency cycle involving %q", id)
+		case 2:
+			return nil
+		}
+		state[id] = 1
+		for _, dep := range deps[id] {
+			if err := visit(dep); err != nil {
+				return err
+			}
+		}
+		state[id] = 2
+		return nil
+	}
+	for id := range deps {
+		if err := visit(id); err != nil {
+			return nil, err
+		}
+	}
+	return deps, nil
 }

@@ -237,6 +237,71 @@ func TestWriterReviewRequestsChanges(t *testing.T) {
 	}
 }
 
+func TestWriterChecksRunOnceWithWorktreePolicy(t *testing.T) {
+	prov := &reviewProvider{fn: writerSteps("approved")}
+	o, _ := reviewRepo(t, prov, Config{ReviewWriters: boolPtr(false), CheckPolicy: "worktree"})
+	countFile := filepath.Join(t.TempDir(), "checks.log")
+	check := Check{ID: "count", Command: "sh -c 'echo x >> " + countFile + "'"}
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "s", Title: "Create b", Kind: StepWrite, Files: []string{"b.txt"}, Status: StepInProgress, Checks: []Check{check},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegateWrite(context.Background(), delegateWriteArgs{Tasks: []writerTask{{
+		StepID: "s", Title: "Create b", Objective: "create b", Files: []string{"b.txt"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"merged": true`) {
+		t.Fatalf("out = %s", out)
+	}
+	data, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(data))); got != 1 {
+		t.Fatalf("checks ran %d times, want 1\n%s", got, out)
+	}
+}
+
+func TestWriterReviewAutoSkipsDocsOnlyPatch(t *testing.T) {
+	fn := func(kind string, call int) (*llm.Result, error) {
+		switch kind {
+		case "writer":
+			switch call {
+			case 1:
+				return toolCall("w1", "write", map[string]any{"path": "README.md", "content": "# hi"}), nil
+			case 2:
+				return toolCall("w2", "submit_report", map[string]any{"status": "completed", "summary": "docs", "changes": []map[string]string{{"path": "README.md"}}}), nil
+			default:
+				return &llm.Result{Content: "done"}, nil
+			}
+		default:
+			return nil, fmt.Errorf("unexpected %s call", kind)
+		}
+	}
+	prov := &reviewProvider{fn: fn}
+	o, _ := reviewRepo(t, prov, Config{ReviewWriters: boolPtr(true), ReviewPolicy: "auto"})
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "s", Title: "Document", Kind: StepWrite, Files: []string{"README.md"}, Status: StepInProgress,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegateWrite(context.Background(), delegateWriteArgs{Tasks: []writerTask{{
+		StepID: "s", Title: "Document", Objective: "write docs", Files: []string{"README.md"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"merged": true`) {
+		t.Fatalf("out = %s", out)
+	}
+	if got := prov.calls("reviewer"); got != 0 {
+		t.Fatalf("reviewer calls = %d, want 0", got)
+	}
+}
+
 func TestRunPlanSchedulesDependencyWaves(t *testing.T) {
 	prov := &reviewProvider{fn: func(kind string, call int) (*llm.Result, error) {
 		switch kind {
@@ -564,6 +629,103 @@ func TestDelegateWriteMergesTwoWriters(t *testing.T) {
 		if data, err := os.ReadFile(filepath.Join(repo, name)); err != nil || string(data) != strings.TrimSuffix(name, ".txt") {
 			t.Fatalf("%s = %q err=%v", name, data, err)
 		}
+	}
+}
+
+type manyWriterProvider struct {
+	mu    sync.Mutex
+	calls map[string]int
+}
+
+func (p *manyWriterProvider) Name() string { return "many-writer" }
+func (p *manyWriterProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"many-writer"}, nil
+}
+func (p *manyWriterProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	switch {
+	case strings.Contains(req.System, "## Reviewer"):
+		return toolCall("rev", "submit_review", map[string]any{"verdict": "approved", "summary": "ok"}), nil
+	case strings.Contains(req.System, "## Writer worker"):
+		path := ""
+		lines := strings.Split(req.System, "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(line, "Owned files") && i+1 < len(lines) {
+				path = strings.TrimSpace(strings.TrimPrefix(lines[i+1], "- "))
+				break
+			}
+		}
+		if path == "" {
+			return nil, fmt.Errorf("writer prompt has no owned files")
+		}
+		p.mu.Lock()
+		if p.calls == nil {
+			p.calls = map[string]int{}
+		}
+		p.calls[path]++
+		n := p.calls[path]
+		p.mu.Unlock()
+		switch n {
+		case 1:
+			return toolCall("w", "write", map[string]any{"path": path, "content": "done"}), nil
+		case 2:
+			return toolCall("r", "submit_report", map[string]any{"status": "completed", "summary": "wrote " + path, "changes": []map[string]string{{"path": path}}}), nil
+		default:
+			return &llm.Result{Content: "done"}, nil
+		}
+	default:
+		return nil, fmt.Errorf("unexpected lead call")
+	}
+}
+
+func TestRunPlanReleasesWriterSlotsBetweenBatches(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.name", "Test")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	files := []string{"f1.txt", "f2.txt", "f3.txt", "f4.txt"}
+	var steps []Step
+	for i, name := range files {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte("zero\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		steps = append(steps, Step{ID: fmt.Sprintf("w%d", i+1), Title: "Write " + name, Kind: StepWrite, Files: []string{name}, Status: StepPending})
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "initial")
+	prov := &manyWriterProvider{}
+	sess, err := session.CreateAt(home, repo, prov.Name(), "many-writer", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := &agent.Agent{
+		Provider: prov, Model: "many-writer", Tools: tools.Registry(),
+		Env:  &tools.Env{Dir: repo, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		Sess: sess, MaxSteps: 8,
+	}
+	o, err := Attach(ag, Config{EnableWriters: true, ReviewWriters: boolPtr(false), MaxParallelWriters: 2, WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.updatePlan("goal", nil, steps); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.runPlan(context.Background(), runPlanArgs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range files {
+		data, err := os.ReadFile(filepath.Join(repo, name))
+		if err != nil || string(data) != "done" {
+			t.Fatalf("%s = %q err=%v\nout=%s", name, data, err, out)
+		}
+	}
+	if o.freeWriterSlots() != 2 {
+		t.Fatalf("writer slots leaked: free=%d", o.freeWriterSlots())
 	}
 }
 
@@ -1099,5 +1261,155 @@ func TestFullAccessWorkerFallsBackToMainWorkspace(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(ag.Sess.Meta.Cwd, "main-note.txt"))
 	if err != nil || string(data) != "written" {
 		t.Fatalf("main-note.txt = %q err=%v", data, err)
+	}
+}
+
+type resumeScoutProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *resumeScoutProvider) Name() string { return "resume-scout" }
+func (p *resumeScoutProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"resume-scout"}, nil
+}
+func (p *resumeScoutProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	last := ""
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			last = msg.Content
+		}
+	}
+	if strings.Contains(last, "Lead's answer") {
+		return &llm.Result{Content: `{"status":"completed","summary":"resumed with the answer"}`}, nil
+	}
+	p.mu.Lock()
+	p.calls++
+	n := p.calls
+	p.mu.Unlock()
+	if n == 1 {
+		return toolCall("q", "submit_report", map[string]any{
+			"status": "needs_input", "summary": "need a choice", "questions": []string{"which option?"},
+		}), nil
+	}
+	return &llm.Result{Content: "waiting for the lead"}, nil
+}
+
+func TestResumeWorkerContinuesNeedsInputSession(t *testing.T) {
+	prov := &resumeScoutProvider{}
+	o, _, _ := newOrch(t, prov, Config{})
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "s", Title: "Research", Status: StepInProgress}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegate(context.Background(), delegateArgs{StepID: "s", Title: "Research", Objective: "choose"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first struct {
+		WorkerSession string `json:"worker_session"`
+		Report        struct {
+			Status string `json:"status"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal([]byte(out), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Report.Status != "needs_input" || first.WorkerSession == "" {
+		t.Fatalf("first outcome = %s", out)
+	}
+	if step := o.ledger.Find("s"); step == nil || step.Status != StepPending {
+		t.Fatalf("step = %+v", step)
+	}
+	resumed, err := o.resumeWorker(context.Background(), resumeWorkerArgs{WorkerSession: first.WorkerSession, Answer: "use option B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resumed, "resumed with the answer") {
+		t.Fatalf("resumed = %s", resumed)
+	}
+	if step := o.ledger.Find("s"); step == nil || step.Status != StepCompleted {
+		t.Fatalf("step after resume = %+v", step)
+	}
+}
+
+type resumeWriterProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *resumeWriterProvider) Name() string { return "resume-writer" }
+func (p *resumeWriterProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"resume-writer"}, nil
+}
+func (p *resumeWriterProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	last := ""
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			last = msg.Content
+		}
+	}
+	if strings.Contains(last, "Lead's answer") {
+		return &llm.Result{Content: `{"status":"completed","summary":"finished after the answer"}`}, nil
+	}
+	p.mu.Lock()
+	p.calls++
+	n := p.calls
+	p.mu.Unlock()
+	switch n {
+	case 1:
+		return toolCall("w", "write", map[string]any{"path": "b.txt", "content": "two"}), nil
+	case 2:
+		return toolCall("q", "submit_report", map[string]any{
+			"status": "needs_input", "summary": "need approval", "questions": []string{"should I add the header?"},
+		}), nil
+	default:
+		return &llm.Result{Content: "waiting for the lead"}, nil
+	}
+}
+
+func TestResumeWriterMergesAfterAnswer(t *testing.T) {
+	prov := &resumeWriterProvider{}
+	o, repo := reviewRepo(t, prov, Config{ReviewWriters: boolPtr(false)})
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "s", Title: "Create b", Kind: StepWrite, Files: []string{"b.txt"}, Status: StepInProgress,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegateWrite(context.Background(), delegateWriteArgs{Tasks: []writerTask{{
+		StepID: "s", Title: "Create b", Objective: "create b", Files: []string{"b.txt"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first struct {
+		Tasks []struct {
+			WorkerSession string `json:"worker_session"`
+			Status        string `json:"status"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal([]byte(out), &first); err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Tasks) != 1 || first.Tasks[0].Status != "needs_input" || first.Tasks[0].WorkerSession == "" {
+		t.Fatalf("first outcome = %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "b.txt")); err == nil {
+		t.Fatal("unfinished writer changes were merged before resume")
+	}
+	resumed, err := o.resumeWorker(context.Background(), resumeWorkerArgs{
+		WorkerSession: first.Tasks[0].WorkerSession, Answer: "yes, add the header",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resumed, `"merged": true`) {
+		t.Fatalf("resumed = %s", resumed)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "b.txt"))
+	if err != nil || string(data) != "two" {
+		t.Fatalf("b.txt = %q err=%v", data, err)
+	}
+	if step := o.ledger.Find("s"); step == nil || step.Status != StepCompleted {
+		t.Fatalf("step after resume = %+v", step)
 	}
 }

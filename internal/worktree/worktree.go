@@ -10,11 +10,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type Manager struct {
 	Repo string
 	Root string
+
+	mu      sync.Mutex
+	idle    []*Worktree
+	maxIdle int
 }
 
 type Worktree struct {
@@ -50,6 +55,118 @@ func (m *Manager) Create(id string) (*Worktree, error) {
 	return m.CreateAt(id, "")
 }
 
+// SetPoolSize sets how many finished worktrees are kept warm for reuse. A
+// value of zero disables pooling.
+func (m *Manager) SetPoolSize(n int) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.maxIdle = n
+	if m.maxIdle < 0 {
+		m.maxIdle = 0
+	}
+	for len(m.idle) > m.maxIdle {
+		w := m.idle[len(m.idle)-1]
+		m.idle = m.idle[:len(m.idle)-1]
+		_ = w.Remove()
+	}
+	m.mu.Unlock()
+}
+
+// AcquireAt returns a warm worktree reset to base, creating one when the pool
+// is empty. An empty base means HEAD and requires a clean main workspace.
+func (m *Manager) AcquireAt(id, base string) (*Worktree, error) {
+	if m == nil {
+		return nil, errors.New("worktree manager is nil")
+	}
+	resolved, err := m.resolveBase(base)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		m.mu.Lock()
+		if len(m.idle) == 0 {
+			m.mu.Unlock()
+			return m.CreateAt(id, resolved)
+		}
+		w := m.idle[len(m.idle)-1]
+		m.idle = m.idle[:len(m.idle)-1]
+		m.mu.Unlock()
+		if err := w.Reset(resolved); err != nil {
+			_ = w.Remove()
+			continue
+		}
+		return w, nil
+	}
+}
+
+// Release puts a clean worktree back in the pool. Dirty or broken worktrees
+// are removed instead; ignored files such as installed dependencies survive
+// the reset and make the next writer start faster.
+func (m *Manager) Release(w *Worktree) {
+	if m == nil || w == nil {
+		return
+	}
+	m.mu.Lock()
+	maxIdle := m.maxIdle
+	m.mu.Unlock()
+	if maxIdle <= 0 {
+		_ = w.Remove()
+		return
+	}
+	head, err := m.Head()
+	if err != nil || w.Reset(head) != nil {
+		_ = w.Remove()
+		return
+	}
+	m.mu.Lock()
+	if len(m.idle) >= maxIdle {
+		m.mu.Unlock()
+		_ = w.Remove()
+		return
+	}
+	m.idle = append(m.idle, w)
+	m.mu.Unlock()
+}
+
+// Reset discards all tracked and untracked (but not ignored) changes and
+// moves the worktree to base.
+func (w *Worktree) Reset(base string) error {
+	if w == nil {
+		return errors.New("worktree is nil")
+	}
+	if strings.TrimSpace(base) == "" {
+		return errors.New("worktree reset needs a base commit")
+	}
+	if _, err := gitOutput(w.Path, "reset", "--hard", "-q", base); err != nil {
+		return err
+	}
+	if _, err := gitOutput(w.Path, "clean", "-fdq"); err != nil {
+		return err
+	}
+	w.Base = base
+	return nil
+}
+
+func (m *Manager) resolveBase(base string) (string, error) {
+	if base != "" {
+		return base, nil
+	}
+	status, err := gitOutput(m.Repo, "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(status) != "" {
+		return "", errors.New("main workspace has tracked changes; commit or stash them before starting writers")
+	}
+	head, err := gitOutput(m.Repo, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(head), nil
+}
+
 // CreateAt creates a worktree from base. An empty base means HEAD and
 // requires a clean main workspace. A non-empty base is a temporary commit
 // containing earlier writer merges, so later waves can build on them without
@@ -62,20 +179,11 @@ func (m *Manager) CreateAt(id, base string) (*Worktree, error) {
 	if clean == "" {
 		clean = "writer"
 	}
-	if base == "" {
-		status, err := gitOutput(m.Repo, "status", "--porcelain", "--untracked-files=no")
-		if err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(status) != "" {
-			return nil, errors.New("main workspace has tracked changes; commit or stash them before starting writers")
-		}
-		head, err := gitOutput(m.Repo, "rev-parse", "HEAD")
-		if err != nil {
-			return nil, err
-		}
-		base = strings.TrimSpace(head)
+	resolved, err := m.resolveBase(base)
+	if err != nil {
+		return nil, err
 	}
+	base = resolved
 	name := clean + "-" + randomSuffix()
 	branch := "wombat/" + name
 	path := filepath.Join(m.Root, name)

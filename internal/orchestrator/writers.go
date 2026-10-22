@@ -37,7 +37,7 @@ type delegateWriteArgs struct {
 func (t *delegateWriteTool) Name() string  { return "delegate_write" }
 func (t *delegateWriteTool) Class() string { return "write" }
 func (t *delegateWriteTool) Description() string {
-	return "Run one to six independent coding tasks in isolated git worktrees. Each writer owns an explicit, non-overlapping file list, runs the ledger checks for its step, gets an independent review, and is merged with a three-way fallback only if checks and review pass. For dependent work use run_plan write steps instead; keep dependent edits in the lead."
+	return "Run one to six coding tasks in isolated git worktrees, at most max_parallel_writers at a time (default 2). Each writer owns an explicit, non-overlapping file list, runs the ledger checks for its step, gets an independent review, and is merged with a three-way fallback only if checks and review pass. For dependent work use run_plan write steps instead; keep dependent edits in the lead."
 }
 func (t *delegateWriteTool) Schema() map[string]any {
 	task := map[string]any{
@@ -78,18 +78,19 @@ func (t *delegateWriteTool) Run(ctx context.Context, raw json.RawMessage, _ *too
 }
 
 type writerOutcome struct {
-	StepID       string         `json:"step_id"`
-	Title        string         `json:"title"`
-	Status       string         `json:"status"`
-	Report       *WorkerReport  `json:"report,omitempty"`
-	Usage        ReportUsage    `json:"usage"`
-	ChangedFiles []string       `json:"changed_files,omitempty"`
-	Checks       []checkOutcome `json:"checks,omitempty"`
-	Review       *Review        `json:"review,omitempty"`
-	Merged       bool           `json:"merged"`
-	Worktree     string         `json:"worktree,omitempty"`
-	Warning      string         `json:"warning,omitempty"`
-	Error        string         `json:"error,omitempty"`
+	StepID        string         `json:"step_id"`
+	Title         string         `json:"title"`
+	Status        string         `json:"status"`
+	Report        *WorkerReport  `json:"report,omitempty"`
+	Usage         ReportUsage    `json:"usage"`
+	ChangedFiles  []string       `json:"changed_files,omitempty"`
+	Checks        []checkOutcome `json:"checks,omitempty"`
+	Review        *Review        `json:"review,omitempty"`
+	Merged        bool           `json:"merged"`
+	Worktree      string         `json:"worktree,omitempty"`
+	WorkerSession string         `json:"worker_session,omitempty"`
+	Warning       string         `json:"warning,omitempty"`
+	Error         string         `json:"error,omitempty"`
 }
 
 type writeBatchResult struct {
@@ -100,19 +101,22 @@ type writeBatchResult struct {
 }
 
 type writerRun struct {
-	task       writerTask
-	step       *Step
-	maxSteps   int
-	tokens     int
-	context    string
-	worktree   *worktree.Worktree
-	patch      string
-	outcome    writerOutcome
-	tokenUsed  int
-	full       bool
-	allowEmpty bool
-	session    string
-	model      string
+	task           writerTask
+	step           *Step
+	maxSteps       int
+	tokens         int
+	context        string
+	worktree       *worktree.Worktree
+	patch          string
+	outcome        writerOutcome
+	tokenUsed      int
+	full           bool
+	allowEmpty     bool
+	session        string
+	ws             *session.Session
+	model          string
+	base           string
+	worktreeChecks bool
 }
 
 func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (string, error) {
@@ -136,10 +140,6 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 	}
 	o.mu.Lock()
 	cfg := o.cfg
-	if left := cfg.MaxParallelWriters - o.writers; len(a.Tasks) > left {
-		o.mu.Unlock()
-		return "", fmt.Errorf("writer budget exhausted: need %d, only %d remain this turn", len(a.Tasks), left)
-	}
 	if o.ledger == nil {
 		o.mu.Unlock()
 		return "", fmt.Errorf("no ledger")
@@ -196,7 +196,6 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 	for i := range runs {
 		runs[i].tokens = perWriter
 	}
-	o.writers += len(runs)
 	o.totalDelegations += len(runs)
 	goal := o.ledger.Goal
 	facts := append([]string(nil), o.ledger.Facts...)
@@ -233,6 +232,8 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 				runs[i].outcome.Error = ctx.Err().Error()
 				return
 			}
+			o.addActiveWriter()
+			defer o.releaseWriterSlots(1)
 			o.runWriter(ctx, &runs[i], goal, facts)
 		}(i)
 	}
@@ -262,8 +263,9 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 		o.mergeMu.Lock()
 		err := o.mergeWriter(ctx, r, &result)
 		o.mergeMu.Unlock()
-		if err == nil && r.worktree != nil && !cfg.KeepWorktrees {
-			_ = r.worktree.Remove()
+		if err == nil && r.worktree != nil {
+			o.releaseWorktree(r.worktree, cfg.KeepWorktrees)
+			r.worktree = nil
 		}
 	}
 	result.Tasks = result.Tasks[:0]
@@ -292,7 +294,7 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 		switch r.outcome.Status {
 		case "blocked":
 			step.Status = StepBlocked
-		case "partial":
+		case "partial", "needs_input":
 			step.Status = StepPending
 		default:
 			step.Status = StepFailed
@@ -310,44 +312,10 @@ func (o *Orchestrator) delegateWrite(ctx context.Context, a delegateWriteArgs) (
 	return jsonMarshalIndent(result)
 }
 
-func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string, facts []string) {
-	cfg := o.cfg
-	if r.step != nil {
-		if err := validateWorktreeChecks(r.step.Checks, o.worktrees.Repo); err != nil {
-			r.outcome.Status = "failed"
-			r.outcome.Error = err.Error()
-			return
-		}
-	}
-	o.worktreeMu.Lock()
-	wt, err := o.worktrees.CreateAt(r.task.StepID, o.currentWriterBase())
-	o.worktreeMu.Unlock()
-	if err != nil {
-		r.outcome.Error = err.Error()
-		return
-	}
-	r.worktree = wt
-	r.outcome.Worktree = wt.Path
-	model := o.lead.Model
-	if r.model != "" {
-		model = r.model
-	}
-	title := "writer: "
-	if r.full {
-		title = "worker: "
-	}
-	ws, err := session.CreateAt(cfg.WorkerHome, wt.Path, o.lead.Provider.Name(), model, title+oneLine(r.task.Title, 80))
-	if err != nil {
-		r.outcome.Error = "create worker session: " + err.Error()
-		return
-	}
-	r.session = ws.Path()
+func (o *Orchestrator) writerEnv(dir string, files []string) *tools.Env {
 	env := *o.lead.Env
 	env.Isolate()
-	defer env.CloseJobs()
-	defer env.CloseLSP()
-	defer env.CloseBrowser()
-	env.Dir = wt.Path
+	env.Dir = dir
 	env.ReadOnly = false
 	env.Permit = nil
 	env.Checkpoint = nil
@@ -357,12 +325,13 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	// The writer works in a worktree, but a shell command with an absolute
 	// path could still name the lead workspace. Block writes there.
 	env.BlockedRoots = []string{o.lead.Env.Dir}
-	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WriterTimeout, fmt.Errorf("writer timed out after %s", cfg.WriterTimeout))
-	defer cancel()
-	budgetCtx, cancelBudget := context.WithCancelCause(runCtx)
-	defer cancelBudget(nil)
-	budget := &workerTokenBudget{limit: r.tokens}
-	hooks := workerHooks(o.lead.Hooks, r.task.Title, &o.hooksMu)
+	if len(files) > 0 {
+		env.WritePaths = append([]string(nil), files...)
+	}
+	return &env
+}
+
+func (o *Orchestrator) writerAgent(r *writerRun, env *tools.Env, ws *session.Session, model string, budget *workerTokenBudget, cancelBudget context.CancelCauseFunc, hooks agent.Hooks, goal string, facts []string) (*agent.Agent, *reportSink) {
 	parentUsage := hooks.OnUsage
 	hooks.OnUsage = func(u llm.Usage, history int) {
 		if budget.add(u) {
@@ -374,11 +343,11 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	}
 	sink := &reportSink{}
 	writerTools := append(append([]tools.Tool{}, o.writerTools...), &submitReportTool{sink: sink})
-	writer := &agent.Agent{
+	return &agent.Agent{
 		Provider:      o.lead.Provider,
 		Model:         model,
 		Tools:         writerTools,
-		Env:           &env,
+		Env:           env,
 		Sess:          ws,
 		MaxSteps:      r.maxSteps,
 		Compact:       o.lead.Compact && o.lead.ContextWindow > 0,
@@ -394,18 +363,69 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 			return writerSystemPrompt(r.task, r.step, goal, facts, r.context)
 		},
 		Hooks: hooks,
-	}
-	brief := writerBriefWriter(r.task, goal, facts)
+	}, sink
+}
+
+func writerBriefFor(r *writerRun, goal string, facts []string) string {
 	if r.full {
-		brief = workerBrief(delegateArgs{
+		brief := workerBrief(delegateArgs{
 			Title: r.task.Title, Objective: r.task.Objective, Context: r.task.Context,
 			Role: r.task.Role, Deliverable: r.task.Deliverable, Files: r.task.Files,
 		}, goal, facts)
 		if r.context != "" {
 			brief += "\n\n" + r.context
 		}
+		return brief
 	}
-	runErr := writer.Run(budgetCtx, brief)
+	return writerBriefWriter(r.task, goal, facts)
+}
+
+func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string, facts []string) {
+	cfg := o.cfg
+	if r.step != nil {
+		if err := validateWorktreeChecks(r.step.Checks, o.worktrees.Repo); err != nil {
+			r.outcome.Status = "failed"
+			r.outcome.Error = err.Error()
+			return
+		}
+	}
+	r.base = o.currentWriterBase()
+	wt, err := o.acquireWorktree(r.task.StepID)
+	if err != nil {
+		r.outcome.Error = err.Error()
+		return
+	}
+	r.worktree = wt
+	r.outcome.Worktree = wt.Path
+	model := o.lead.Model
+	if r.model != "" {
+		model = r.model
+	}
+	r.model = model
+	title := "writer: "
+	if r.full {
+		title = "worker: "
+	}
+	ws, err := session.CreateAt(cfg.WorkerHome, wt.Path, o.lead.Provider.Name(), model, title+oneLine(r.task.Title, 80))
+	if err != nil {
+		r.outcome.Error = "create worker session: " + err.Error()
+		return
+	}
+	r.session = ws.Path()
+	r.ws = ws
+	r.outcome.WorkerSession = r.session
+	env := o.writerEnv(wt.Path, r.task.Files)
+	defer env.CloseJobs()
+	defer env.CloseLSP()
+	defer env.CloseBrowser()
+	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WriterTimeout, fmt.Errorf("writer timed out after %s", cfg.WriterTimeout))
+	defer cancel()
+	budgetCtx, cancelBudget := context.WithCancelCause(runCtx)
+	defer cancelBudget(nil)
+	budget := &workerTokenBudget{limit: r.tokens}
+	hooks := workerHooks(o.lead.Hooks, r.task.Title, &o.hooksMu)
+	writer, sink := o.writerAgent(r, env, ws, model, budget, cancelBudget, hooks, goal, facts)
+	runErr := writer.Run(budgetCtx, writerBriefFor(r, goal, facts))
 	stats := writer.Usage()
 	r.outcome.Usage = usageFrom(stats)
 	content := lastAssistantContent(ws)
@@ -435,24 +455,38 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	}
 	report.Status = normalizeReportStatus(report.Status)
 	r.outcome.Status = report.Status
+	if report.Status == "needs_input" {
+		o.rememberResumable(o.newWriterResumable(r, ws, goal, facts))
+		return
+	}
 	if report.Status != "completed" {
 		r.outcome.Error = "writer reported " + report.Status + "; changes were not merged"
 		return
 	}
+	o.finishWriter(ctx, r, env, goal)
+}
+
+// finishWriter runs the post-report pipeline: checks, commit, ownership,
+// diff, and review. It expects r.outcome.Report to be a completed report.
+func (o *Orchestrator) finishWriter(ctx context.Context, r *writerRun, env *tools.Env, goal string) {
+	cfg := o.cfg
 	var checks []Check
 	if r.step != nil {
 		checks = r.step.Checks
 	}
-	checkResults := runCheckCommands(ctx, &env, checks, 0)
-	r.outcome.Checks = checkResults
-	for _, c := range checkResults {
-		if c.Status != CheckPassed {
-			r.outcome.Status = "failed"
-			r.outcome.Error = "worktree check failed: " + c.Command
-			return
+	r.worktreeChecks = cfg.checkPolicy() != "merge" && len(checks) > 0
+	if r.worktreeChecks {
+		checkResults := runCheckCommands(ctx, env, checks, 0)
+		r.outcome.Checks = checkResults
+		for _, c := range checkResults {
+			if c.Status != CheckPassed {
+				r.outcome.Status = "failed"
+				r.outcome.Error = "worktree check failed: " + c.Command
+				return
+			}
 		}
 	}
-	hasChanges, err := wt.HasChanges()
+	hasChanges, err := r.worktree.HasChanges()
 	if err != nil {
 		r.outcome.Status = "failed"
 		r.outcome.Error = "check worktree: " + err.Error()
@@ -467,12 +501,12 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		r.outcome.Error = "writer made no changes"
 		return
 	}
-	if _, err := wt.Commit("wombat writer: " + r.task.Title); err != nil {
+	if _, err := r.worktree.Commit("wombat writer: " + r.task.Title); err != nil {
 		r.outcome.Status = "failed"
 		r.outcome.Error = "commit: " + err.Error()
 		return
 	}
-	changed, err := wt.ChangedFiles()
+	changed, err := r.worktree.ChangedFiles()
 	if err != nil {
 		r.outcome.Status = "failed"
 		r.outcome.Error = "changed files: " + err.Error()
@@ -486,7 +520,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		}
 	}
 	r.outcome.ChangedFiles = changed
-	patch, err := wt.Diff()
+	patch, err := r.worktree.Diff()
 	if err != nil {
 		r.outcome.Status = "failed"
 		r.outcome.Error = "diff: " + err.Error()
@@ -502,7 +536,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 		return
 	}
 	r.patch = patch
-	if o.cfg.reviewsWriters() {
+	if o.shouldReview(r) {
 		review, reviewErr := o.reviewWriter(ctx, r, goal)
 		r.outcome.Review = review
 		if review != nil {
@@ -562,11 +596,16 @@ func (o *Orchestrator) runFullWorker(ctx context.Context, a delegateArgs, step *
 			r.outcome.Error = combineWarnings(err, r.outcome.Warning)
 		}
 	}
-	if r.outcome.Status == "completed" && r.worktree != nil && !o.cfg.KeepWorktrees {
-		_ = r.worktree.Remove()
+	if r.outcome.Status == "completed" && r.worktree != nil {
+		o.releaseWorktree(r.worktree, o.cfg.KeepWorktrees)
+		r.worktree = nil
 	}
-	if r.outcome.Status != "completed" && r.outcome.Report != nil {
+	if r.outcome.Status != "completed" && r.outcome.Status != "needs_input" && r.outcome.Report != nil {
 		r.outcome.Report.Status = "failed"
+	}
+	if ctx.Err() != nil && r.outcome.Status != "completed" && r.outcome.Status != "needs_input" && r.worktree != nil {
+		o.releaseWorktree(r.worktree, o.cfg.KeepWorktrees)
+		r.worktree = nil
 	}
 	var runErr error
 	if r.outcome.Error != "" {
@@ -598,6 +637,9 @@ func (o *Orchestrator) reviewWriter(ctx context.Context, r *writerRun, goal stri
 	env.DenyOutside = true
 	env.AllowOutside = false
 	env.BlockedRoots = []string{o.lead.Env.Dir}
+	if len(r.task.Files) > 0 {
+		env.WritePaths = append([]string(nil), r.task.Files...)
+	}
 	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WriterTimeout, fmt.Errorf("reviewer timed out after %s", cfg.WriterTimeout))
 	defer cancel()
 	budgetCtx, cancelBudget := context.WithCancelCause(runCtx)
@@ -662,6 +704,56 @@ func (o *Orchestrator) reviewWriter(ctx context.Context, r *writerRun, goal stri
 	return review, nil
 }
 
+func (o *Orchestrator) shouldReview(r *writerRun) bool {
+	switch o.cfg.reviewPolicy() {
+	case "never":
+		return false
+	case "auto":
+		return !docsOnly(r.outcome.ChangedFiles)
+	default:
+		return true
+	}
+}
+
+// mergeChecksNeeded reports whether the post-merge check pass can be skipped.
+// The worktree checks already exercised the patch; a second run is only
+// useful when the merge base moved under the writer or when worktree checks
+// were deliberately skipped.
+func (o *Orchestrator) mergeChecksNeeded(r *writerRun) bool {
+	if r.step == nil || len(r.step.Checks) == 0 {
+		return false
+	}
+	switch o.cfg.checkPolicy() {
+	case "worktree":
+		return false
+	case "merge", "both":
+		return true
+	default:
+		if !r.worktreeChecks {
+			return true
+		}
+		base := r.base
+		return base == "" || base != o.currentWriterBase()
+	}
+}
+
+func docsOnly(files []string) bool {
+	if len(files) == 0 {
+		return false
+	}
+	for _, f := range files {
+		switch strings.ToLower(filepath.Ext(f)) {
+		case ".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc":
+			continue
+		}
+		if strings.HasPrefix(filepath.ToSlash(f), "docs/") {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func reviewerSystemPrompt(r *writerRun, goal string) string {
 	var b strings.Builder
 	b.WriteString("## Reviewer\n")
@@ -709,8 +801,11 @@ func (o *Orchestrator) mergeWriter(ctx context.Context, r *writerRun, result *wr
 	if r.step != nil {
 		stepChecks = r.step.Checks
 	}
-	checks := runCheckCommands(ctx, o.lead.Env, stepChecks, 0)
-	r.outcome.Checks = checks
+	checks := r.outcome.Checks
+	if o.mergeChecksNeeded(r) {
+		checks = runCheckCommands(ctx, o.lead.Env, stepChecks, 0)
+		r.outcome.Checks = checks
+	}
 	failed := false
 	for _, c := range checks {
 		if c.Status != CheckPassed {
@@ -861,7 +956,8 @@ func writerSystemPrompt(t writerTask, step *Step, goal string, facts []string, p
 	b.WriteString("## Writer worker\n")
 	b.WriteString("You are a coding writer in an isolated git worktree. Implement the task yourself using read/write/edit/glob/grep/bash. ")
 	b.WriteString("You may only modify the declared files. Do not commit, change git state, touch .git, or edit files outside your ownership. ")
-	b.WriteString("Run the supplied checks locally with repo-relative paths (they run in this worktree), then call submit_report with the structured result. Do not ask questions.\n\n")
+	b.WriteString("Run the supplied checks locally with repo-relative paths (they run in this worktree), then call submit_report with the structured result. ")
+	b.WriteString("If you are blocked on a decision only the lead can make, call submit_report with status=needs_input and list your questions; the lead can resume you in the same worktree.\n\n")
 	if goal != "" {
 		b.WriteString("Project goal: " + oneLine(goal, 800) + "\n")
 	}
@@ -887,7 +983,7 @@ func writerSystemPrompt(t writerTask, step *Step, goal string, facts []string, p
 		b.WriteString("\n")
 	}
 	b.WriteString("\nCall submit_report once with this shape (or return only the JSON object if tools are unavailable):\n")
-	b.WriteString(`{"status":"completed|partial|blocked|failed","summary":"...","findings":[],"changes":[{"path":"...","summary":"..."}],"tests":["..."],"risks":[],"next_steps":[]}`)
+	b.WriteString(`{"status":"completed|partial|blocked|needs_input|failed","summary":"...","findings":[],"changes":[{"path":"...","summary":"..."}],"tests":["..."],"risks":[],"next_steps":[],"questions":[]}`)
 	b.WriteString("\nStatus=completed only if the work is done and all checks pass. Include every changed path in changes.\n")
 	return strings.TrimSpace(b.String())
 }

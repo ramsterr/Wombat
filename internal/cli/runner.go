@@ -161,6 +161,8 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			KeepWorktrees:         cfg.KeepWorktrees,
 			ReviewWriters:         cfg.ReviewWriters,
 			ReviewModel:           cfg.ReviewModel,
+			CheckPolicy:           cfg.CheckPolicy,
+			ReviewPolicy:          cfg.ReviewPolicy,
 			FullWorkers:           cfg.FullWorkers(),
 		}); err != nil {
 			return nil, err

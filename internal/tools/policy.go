@@ -102,6 +102,26 @@ func (e *Env) CheckPathPreview(kind, path, preview string) error {
 	return e.permitPreview(kind, path, preview)
 }
 
+// checkWriteOwnership verifies that a write or edit targets one of the files
+// the caller declared. Paths are compared cleanly, relative to the workspace.
+func (e *Env) checkWriteOwnership(path string) error {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(e.Dir, abs)
+	}
+	abs = filepath.Clean(abs)
+	for _, allowed := range e.WritePaths {
+		p := allowed
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(e.Dir, p)
+		}
+		if filepath.Clean(p) == abs {
+			return nil
+		}
+	}
+	return fmt.Errorf("path is outside this worker's declared files: %s (allowed: %s)", path, strings.Join(e.WritePaths, ", "))
+}
+
 // CheckPaths asks for one permission decision covering several paths, so an
 // atomic patch is approved once with its complete diff.
 func (e *Env) CheckPaths(kind string, paths []string, preview string) error {

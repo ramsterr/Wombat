@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -138,5 +139,110 @@ func TestScoutsUseTheirOwnModel(t *testing.T) {
 		if m != "cheap-model" {
 			t.Errorf("a worker used %q, want cheap-model", m)
 		}
+	}
+}
+
+type dagProvider struct {
+	mu     sync.Mutex
+	events []string
+	bad    []string
+}
+
+func (p *dagProvider) Name() string                                 { return "dag-mock" }
+func (p *dagProvider) ListModels(context.Context) ([]string, error) { return []string{"dag-mock"}, nil }
+func (p *dagProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	brief := ""
+	system := req.System
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			brief = msg.Content
+		}
+	}
+	id := ""
+	if i := strings.Index(system, "Ledger step: ["); i >= 0 {
+		id = system[i+len("Ledger step: ["):]
+		if j := strings.Index(id, "]"); j >= 0 {
+			id = id[:j]
+		}
+	}
+	p.mu.Lock()
+	p.events = append(p.events, "start:"+id)
+	if strings.Contains(brief, "do beta") {
+		if strings.Contains(brief, "## Upstream results") && strings.Contains(brief, "alpha result") {
+			p.events = append(p.events, "beta-saw-alpha")
+		} else {
+			p.bad = append(p.bad, brief)
+		}
+	}
+	p.mu.Unlock()
+	summary := "result-" + id
+	if strings.Contains(brief, "do alpha") {
+		summary = "alpha result"
+	}
+	if strings.Contains(brief, "do beta") {
+		summary = "beta result"
+	}
+	if strings.Contains(brief, "do gamma") {
+		summary = "gamma result"
+	}
+	p.mu.Lock()
+	p.events = append(p.events, "finish:"+id)
+	p.mu.Unlock()
+	return &llm.Result{Content: `{"status":"completed","summary":"` + summary + `"}`}, nil
+}
+
+func TestDelegateManyDAGWaitsAndPassesUpstreamReports(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	sess, err := session.CreateAt(home, t.TempDir(), "dag-mock", "dag-mock", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &dagProvider{}
+	ag := &agent.Agent{Provider: prov, Model: "dag-mock", Tools: tools.Registry(),
+		Env:  &tools.Env{Dir: sess.Meta.Cwd, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		Sess: sess, MaxSteps: 8}
+	o, err := Attach(ag, Config{MaxParallelScouts: 5, WorkerTimeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.updatePlan("goal", nil, []Step{
+		{ID: "a", Title: "A", Status: StepInProgress},
+		{ID: "b", Title: "B", Status: StepInProgress, DependsOn: []string{"a"}},
+		{ID: "c", Title: "C", Status: StepInProgress},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.delegateMany(context.Background(), []delegateArgs{
+		{ID: "a", StepID: "a", Title: "A", Objective: "do alpha"},
+		{ID: "b", StepID: "b", Title: "B", Objective: "do beta", DependsOn: []string{"a"}},
+		{ID: "c", StepID: "c", Title: "C", Objective: "do gamma"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prov.bad) > 0 {
+		t.Fatalf("dependent worker missing upstream context: %s", prov.bad[0])
+	}
+	joined := strings.Join(prov.events, ",")
+	if !strings.Contains(joined, "finish:a") || !strings.Contains(joined, "start:b") {
+		t.Fatalf("events = %s", joined)
+	}
+	if strings.Index(joined, "finish:a") > strings.Index(joined, "start:b") {
+		t.Fatalf("dependent started before upstream finished: %s", joined)
+	}
+	if !strings.Contains(out, "beta result") || !strings.Contains(out, "gamma result") {
+		t.Fatalf("out = %s", out)
+	}
+}
+
+func TestDelegateManyRejectsDependencyCycle(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	_, err := o.delegateMany(context.Background(), []delegateArgs{
+		{ID: "a", Title: "A", Objective: "a", DependsOn: []string{"b"}},
+		{ID: "b", Title: "B", Objective: "b", DependsOn: []string{"a"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("err = %v", err)
 	}
 }

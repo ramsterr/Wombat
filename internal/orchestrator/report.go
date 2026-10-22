@@ -31,6 +31,7 @@ type WorkerReport struct {
 	Tests     []string    `json:"tests,omitempty"`
 	Risks     []string    `json:"risks,omitempty"`
 	NextSteps []string    `json:"next_steps,omitempty"`
+	Questions []string    `json:"questions,omitempty"`
 	Usage     ReportUsage `json:"usage,omitempty"`
 }
 
@@ -140,6 +141,8 @@ func normalizeReportStatus(s string) string {
 		return "partial"
 	case "blocked":
 		return "blocked"
+	case "needs_input", "needs-input", "input_needed", "question", "questions":
+		return "needs_input"
 	case "failed", "error":
 		return "failed"
 	case "unstructured":
@@ -307,19 +310,20 @@ type submitReportTool struct{ sink *reportSink }
 func (t *submitReportTool) Name() string  { return "submit_report" }
 func (t *submitReportTool) Class() string { return "report" }
 func (t *submitReportTool) Description() string {
-	return "Record the final structured report for this delegated task. Call this once when the work is finished; it is how the lead receives your status, summary, findings, changes, tests, risks, and next steps."
+	return "Record the final structured report for this delegated task. Call this once when the work is finished, or with status=needs_input and your questions when you are blocked on a decision only the lead can make. It is how the lead receives your status, summary, findings, changes, tests, risks, next steps, and questions."
 }
 func (t *submitReportTool) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"status":     map[string]any{"type": "string", "enum": []string{"completed", "partial", "blocked", "failed"}},
+			"status":     map[string]any{"type": "string", "enum": []string{"completed", "partial", "blocked", "needs_input", "failed"}},
 			"summary":    map[string]any{"type": "string", "description": "what you established or did, in at most 6 sentences"},
 			"findings":   map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"claim": map[string]any{"type": "string"}, "evidence": map[string]any{"type": "string"}, "path": map[string]any{"type": "string"}, "lines": map[string]any{"type": "string"}}, "required": []string{"claim"}}, "description": "claims backed by evidence"},
 			"changes":    map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "summary": map[string]any{"type": "string"}}, "required": []string{"path"}}, "description": "files changed (writers only)"},
 			"tests":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "commands run and their outcomes"},
 			"risks":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"next_steps": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"questions":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "when status is needs_input, the specific questions the lead must answer"},
 		},
 		"required": []string{"status", "summary"},
 	}

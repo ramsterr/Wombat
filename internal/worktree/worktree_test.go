@@ -228,3 +228,57 @@ func TestApplyPatch3WayHandlesBinaryFile(t *testing.T) {
 		t.Fatalf("blob = %v err=%v", data, err)
 	}
 }
+
+func TestPoolReusesWorktreeAndPreservesIgnoredFiles(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	git(t, repo, "init", "-b", "main")
+	git(t, repo, "config", "user.name", "Test")
+	git(t, repo, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("node_modules/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "-m", "initial")
+
+	m, err := New(repo, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetPoolSize(1)
+	first, err := m.AcquireAt("first", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(first.Path, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(first.Path, "node_modules", "dep"), []byte("warm"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(first.Path, "scratch.txt"), []byte("junk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, first.Path, "add", "a.txt")
+	path := first.Path
+	m.Release(first)
+
+	second, err := m.AcquireAt("second", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Path != path {
+		t.Fatalf("worktree not reused: got %s want %s", second.Path, path)
+	}
+	if data, err := os.ReadFile(filepath.Join(second.Path, "node_modules", "dep")); err != nil || string(data) != "warm" {
+		t.Fatalf("ignored dependency lost: %q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(second.Path, "scratch.txt")); err == nil {
+		t.Fatal("untracked file survived reset")
+	}
+}

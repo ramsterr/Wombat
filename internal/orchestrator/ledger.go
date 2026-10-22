@@ -464,6 +464,12 @@ func trimReport(r *WorkerReport) *WorkerReport {
 	if len(r.NextSteps) > 20 {
 		r.NextSteps = r.NextSteps[:20]
 	}
+	if len(r.Questions) > 10 {
+		r.Questions = r.Questions[:10]
+	}
+	for i := range r.Questions {
+		r.Questions[i] = oneLine(r.Questions[i], 1000)
+	}
 	if raw, err := json.Marshal(r); err == nil && len(raw) > maxReportBytes {
 		r.Findings = r.Findings[:min(len(r.Findings), 5)]
 		r.Changes = nil

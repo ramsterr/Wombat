@@ -120,6 +120,8 @@ func (t *updatePlanTool) Run(_ context.Context, raw json.RawMessage, _ *tools.En
 type delegateTool struct{ o *Orchestrator }
 
 type delegateArgs struct {
+	ID          string   `json:"id,omitempty"`
+	DependsOn   []string `json:"depends_on,omitempty"`
 	StepID      string   `json:"step_id"`
 	Title       string   `json:"title"`
 	Objective   string   `json:"objective"`
@@ -172,24 +174,27 @@ type delegateManyArgs struct {
 func (t *delegateManyTool) Name() string  { return "delegate_many" }
 func (t *delegateManyTool) Class() string { return "delegate" }
 func (t *delegateManyTool) Description() string {
-	return "Run two to five independent, full-access workers concurrently, each with its own context, session, and isolated worktree. " +
+	return "Run two to six full-access workers, each with its own context, session, and isolated worktree. " +
 		"USE THIS BY DEFAULT: for any task with more than two steps, for research, for comparison, or for anything that " +
-		"spans several parts of the codebase, dispatch a fleet of workers with one call instead of exploring one thread at " +
-		"a time. It is faster and keeps your context small. Give each worker a distinct angle and a self-contained brief. " +
+		"spans several parts of the codebase, dispatch a fleet with one call instead of exploring one thread at " +
+		"a time. Give each worker a distinct angle and a self-contained brief. Add id and depends_on to build a DAG: " +
+		"a dependent worker starts after its upstream tasks and receives their reports in its context. " +
 		"Workers can read, write, edit, run commands, use the network, and use every non-orchestration tool; changes are reviewed and merged, and tasks with no changes still complete. Returns one structured JSON report per worker plus total usage; reconcile conflicting reports yourself."
 }
 func (t *delegateManyTool) Schema() map[string]any {
 	taskSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"step_id":     map[string]any{"type": "string", "description": "ledger step this scout belongs to (recommended; must exist and be unique in the fleet)"},
-			"title":       map[string]any{"type": "string", "description": "short scout title"},
-			"objective":   map[string]any{"type": "string", "description": "the concrete question this scout must answer"},
-			"context":     map[string]any{"type": "string", "description": "self-contained context the scout cannot infer from the repo"},
+			"id":          map[string]any{"type": "string", "description": "fleet id, required when any task uses depends_on (defaults to step_id)"},
+			"depends_on":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "fleet ids that must finish first; their reports are added to this task's context"},
+			"step_id":     map[string]any{"type": "string", "description": "ledger step this worker belongs to (recommended; must exist)"},
+			"title":       map[string]any{"type": "string", "description": "short worker title"},
+			"objective":   map[string]any{"type": "string", "description": "the concrete question or task this worker must handle"},
+			"context":     map[string]any{"type": "string", "description": "self-contained context the worker cannot infer from the repo"},
 			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer or test-surveyor"},
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including evidence requirements"},
 			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "optional repo-relative ownership, for workers that may write"},
-			"max_steps":   map[string]any{"type": "integer", "description": "optional scout step budget (default from config, max 100)"},
+			"max_steps":   map[string]any{"type": "integer", "description": "optional worker step budget (default from config, max 100)"},
 		},
 		"required": []string{"title", "objective"},
 	}
@@ -198,7 +203,7 @@ func (t *delegateManyTool) Schema() map[string]any {
 		"properties": map[string]any{
 			"tasks": map[string]any{
 				"type":        "array",
-				"description": "independent read-only investigations to run concurrently (2-6)",
+				"description": "workers to run (2-6); omit depends_on for independent parallel work",
 				"minItems":    2,
 				"maxItems":    maxFleetTasks,
 				"items":       taskSchema,
@@ -229,7 +234,9 @@ type delegateResult struct {
 	Report        *WorkerReport `json:"report"`
 	Usage         ReportUsage   `json:"usage"`
 	WorkerSession string        `json:"worker_session,omitempty"`
+	Worktree      string        `json:"worktree,omitempty"`
 	Ledger        LedgerView    `json:"ledger"`
+	Merged        bool          `json:"merged,omitempty"`
 	Warning       string        `json:"warning,omitempty"`
 }
 

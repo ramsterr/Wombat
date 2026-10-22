@@ -173,7 +173,7 @@ Browser screenshots stay in memory and are not saved in the project.
 - **Sees** — screenshots, images, video, audio, and documents on models that support them.
 - **Creates** — image generation and editing, plus browser automation.
 - **Plans** — a persistent task ledger with dependencies, checks, structured reports, and continuous scheduling: a slow step does not hold back ready work, and timed-out or transient steps retry once.
-- **Delegates** — parallel workers in isolated git worktrees, with independent review and three-way merge.
+- **Delegates** — parallel workers in isolated git worktrees, with independent review and three-way merge. A worker that needs a decision returns `needs_input` with questions and can be resumed in the same session and worktree.
 - **Recovers** — retries transient network failures, repairs rejected thinking-mode histories, and keeps long sessions usable.
 - **Caches** — context pruning and summarization, checkpoints, and resumable sessions.
 
@@ -183,13 +183,15 @@ Workers are full-access by default. They can read, write, edit, run commands,
 use the network, browse, generate images, and use the coding/research toolset.
 Orchestration tools and `question` stay with the lead.
 
-- `delegate_many` runs independent workers in one wave.
-- `run_plan` executes the ledger as a dependency graph with continuous scheduling. Free slots start newly-ready work instead of waiting for a slow step; writers can review and merge while scouts are still running; timed-out/transient steps retry once; and slots are shared between scouts and writers.
-- `delegate_write` gives writers explicit file ownership.
+- `delegate_many` runs independent workers in one wave. Tasks can declare `id` and `depends_on` to form a DAG; dependents wait for their upstream reports, which are added to their context.
+- `run_plan` executes the ledger as a dependency graph with continuous scheduling. Free slots start newly-ready work instead of waiting for a slow step; writers can review and merge while scouts are still running; long dependency chains are scheduled first; timed-out/transient steps retry once; and slots are shared between scouts and writers. `background=true` returns immediately, `cancel=true` stops the plan, and canceled or interrupted steps stay pending so a later `run_plan` resumes them.
+- `delegate_write` gives writers explicit file ownership; writes outside the declared files are refused.
+- `resume_worker` answers a worker that reported `needs_input` and continues the same session and worktree.
 - `rename` and `refactor` use a real language server.
-- Workers run in git worktrees when possible; changes are reviewed and merged.
+- Workers run in git worktrees when possible; warm worktrees are reused between steps, changes are reviewed and merged, and checks run once before merge.
 - Token budgets are unlimited by default. `max_parallel_scouts` and
   `max_parallel_writers` limit concurrency.
+- `check_policy` controls where checks run (`auto`, `worktree`, `merge`, `both`) and `review_policy` controls writer review (`always`, `auto`, `never`).
 
 Use workers for independent files, categories, pages, or audits. Do not use
 them for a single shell command or for several agents reading the same data.
@@ -237,6 +239,8 @@ wombat config set fallback_models gpt-5-mini
 wombat config set scout_model gpt-5-mini
 wombat config set worker_full_access false
 wombat config set review_writers false
+wombat config set check_policy auto
+wombat config set review_policy always
 wombat config set max_parallel_scouts 5
 wombat config set permissions.bash ask
 ```

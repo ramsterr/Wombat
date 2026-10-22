@@ -189,3 +189,254 @@ func TestRunPlanRetriesTimedOutStep(t *testing.T) {
 		t.Fatalf("step = %+v\n%s", step, out)
 	}
 }
+
+type orderScoutProvider struct {
+	mu    sync.Mutex
+	order []string
+}
+
+func (p *orderScoutProvider) Name() string { return "order-scout" }
+func (p *orderScoutProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"order-scout"}, nil
+}
+func (p *orderScoutProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	id := ""
+	for _, line := range strings.Split(req.System, "\n") {
+		if strings.HasPrefix(line, "Ledger step: [") {
+			id = strings.TrimPrefix(line, "Ledger step: [")
+			if end := strings.Index(id, "]"); end >= 0 {
+				id = id[:end]
+			}
+			break
+		}
+	}
+	p.mu.Lock()
+	p.order = append(p.order, id)
+	p.mu.Unlock()
+	return &llm.Result{Content: `{"status":"completed","summary":"ok"}`}, nil
+}
+func (p *orderScoutProvider) seen() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.order...)
+}
+
+func TestRunPlanPrioritizesCriticalPath(t *testing.T) {
+	prov := &orderScoutProvider{}
+	o, _, _ := newOrch(t, prov, Config{})
+	if _, err := o.updatePlan("goal", nil, []Step{
+		{ID: "a", Title: "Chain root", Status: StepPending},
+		{ID: "b", Title: "Independent", Status: StepPending},
+		{ID: "c", Title: "Chain middle", Status: StepPending, DependsOn: []string{"a"}},
+		{ID: "d", Title: "Chain leaf", Status: StepPending, DependsOn: []string{"c"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.runPlan(context.Background(), runPlanArgs{MaxParallel: 1}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"a", "c", "b", "d"}
+	got := prov.seen()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
+type backgroundPlanProvider struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (p *backgroundPlanProvider) Name() string { return "background-plan" }
+func (p *backgroundPlanProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"background-plan"}, nil
+}
+func (p *backgroundPlanProvider) Chat(ctx context.Context, _ llm.Request, _ func(string)) (*llm.Result, error) {
+	p.once.Do(func() { close(p.started) })
+	select {
+	case <-p.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &llm.Result{Content: `{"status":"completed","summary":"ok"}`}, nil
+}
+
+func TestRunPlanBackgroundCanBeJoined(t *testing.T) {
+	p := &backgroundPlanProvider{started: make(chan struct{}), release: make(chan struct{})}
+	o, _, _ := newOrch(t, p, Config{})
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "slow", Title: "Slow", Status: StepPending}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.runPlan(context.Background(), runPlanArgs{Background: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status": "running"`) {
+		t.Fatalf("background start = %s", out)
+	}
+	select {
+	case <-p.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("background plan never started")
+	}
+	joined := make(chan string, 1)
+	go func() {
+		res, err := o.runPlan(context.Background(), runPlanArgs{})
+		if err != nil {
+			t.Error(err)
+		}
+		joined <- res
+	}()
+	close(p.release)
+	select {
+	case res := <-joined:
+		if !strings.Contains(res, `"status": "completed"`) {
+			t.Fatalf("joined result = %s", res)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("join did not return")
+	}
+	if step := o.ledger.Find("slow"); step == nil || step.Status != StepCompleted {
+		t.Fatalf("step = %+v", step)
+	}
+}
+
+type cancelPlanProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *cancelPlanProvider) Name() string { return "cancel-plan" }
+func (p *cancelPlanProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"cancel-plan"}, nil
+}
+func (p *cancelPlanProvider) Chat(ctx context.Context, _ llm.Request, _ func(string)) (*llm.Result, error) {
+	p.mu.Lock()
+	p.calls++
+	n := p.calls
+	p.mu.Unlock()
+	if n == 1 {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return &llm.Result{Content: `{"status":"completed","summary":"resumed"}`}, nil
+}
+
+func TestRunPlanCancelLeavesStepsPendingForResume(t *testing.T) {
+	p := &cancelPlanProvider{}
+	o, _, _ := newOrch(t, p, Config{})
+	if _, err := o.updatePlan("goal", nil, []Step{
+		{ID: "a", Title: "First", Status: StepPending},
+		{ID: "b", Title: "Second", Status: StepPending, DependsOn: []string{"a"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.runPlan(context.Background(), runPlanArgs{Background: true, MaxParallel: 1}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		p.mu.Lock()
+		started := p.calls > 0
+		p.mu.Unlock()
+		if started {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("plan never started")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	out, err := o.runPlan(context.Background(), runPlanArgs{Cancel: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"status": "cancelled"`) {
+		t.Fatalf("cancel result = %s", out)
+	}
+	if step := o.ledger.Find("a"); step == nil || step.Status != StepPending {
+		t.Fatalf("a after cancel = %+v", step)
+	}
+	if step := o.ledger.Find("b"); step == nil || step.Status != StepPending {
+		t.Fatalf("b after cancel = %+v", step)
+	}
+	resumed, err := o.runPlan(context.Background(), runPlanArgs{MaxParallel: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resumed, `"status": "completed"`) {
+		t.Fatalf("resumed = %s", resumed)
+	}
+	for _, id := range []string{"a", "b"} {
+		if step := o.ledger.Find(id); step == nil || step.Status != StepCompleted {
+			t.Fatalf("%s after resume = %+v", id, step)
+		}
+	}
+}
+
+type turnPlanProvider struct {
+	mu          sync.Mutex
+	leadCalls   int
+	workerCalls int
+	started     chan struct{}
+	once        sync.Once
+}
+
+func (p *turnPlanProvider) Name() string { return "turn-plan" }
+func (p *turnPlanProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"turn-plan"}, nil
+}
+func (p *turnPlanProvider) Chat(ctx context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	if strings.Contains(req.System, "## Delegated worker") {
+		p.mu.Lock()
+		p.workerCalls++
+		n := p.workerCalls
+		p.mu.Unlock()
+		if n == 1 {
+			p.once.Do(func() { close(p.started) })
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &llm.Result{Content: `{"status":"completed","summary":"resumed"}`}, nil
+	}
+	p.mu.Lock()
+	p.leadCalls++
+	n := p.leadCalls
+	p.mu.Unlock()
+	switch n {
+	case 1:
+		return toolCall("p1", "run_plan", map[string]any{"background": true, "max_parallel": 1}), nil
+	case 2:
+		return &llm.Result{Content: "started it"}, nil
+	case 3:
+		return toolCall("p2", "run_plan", map[string]any{"max_parallel": 1}), nil
+	default:
+		return &llm.Result{Content: "all done"}, nil
+	}
+}
+
+func TestRunEndCancelsBackgroundPlanAndNextTurnResumes(t *testing.T) {
+	p := &turnPlanProvider{started: make(chan struct{})}
+	o, ag, _ := newOrch(t, p, Config{})
+	if _, err := o.updatePlan("goal", nil, []Step{{ID: "a", Title: "First", Status: StepPending}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.Run(context.Background(), "start the plan in the background"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-p.started:
+	default:
+		t.Fatal("background plan never started")
+	}
+	if step := o.ledger.Find("a"); step == nil || step.Status != StepPending {
+		t.Fatalf("step after turn = %+v", step)
+	}
+	if err := ag.Run(context.Background(), "resume the plan"); err != nil {
+		t.Fatal(err)
+	}
+	if step := o.ledger.Find("a"); step == nil || step.Status != StepCompleted {
+		t.Fatalf("step after resume = %+v", step)
+	}
+}

@@ -59,6 +59,14 @@ type Config struct {
 	ReviewWriters    *bool
 	ReviewModel      string
 	ReviewerMaxSteps int
+	// CheckPolicy controls where a writer's checks run: "auto" runs them in
+	// the worktree and after merge only when the merged base moved, "worktree"
+	// skips the post-merge run, "merge" runs only after merging, "both"
+	// always runs both.
+	CheckPolicy string
+	// ReviewPolicy controls writer review: "always" (default), "auto" skips
+	// review for documentation-only patches, and "never" disables it.
+	ReviewPolicy string
 	// FullWorkers gives delegated workers write, network, and all non-
 	// orchestration tools in an isolated worktree. It is on by default in
 	// the app; direct Config users opt in.
@@ -112,6 +120,27 @@ func (c Config) reviewsWriters() bool {
 	return c.ReviewWriters == nil || *c.ReviewWriters
 }
 
+func (c Config) checkPolicy() string {
+	switch c.CheckPolicy {
+	case "worktree", "merge", "both":
+		return c.CheckPolicy
+	default:
+		return "auto"
+	}
+}
+
+func (c Config) reviewPolicy() string {
+	if !c.reviewsWriters() {
+		return "never"
+	}
+	switch c.ReviewPolicy {
+	case "auto", "never":
+		return c.ReviewPolicy
+	default:
+		return "always"
+	}
+}
+
 func (c Config) reviewerModel(lead string) string {
 	if c.ReviewModel != "" {
 		return c.ReviewModel
@@ -139,10 +168,15 @@ type Orchestrator struct {
 	delegations      int
 	totalDelegations int
 	workerTokens     int
-	writers          int
+	activeWriters    int
 	writerTokens     int
 	writerBase       string
+	planRun          *planSession
+	planActive       map[string]bool
+	resumables       map[string]*resumableWorker
+	resumeOrder      []string
 	hooksMu          sync.Mutex
+	resumeMu         sync.Mutex
 }
 
 func (o *Orchestrator) currentWriterBase() string {
@@ -155,6 +189,25 @@ func (o *Orchestrator) setWriterBase(base string) {
 	o.mu.Lock()
 	o.writerBase = base
 	o.mu.Unlock()
+}
+
+// acquireWorktree reuses a warm worktree when possible.
+func (o *Orchestrator) acquireWorktree(id string) (*worktree.Worktree, error) {
+	base := o.currentWriterBase()
+	o.worktreeMu.Lock()
+	defer o.worktreeMu.Unlock()
+	return o.worktrees.AcquireAt(id, base)
+}
+
+// releaseWorktree returns a successful worktree to the pool, or removes it
+// when pooling is off or KeepWorktrees is set.
+func (o *Orchestrator) releaseWorktree(wt *worktree.Worktree, keep bool) {
+	if wt == nil || keep {
+		return
+	}
+	o.worktreeMu.Lock()
+	defer o.worktreeMu.Unlock()
+	o.worktrees.Release(wt)
 }
 
 // ensureWriterBase pins a clean HEAD before a parallel full-access batch so
@@ -203,6 +256,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		ledger:      ledger,
 		ledgerPath:  path,
 		loadWarning: warning,
+		resumables:  make(map[string]*resumableWorker),
 	}
 	for _, t := range ag.Tools {
 		// The workers read, search, reach the web, and run bash commands that
@@ -227,6 +281,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		if err != nil {
 			o.writerWarn = err.Error()
 		} else {
+			mgr.SetPoolSize(cfg.MaxParallelWriters)
 			o.worktrees = mgr
 			ag.Tools = append(ag.Tools, &delegateWriteTool{o: o})
 		}
@@ -250,15 +305,32 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		}
 		o.beginTurn()
 	}
-	ag.Tools = append(ag.Tools, &updatePlanTool{o: o}, &runPlanTool{o: o}, &delegateTool{o: o}, &delegateManyTool{o: o}, &runChecksTool{o: o})
+	prevRunEnd := ag.RunEnd
+	ag.RunEnd = func() {
+		o.endTurn()
+		if prevRunEnd != nil {
+			prevRunEnd()
+		}
+	}
+	ag.Tools = append(ag.Tools, &updatePlanTool{o: o}, &runPlanTool{o: o}, &delegateTool{o: o}, &delegateManyTool{o: o}, &resumeWorkerTool{o: o}, &runChecksTool{o: o})
 	return o, nil
+}
+
+func (o *Orchestrator) endTurn() {
+	o.mu.Lock()
+	active := o.planRun
+	o.mu.Unlock()
+	if active == nil {
+		return
+	}
+	active.cancel()
+	<-active.done
 }
 
 func (o *Orchestrator) beginTurn() {
 	o.mu.Lock()
 	o.delegations = 0
 	o.workerTokens = 0
-	o.writers = 0
 	o.writerTokens = 0
 	o.writerBase = ""
 	o.mu.Unlock()

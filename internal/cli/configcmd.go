@@ -20,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, check_policy, review_policy, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -53,6 +53,20 @@ func cmdConfig(args []string) error {
 		cfg.ReviewWriters = &v
 	case key == "review_model":
 		cfg.ReviewModel = val
+	case key == "check_policy":
+		switch strings.ToLower(val) {
+		case "auto", "worktree", "merge", "both":
+			cfg.CheckPolicy = strings.ToLower(val)
+		default:
+			return fmt.Errorf("check_policy must be auto, worktree, merge, or both")
+		}
+	case key == "review_policy":
+		switch strings.ToLower(val) {
+		case "always", "auto", "never":
+			cfg.ReviewPolicy = strings.ToLower(val)
+		default:
+			return fmt.Errorf("review_policy must be always, auto, or never")
+		}
 	case key == "worker_full_access":
 		v, err := parseBool(key, val)
 		if err != nil {

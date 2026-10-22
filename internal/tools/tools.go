@@ -75,6 +75,11 @@ type Env struct {
 	// a command cannot escape the worktree.
 	BlockedRoots []string
 
+	// WritePaths, when non-empty, restricts write and edit tools to these
+	// repo-relative (or absolute) files. Writers set it from their declared
+	// ownership list. Bash commands are not covered.
+	WritePaths []string
+
 	// browser owns the local Chromium session used for visual verification.
 	browser *browser.Manager
 
@@ -328,6 +333,11 @@ func (e *Env) checkPolicy(kind, detail string) error {
 	}
 	if e.DenyMutate && (kind == "write" || kind == "edit") {
 		return fmt.Errorf("chat mode: %s is disabled — switch to create mode to change files", kind)
+	}
+	if (kind == "write" || kind == "edit") && len(e.WritePaths) > 0 {
+		if err := e.checkWriteOwnership(detail); err != nil {
+			return err
+		}
 	}
 	if kind == "bash" {
 		if e.DenyGit && IsGitMutatingCommand(detail) {
