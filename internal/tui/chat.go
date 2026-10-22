@@ -1715,7 +1715,9 @@ func (c *chat) previewBar() string {
 		return ""
 	}
 	status := "ready"
-	if c.streaming {
+	if c.question != nil {
+		status = "waiting for your feedback"
+	} else if c.streaming {
 		status = "still iterating · esc to stop"
 	}
 	text := " ● preview ready — " + c.previewURL + "  ·  " + status + " "

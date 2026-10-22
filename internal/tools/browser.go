@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"image"
 	_ "image/png"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -24,7 +22,6 @@ type browserArgs struct {
 	Text       string `json:"text"`
 	Key        string `json:"key"`
 	Expression string `json:"expression"`
-	Path       string `json:"path"`
 	FullPage   bool   `json:"full_page"`
 	Width      int    `json:"width"`
 	Height     int    `json:"height"`
@@ -37,7 +34,7 @@ type browserArgs struct {
 func (t *Browser) Name() string  { return "browser" }
 func (t *Browser) Class() string { return "network" }
 func (t *Browser) Description() string {
-	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Screenshots are attached so you can visually verify frontend work. Use browser for local UI and web apps instead of guessing from HTML."
+	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Screenshots are attached in memory and never written to disk. Use one desktop and one mobile screenshot to verify frontend work, then stop and ask the user before polishing further. Use browser for local UI and web apps instead of guessing from HTML."
 }
 func (t *Browser) Schema() map[string]any {
 	return obj(map[string]any{
@@ -47,7 +44,6 @@ func (t *Browser) Schema() map[string]any {
 		"text":       desc("text to type"),
 		"key":        desc("key to press, such as Enter, Tab, Escape, ArrowDown, or a single character"),
 		"expression": desc("JavaScript expression for eval"),
-		"path":       desc("optional screenshot output path; defaults to the session scratch directory"),
 		"full_page":  map[string]any{"type": "boolean", "description": "capture the whole page instead of the viewport"},
 		"width":      map[string]any{"type": "integer", "description": "viewport width for resize (default 1280)"},
 		"height":     map[string]any{"type": "integer", "description": "viewport height for resize (default 900)"},
@@ -104,16 +100,16 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 		if err != nil {
 			return "", err
 		}
-		path, rel, err := saveScreenshot(env, a.Path, shot)
-		if err != nil {
-			return "", err
-		}
 		width, height := 0, 0
 		if cfg, _, err := image.DecodeConfig(bytes.NewReader(shot)); err == nil {
 			width, height = cfg.Width, cfg.Height
 		}
-		env.AddMedia(Media{Path: path, MIME: "image/png", Name: filepath.Base(path)})
-		return fmt.Sprintf("screenshot %s (%dx%d, %d bytes); attached for you to look at", filepath.ToSlash(rel), width, height, len(shot)), nil
+		name := "screenshot.png"
+		if width > 0 && height > 0 {
+			name = fmt.Sprintf("screenshot-%dx%d.png", width, height)
+		}
+		env.AddMedia(Media{Data: shot, Size: int64(len(shot)), MIME: "image/png", Name: name})
+		return fmt.Sprintf("screenshot (%dx%d, %d bytes); attached for you to look at", width, height, len(shot)), nil
 	case "click":
 		if strings.TrimSpace(a.Selector) == "" {
 			return "", fmt.Errorf("selector is required")
@@ -217,45 +213,4 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 		return fmt.Sprintf("reloaded %s\n%s", info.URL, info.Title), nil
 	}
 	return "", fmt.Errorf("action must be open, navigate, screenshot, click, type, press, scroll, eval, text, wait, resize, back, forward, reload, or close")
-}
-
-func saveScreenshot(env *Env, requested string, data []byte) (path, rel string, err error) {
-	if strings.TrimSpace(requested) == "" {
-		dir := env.SpillDir()
-		if dir == "" {
-			dir = filepath.Join(os.TempDir(), "wombat-screenshots")
-		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return "", "", err
-		}
-		path = filepath.Join(dir, fmt.Sprintf("browser-%d.png", time.Now().UnixNano()))
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			return "", "", err
-		}
-		return path, path, nil
-	}
-	if err := env.CheckPath("write", requested); err != nil {
-		return "", "", err
-	}
-	path, err = env.ResolvePath(requested)
-	if err != nil {
-		return "", "", err
-	}
-	if filepath.Ext(path) == "" {
-		path += ".png"
-	}
-	if err := env.Snapshot("before screenshot", requested); err != nil {
-		return "", "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", "", err
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return "", "", err
-	}
-	rel, err = filepath.Rel(env.Dir, path)
-	if err != nil {
-		rel = path
-	}
-	return path, rel, nil
 }

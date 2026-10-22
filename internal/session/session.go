@@ -110,7 +110,7 @@ func Open(id, cwd string) (*Session, error) {
 			continue
 		}
 		if r.Type == "msg" {
-			s.Messages = append(s.Messages, r.Msg)
+			s.Messages = append(s.Messages, pruneEphemeralAttachments(r.Msg))
 		}
 	}
 	if first {
@@ -160,6 +160,26 @@ func List(cwd string) ([]Meta, error) {
 	}
 	sort.Slice(metas, func(i, j int) bool { return metas[i].Updated.After(metas[j].Updated) })
 	return metas, nil
+}
+
+// pruneEphemeralAttachments drops images that lived only in memory when the
+// session was live, such as browser screenshots. They have no file to reload.
+func pruneEphemeralAttachments(m llm.Message) llm.Message {
+	if len(m.Attachments) == 0 {
+		return m
+	}
+	keep := m.Attachments[:0]
+	for _, a := range m.Attachments {
+		if a.Path != "" || len(a.Data) > 0 {
+			keep = append(keep, a)
+		}
+	}
+	if len(keep) == 0 {
+		m.Attachments = nil
+	} else {
+		m.Attachments = keep
+	}
+	return m
 }
 
 func (s *Session) ID() string {

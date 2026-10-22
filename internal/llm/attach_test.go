@@ -46,6 +46,20 @@ func TestAttachmentKindAndMIME(t *testing.T) {
 	}
 }
 
+func TestInlineAttachmentData(t *testing.T) {
+	a := Attachment{Kind: "image", MIME: "image/png", Name: "screenshot.png", Data: []byte("png")}
+	data, err := LoadAttachment(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "png" {
+		t.Fatalf("data = %q", data)
+	}
+	if _, err := oaiContent(Message{Role: "user", Content: "look", Attachments: []Attachment{a}}); err != nil {
+		t.Fatalf("openai inline image: %v", err)
+	}
+}
+
 func TestParseMentions(t *testing.T) {
 	dir := t.TempDir()
 	quoted := writeTemp(t, dir, "my cat.png", "png")

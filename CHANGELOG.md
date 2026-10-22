@@ -19,6 +19,10 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Changed
 
+- Browser screenshots are attached in memory and are never written into the
+  project. A site or UI task checks one desktop and one mobile view, starts
+  the preview, and asks for feedback ("Looks good" / "Needs changes" / a typed
+  answer) before polishing further.
 - `run_plan` now schedules continuously instead of in barrier waves. A slow
   step no longer holds back independent or newly-ready work, writers can merge
   while scouts are still running, timed-out and transient steps get one retry,

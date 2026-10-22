@@ -116,10 +116,15 @@ func (e *Env) SpillDir() string {
 	return e.spillDir
 }
 
-// Media is a file a tool produced for the model to look at.
+// Media is an image a tool produced for the model to look at. It may live in
+// memory (browser screenshots) or on disk (images read or generated).
 type Media struct {
-	// Path is the file on disk.
+	// Path is the file on disk, when there is one.
 	Path string
+	// Data is the image bytes for media that is never written to disk.
+	Data []byte
+	// Size is the byte length when known.
+	Size int64
 	// MIME is the content type.
 	MIME string
 	// Name is a friendly name for the model.
@@ -141,7 +146,7 @@ func (e *Env) SetMediaSink(m *[]Media) {
 	e.media = &mediaSink{list: m}
 }
 
-// AddMedia hands a file to the model as an attachment. It is safe to call
+// AddMedia hands an image to the model as an attachment. It is safe to call
 // from parallel read-only tools.
 func (e *Env) AddMedia(m Media) {
 	if e == nil || e.media == nil {

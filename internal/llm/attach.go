@@ -22,6 +22,9 @@ type Attachment struct {
 	Name string `json:"name,omitempty"`
 	Path string `json:"path"`
 	Size int64  `json:"size,omitempty"`
+	// Data is used for attachments that exist only for the current process,
+	// such as browser screenshots. It is never serialized into a session.
+	Data []byte `json:"-"`
 }
 
 var mimeByExt = map[string]string{
@@ -143,9 +146,13 @@ func NewAttachment(path string) (Attachment, error) {
 }
 
 func LoadAttachment(a Attachment) ([]byte, error) {
-	data, err := os.ReadFile(a.Path)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", a.Name, err)
+	data := a.Data
+	if len(data) == 0 {
+		var err error
+		data, err = os.ReadFile(a.Path)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", a.Name, err)
+		}
 	}
 	if len(data) > MaxAttachmentBytes {
 		return nil, fmt.Errorf("%s exceeds the %s attachment limit", a.Name, HumanSize(MaxAttachmentBytes))

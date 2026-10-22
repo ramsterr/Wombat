@@ -49,15 +49,14 @@ func TestBrowserToolScreenshotAndInteraction(t *testing.T) {
 		t.Fatalf("eval = %q", got)
 	}
 	shot := run(t, &Browser{}, env, `{"action":"screenshot","path":"shots/home.png"}`)
-	if !strings.Contains(shot, "screenshot shots/home.png") {
+	if !strings.Contains(shot, "screenshot (") {
 		t.Fatalf("screenshot = %q", shot)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "shots", "home.png"))
-	if err != nil || !bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")) {
-		t.Fatalf("screenshot file = %d bytes, %v", len(data), err)
-	}
-	if len(media) != 1 || media[0].MIME != "image/png" {
+	if len(media) != 1 || media[0].MIME != "image/png" || !bytes.HasPrefix(media[0].Data, []byte("\x89PNG\r\n\x1a\n")) {
 		t.Fatalf("media = %+v", media)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "shots")); !os.IsNotExist(err) {
+		t.Fatalf("a screenshot wrote to disk: %v", err)
 	}
 	if got := run(t, &Browser{}, env, `{"action":"resize","width":390,"height":844}`); got != "viewport is 390x844" {
 		t.Fatalf("resize = %q", got)

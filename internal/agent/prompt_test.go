@@ -33,8 +33,9 @@ func TestCraftStandardInPrompt(t *testing.T) {
 		"prefer proven, licensed sources",
 		"Credit what you reuse",
 		"Search the web when the network allows it",
-		"examples/ directory",
 		"before you claim it works",
+		"never loop",
+		"Looks good",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the system prompt is missing %q", want)

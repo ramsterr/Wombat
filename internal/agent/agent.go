@@ -575,7 +575,11 @@ func (a *Agent) appendMedia(media []tools.Media) error {
 			if m.Note != "" {
 				note = " (" + m.Note + ")"
 			}
-			parts = append(parts, fmt.Sprintf("%s is an image (%s, %d bytes) at %s%s", m.Name, m.MIME, fileSize(m.Path), m.Path, note))
+			location := ""
+			if m.Path != "" {
+				location = " at " + m.Path
+			}
+			parts = append(parts, fmt.Sprintf("%s is an image (%s, %d bytes)%s%s", m.Name, m.MIME, mediaSize(m), location, note))
 		}
 		content := "I read " + strings.Join(parts, ", and ") + ". This model cannot see images, so I cannot " +
 			"look at them. Use the file directly (a tool that reads its metadata, or a command) if you need facts about it."
@@ -585,10 +589,25 @@ func (a *Agent) appendMedia(media []tools.Media) error {
 	attachments := make([]llm.Attachment, 0, len(media))
 	for _, m := range media {
 		names = append(names, m.Name)
-		attachments = append(attachments, llm.Attachment{Kind: "image", MIME: m.MIME, Name: m.Name, Path: m.Path})
+		attachments = append(attachments, llm.Attachment{
+			Kind: "image", MIME: m.MIME, Name: m.Name, Path: m.Path,
+			Size: mediaSize(m), Data: m.Data,
+		})
 	}
 	content := "I read " + strings.Join(names, ", ") + ". Look at the attached image and continue."
 	return a.Sess.Append(llm.Message{Role: "user", Content: content, Attachments: attachments})
+}
+
+// mediaSize is the byte length of a tool image, whether it is in memory or on
+// disk.
+func mediaSize(m tools.Media) int64 {
+	if m.Size > 0 {
+		return m.Size
+	}
+	if len(m.Data) > 0 {
+		return int64(len(m.Data))
+	}
+	return fileSize(m.Path)
 }
 
 // fileSize is the size of a file, or zero when it cannot be read.

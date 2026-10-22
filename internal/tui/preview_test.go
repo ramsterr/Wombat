@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/ramsterr/Wombat/internal/tools"
 )
 
 func TestFindPreviewURL(t *testing.T) {
@@ -33,6 +35,10 @@ func TestPreviewBar(t *testing.T) {
 	c.streaming = false
 	if got := c.previewBar(); !strings.Contains(got, "ready") || strings.Contains(got, "still iterating") {
 		t.Fatalf("finished bar = %q", got)
+	}
+	c.question = &tools.Question{Question: "Does this look right?"}
+	if got := c.previewBar(); !strings.Contains(got, "waiting for your feedback") {
+		t.Fatalf("question bar = %q", got)
 	}
 }
 

@@ -160,7 +160,9 @@ Common slash commands:
 
 When the agent starts a local web server, a highlighted **preview ready** bar
 appears under the header. Use `/preview` to open it, and `esc` to stop when it
-looks right.
+looks right. For a new site, the agent builds the complete first version, checks
+one desktop and one mobile view, then waits for your feedback before iterating.
+Browser screenshots stay in memory and are not saved in the project.
 
 ## What it does
 

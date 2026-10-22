@@ -71,6 +71,32 @@ func TestSessionRoundtrip(t *testing.T) {
 	}
 }
 
+func TestEphemeralAttachmentsAreNotReloaded(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	cwd := t.TempDir()
+	s, err := Create(cwd, "openai", "gpt-5", "shot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(llm.Message{
+		Role:    "user",
+		Content: "I read screenshot.png.",
+		Attachments: []llm.Attachment{{
+			Kind: "image", MIME: "image/png", Name: "screenshot.png",
+			Size: 3, Data: []byte("png"),
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.ID(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reopened.Messages) != 1 || len(reopened.Messages[0].Attachments) != 0 {
+		t.Fatalf("attachments reloaded: %+v", reopened.Messages)
+	}
+}
+
 func TestIsolatedByCwd(t *testing.T) {
 	t.Setenv("WOMBAT_HOME", t.TempDir())
 	cwd1 := t.TempDir()
