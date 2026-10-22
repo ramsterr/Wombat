@@ -120,8 +120,8 @@ runs.
 | `wombat doctor` | diagnose config and connectivity |
 | `wombat config` | show config, with keys redacted |
 | `wombat config set <key> <value>` | change one setting |
-| `wombat checkpoint list` | list file snapshots |
-| `wombat checkpoint restore <id>` | restore a snapshot |
+| `wombat checkpoint list` | list shadow-git checkpoints |
+| `wombat checkpoint restore <id>` | restore a checkpoint |
 | `wombat upgrade` | install the latest stable release |
 | `wombat version` | print the version |
 

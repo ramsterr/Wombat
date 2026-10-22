@@ -229,3 +229,99 @@ func TestBigWorkspaceIsPartialAndFast(t *testing.T) {
 		t.Errorf("a partial restore deleted files: %d left", len(entries))
 	}
 }
+
+func TestShadowGitPreservesIgnoredFiles(t *testing.T) {
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, ".gitignore"), []byte("*.mp4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "keep.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "clip.mp4"), []byte("ignored but present"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, ".wombat"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, ".wombat", "state.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := New(t.TempDir(), work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := m.Snapshot("ignored", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "keep.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "clip.mp4"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "new.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Restore(id); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(work, "keep.txt")); err != nil || string(data) != "one" {
+		t.Fatalf("keep.txt = %q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(work, "clip.mp4")); err != nil {
+		t.Fatalf("ignored existing file was deleted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(work, "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("new.txt should be removed, err=%v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(work, ".wombat", "state.json")); err != nil || string(data) != "{}" {
+		t.Fatalf(".wombat state was touched: %q err=%v", data, err)
+	}
+}
+
+func TestShadowGitReusesBlobs(t *testing.T) {
+	work := t.TempDir()
+	data := make([]byte, 2<<20)
+	for i := range data {
+		data[i] = byte((i * 31) % 251)
+	}
+	if err := os.WriteFile(filepath.Join(work, "big.bin"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	m, err := New(root, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Snapshot("one", nil); err != nil {
+		t.Fatal(err)
+	}
+	before := dirSize(t, filepath.Join(root, "git"))
+	if _, err := m.Snapshot("two", nil); err != nil {
+		t.Fatal(err)
+	}
+	after := dirSize(t, filepath.Join(root, "git"))
+	if after > before+(64<<10) {
+		t.Fatalf("second snapshot grew the object store by %d bytes", after-before)
+	}
+}
+
+func dirSize(t *testing.T, root string) int64 {
+	t.Helper()
+	var total int64
+	err := filepath.Walk(root, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return total
+}

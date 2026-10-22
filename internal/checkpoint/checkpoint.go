@@ -1,14 +1,11 @@
 package checkpoint
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,14 +13,10 @@ import (
 	"time"
 )
 
-const (
-	maxFiles      = 500000
-	maxFileBytes  = 512 << 20
-	maxTotalBytes = 8 << 30
-)
-
+// ErrPathOutside means a checkpoint path is not inside the workspace.
 var ErrPathOutside = errors.New("checkpoint path is outside the workspace")
 
+// File is one path recorded in a snapshot.
 type File struct {
 	Path   string      `json:"path"`
 	Exists bool        `json:"exists"`
@@ -32,6 +25,9 @@ type File struct {
 	SHA256 string      `json:"sha256,omitempty"`
 }
 
+// Manifest describes one checkpoint. The actual file contents live in a
+// private git object store under the checkpoint root; this file only records
+// metadata, so repeated snapshots do not duplicate unchanged files.
 type Manifest struct {
 	ID        string    `json:"id"`
 	Reason    string    `json:"reason,omitempty"`
@@ -41,20 +37,32 @@ type Manifest struct {
 	Scope     []string  `json:"scope,omitempty"`
 	Files     []File    `json:"files"`
 	Skipped   []string  `json:"skipped,omitempty"`
-	// Partial marks a snapshot that hit the size limits: it holds what it
-	// could capture, and a restore only puts back those files.
-	Partial bool `json:"partial,omitempty"`
+	Partial   bool      `json:"partial,omitempty"`
 }
 
+// Manager stores checkpoints for one session. It uses a private git
+// repository with the user's workspace as its work tree. Git stores each
+// blob once, so snapshots only grow when file contents actually change.
 type Manager struct {
 	root      string
 	workspace string
-	mu        struct {
+	gitDir    string
+	metaDir   string
+	disabled  bool
+
+	mu struct {
 		sync.Mutex
 		last string
 	}
 }
 
+// RootForSession returns the private checkpoint directory for a session.
+func RootForSession(sessionPath string) string {
+	return strings.TrimSuffix(sessionPath, filepath.Ext(sessionPath)) + ".checkpoints"
+}
+
+// New prepares a shadow git repository for workspace. If git is unavailable,
+// checkpointing becomes a no-op instead of breaking edits.
 func New(root, workspace string) (*Manager, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("checkpoint root is required")
@@ -63,17 +71,67 @@ func New(root, workspace string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{root: root, workspace: abs}, nil
-}
-
-func RootForSession(sessionPath string) string {
-	if sessionPath == "" {
-		return ""
+	m := &Manager{
+		root:      root,
+		workspace: abs,
+		gitDir:    filepath.Join(root, "git"),
+		metaDir:   filepath.Join(root, "meta"),
 	}
-	return strings.TrimSuffix(sessionPath, filepath.Ext(sessionPath)) + ".checkpoints"
+	if _, err := exec.LookPath("git"); err != nil {
+		m.disabled = true
+		return m, nil
+	}
+	if err := m.ensure(); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
-func (m *Manager) Root() string { return m.root }
+func (m *Manager) ensure() error {
+	if m.disabled {
+		return nil
+	}
+	if err := os.MkdirAll(m.metaDir, 0o700); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(m.gitDir, "HEAD")); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(m.gitDir, 0o700); err != nil {
+			return err
+		}
+		cmd := exec.Command("git", "init", "--bare", m.gitDir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("init shadow git: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		for _, args := range [][]string{
+			{"config", "user.name", "Wombat"},
+			{"config", "user.email", "wombat@localhost"},
+			{"config", "core.bare", "false"},
+			{"config", "core.worktree", m.workspace},
+			{"config", "core.autocrlf", "false"},
+		} {
+			if _, err := m.git(args...); err != nil {
+				return err
+			}
+		}
+	}
+	// Never snapshot Wombat's own state, and never let one huge generated
+	// directory turn a checkpoint into a copy of the machine.
+	exclude := filepath.Join(m.gitDir, "info", "exclude")
+	_ = os.MkdirAll(filepath.Dir(exclude), 0o700)
+	_ = os.WriteFile(exclude, []byte(".wombat/\n.git/\n"), 0o600)
+	return nil
+}
+
+func (m *Manager) git(args ...string) (string, error) {
+	base := []string{"--git-dir", m.gitDir, "--work-tree", m.workspace}
+	cmd := exec.Command("git", append(base, args...)...)
+	cmd.Dir = m.workspace
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
 
 func (m *Manager) rel(path string) (string, error) {
 	abs := path
@@ -94,155 +152,94 @@ func (m *Manager) rel(path string) (string, error) {
 	return filepath.ToSlash(rel), nil
 }
 
+// Snapshot commits the current workspace state into the shadow repository and
+// returns the commit hash. With paths set, the manifest and restore are scoped
+// to those paths; the object store may still reuse unchanged blobs.
 func (m *Manager) Snapshot(reason string, paths []string) (string, error) {
+	if m.disabled {
+		return "", nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	id := time.Now().UTC().Format("20060102-150405.000000000") + "-" + randomHex(4)
-	dir := filepath.Join(m.root, id)
-	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o700); err != nil {
+	if err := m.ensure(); err != nil {
 		return "", err
 	}
-	manifest := Manifest{ID: id, Reason: reason, Workspace: m.workspace, Created: time.Now().UTC()}
-	var total int64
-	var add func(path string) error
-	add = func(path string) error {
-		abs := path
-		if !filepath.IsAbs(abs) {
-			abs = filepath.Join(m.workspace, abs)
-		}
-		abs, err := filepath.Abs(abs)
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(m.workspace, abs)
-		if err != nil {
-			return err
-		}
-		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-			return fmt.Errorf("%w: %s", ErrPathOutside, path)
-		}
-		rel = filepath.ToSlash(rel)
-		info, err := os.Lstat(abs)
-		if errors.Is(err, os.ErrNotExist) {
-			manifest.Files = append(manifest.Files, File{Path: rel, Exists: false})
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return filepath.WalkDir(abs, func(p string, entry os.DirEntry, err error) error {
-				if manifest.Partial {
-					// The limits are reached: stop walking, there is no
-					// point enumerating the rest of a huge directory.
-					return filepath.SkipAll
-				}
-				if err != nil {
-					// One unreadable directory (a protected trash, another
-					// user's folder) must not fail the whole snapshot.
-					if p != abs {
-						rel, rerr := filepath.Rel(m.workspace, p)
-						if rerr == nil {
-							manifest.Skipped = append(manifest.Skipped, filepath.ToSlash(rel)+" (unreadable)")
-						}
-						if entry != nil && entry.IsDir() {
-							return filepath.SkipDir
-						}
-					}
-					return nil
-				}
-				if p == abs {
-					return nil
-				}
-				if entry.IsDir() {
-					if skipDir(entry.Name()) {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-				return add(p)
-			})
-		}
-		if len(manifest.Files) >= maxFiles {
-			// Too many files: keep what we have and stop walking. The
-			// snapshot stays useful, and a restore only touches what it
-			// captured.
-			if !manifest.Partial {
-				manifest.Skipped = append(manifest.Skipped, rel+" (over the file limit)")
-			}
-			manifest.Partial = true
-			return nil
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			manifest.Skipped = append(manifest.Skipped, rel+" (symlink)")
-			return nil
-		}
-		if !info.Mode().IsRegular() {
-			manifest.Skipped = append(manifest.Skipped, rel+" (non-regular)")
-			return nil
-		}
-		if info.Size() > maxFileBytes {
-			manifest.Skipped = append(manifest.Skipped, rel+" (large)")
-			return nil
-		}
-		total += info.Size()
-		if total > maxTotalBytes {
-			// Too big: stop capturing, but do not fail. A huge workspace
-			// should not stop the agent from working.
-			if !manifest.Partial {
-				manifest.Skipped = append(manifest.Skipped, rel+" (over the size limit)")
-			}
-			manifest.Partial = true
-			return nil
-		}
-		dst := filepath.Join(dir, "files", filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-			return err
-		}
-		if err := copyFile(abs, dst, info.Mode().Perm()); err != nil {
-			return err
-		}
-		sum, err := hashFile(dst)
-		if err != nil {
-			return err
-		}
-		manifest.Files = append(manifest.Files, File{
-			Path: rel, Exists: true, Mode: info.Mode().Perm(), Size: info.Size(), SHA256: sum,
-		})
-		return nil
+	// --ignore-errors keeps one unreadable protected directory from making
+	// the whole snapshot fail.
+	_, _ = m.git("add", "-A", "--ignore-errors", "--", ".")
+	if _, err := m.git("commit", "--allow-empty", "-m", oneLine(reason)); err != nil {
+		return "", err
 	}
-	if len(paths) == 0 {
-		manifest.Full = true
-		if err := add(m.workspace); err != nil {
-			_ = os.RemoveAll(dir)
-			return "", err
-		}
+	id, err := m.git("rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	manifest := Manifest{
+		ID:        id,
+		Reason:    oneLine(reason),
+		Workspace: m.workspace,
+		Created:   time.Now().UTC(),
+		Full:      len(paths) == 0,
+	}
+	if manifest.Full {
+		manifest.Files = m.scanFiles("")
 	} else {
 		for _, path := range paths {
 			rel, err := m.rel(path)
 			if err != nil {
-				_ = os.RemoveAll(dir)
 				return "", err
 			}
 			manifest.Scope = append(manifest.Scope, rel)
-			if err := add(path); err != nil {
-				_ = os.RemoveAll(dir)
-				return "", err
-			}
+			manifest.Files = append(manifest.Files, m.scanFiles(rel)...)
 		}
 	}
-	sort.Slice(manifest.Files, func(i, j int) bool { return manifest.Files[i].Path < manifest.Files[j].Path })
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		_ = os.RemoveAll(dir)
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), raw, 0o600); err != nil {
-		_ = os.RemoveAll(dir)
+	if err := os.WriteFile(filepath.Join(m.metaDir, safeID(id)+".json"), raw, 0o600); err != nil {
 		return "", err
 	}
 	m.mu.last = id
 	return id, nil
+}
+
+// scanFiles lists the workspace paths a restore must preserve. Git still owns
+// the file contents; this scan also remembers ignored files that existed at
+// snapshot time so a full restore does not delete generated media merely
+// because .gitignore kept it out of the object store.
+func (m *Manager) scanFiles(scope string) []File {
+	prefix := strings.Trim(scope, "/")
+	var files []File
+	_ = filepath.WalkDir(m.workspace, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			if path != m.workspace && entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if path == m.workspace {
+			return nil
+		}
+		if entry.IsDir() {
+			if skipDir(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(m.workspace, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if prefix != "" && rel != prefix && !strings.HasPrefix(rel, prefix+"/") {
+			return nil
+		}
+		files = append(files, File{Path: rel, Exists: true})
+		return nil
+	})
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files
 }
 
 func (m *Manager) Last() string {
@@ -252,7 +249,10 @@ func (m *Manager) Last() string {
 }
 
 func (m *Manager) List() ([]Manifest, error) {
-	entries, err := os.ReadDir(m.root)
+	if m.disabled {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(m.metaDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -261,15 +261,15 @@ func (m *Manager) List() ([]Manifest, error) {
 	}
 	var out []Manifest
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		raw, err := os.ReadFile(filepath.Join(m.root, entry.Name(), "manifest.json"))
+		raw, err := os.ReadFile(filepath.Join(m.metaDir, entry.Name()))
 		if err != nil {
 			continue
 		}
 		var manifest Manifest
-		if err := json.Unmarshal(raw, &manifest); err != nil {
+		if json.Unmarshal(raw, &manifest) != nil {
 			continue
 		}
 		out = append(out, manifest)
@@ -278,44 +278,38 @@ func (m *Manager) List() ([]Manifest, error) {
 	return out, nil
 }
 
-func inScope(rel string, scope []string) bool {
-	for _, s := range scope {
-		if rel == s || strings.HasPrefix(rel, s+"/") {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *Manager) Restore(id string) error {
-	if strings.TrimSpace(id) == "" {
-		return errors.New("checkpoint id is required")
+	if m.disabled {
+		return errors.New("checkpoints need git; install git to restore")
 	}
-	dir := filepath.Join(m.root, filepath.Base(id))
-	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	manifest, err := m.load(id)
 	if err != nil {
-		return fmt.Errorf("load checkpoint %s: %w", id, err)
-	}
-	var manifest Manifest
-	if err := json.Unmarshal(raw, &manifest); err != nil {
-		return fmt.Errorf("parse checkpoint %s: %w", id, err)
+		return err
 	}
 	if filepath.Clean(manifest.Workspace) != filepath.Clean(m.workspace) {
 		return fmt.Errorf("checkpoint %s belongs to %s", id, manifest.Workspace)
 	}
-	keep := map[string]bool{}
+	keep := make(map[string]bool, len(manifest.Files))
 	for _, file := range manifest.Files {
 		keep[file.Path] = true
 	}
-	for _, skipped := range manifest.Skipped {
-		if i := strings.Index(skipped, " ("); i > 0 {
-			keep[skipped[:i]] = true
-		}
+	// Restore the recorded tree. A full checkpoint restores everything;
+	// a scoped checkpoint only touches the paths named in the original edit.
+	checkoutPaths := []string{"."}
+	if !manifest.Full {
+		checkoutPaths = manifest.Scope
 	}
+	for _, path := range checkoutPaths {
+		if path == "" {
+			continue
+		}
+		_, _ = m.git("checkout", "--force", manifest.ID, "--", path)
+	}
+	// A full restore also removes files created after the snapshot. A
+	// scoped restore only removes extras inside its scope.
 	var remove []string
 	err = filepath.WalkDir(m.workspace, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
-			// A directory we cannot list (a protected trash) is left alone.
 			if path != m.workspace && entry != nil && entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -335,12 +329,10 @@ func (m *Manager) Restore(id string) error {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		// A partial snapshot only knows about the files it captured, so it
-		// must not delete anything else.
-		if manifest.Partial {
+		if keep[rel] {
 			return nil
 		}
-		if !keep[rel] && (manifest.Full || inScope(rel, manifest.Scope)) {
+		if manifest.Full || inScope(rel, manifest.Scope) {
 			remove = append(remove, path)
 		}
 		return nil
@@ -353,80 +345,49 @@ func (m *Manager) Restore(id string) error {
 			return err
 		}
 	}
-	for _, file := range manifest.Files {
-		target := filepath.Join(m.workspace, filepath.FromSlash(file.Path))
-		if !file.Exists {
-			if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			continue
-		}
-		src := filepath.Join(dir, "files", filepath.FromSlash(file.Path))
-		mode := file.Mode
-		if mode == 0 {
-			mode = 0o644
-		}
-		if err := copyFile(src, target, mode); err != nil {
-			return err
+	return nil
+}
+
+func (m *Manager) load(id string) (Manifest, error) {
+	var manifest Manifest
+	path := filepath.Join(m.metaDir, safeID(id)+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return manifest, fmt.Errorf("load checkpoint %s: %w", id, err)
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return manifest, fmt.Errorf("parse checkpoint %s: %w", id, err)
+	}
+	return manifest, nil
+}
+
+func inScope(rel string, scope []string) bool {
+	for _, s := range scope {
+		if rel == s || strings.HasPrefix(rel, s+"/") {
+			return true
 		}
 	}
-	return nil
+	return false
 }
 
 func skipDir(name string) bool {
 	switch name {
-	case ".git", ".wombat", "node_modules", "vendor", "dist", "build", "target", ".cache", ".venv", "__pycache__":
-		return true
-	// Directories the operating system hides from ordinary processes.
-	// macOS protects the trash and the per-user Library with TCC: listing
-	// them fails with "Operation not permitted" even though you own them,
-	// and a snapshot of the home directory would die on them.
-	case ".Trash", ".Trashes", "Library", "$RECYCLE.BIN", "System Volume Information":
+	case ".git", ".wombat", "node_modules", "vendor", "dist", "build", "target",
+		".cache", ".venv", "__pycache__", ".Trash", ".Trashes", "Library",
+		"$RECYCLE.BIN", "System Volume Information":
 		return true
 	}
 	return false
 }
 
-func copyFile(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		return err
-	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	return os.Chmod(dst, mode)
+func safeID(id string) string {
+	return strings.NewReplacer("/", "-", string(filepath.Separator), "-").Replace(strings.TrimSpace(id))
 }
 
-func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 300 {
+		s = s[:300] + "…"
 	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func randomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(b)
+	return s
 }
