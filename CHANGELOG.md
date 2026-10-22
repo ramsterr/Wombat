@@ -6,6 +6,8 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-10-22
+
 ### Removed
 
 - The OS sandbox, entirely. There is no jail for commands any more: the agent
@@ -394,7 +396,8 @@ Reliability, verification, parallel writers, and the release pipeline.
 - Bash runs through a shared command runner with a bounded output buffer.
 - The version string is stamped at build time instead of being hardcoded.
 
-[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/ramsterr/Wombat/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.6
 [0.2.5]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.5
 [0.2.4]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.4
 [0.2.3]: https://github.com/ramsterr/Wombat/releases/tag/v0.2.3

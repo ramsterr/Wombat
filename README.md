@@ -11,14 +11,46 @@
 
 Wombat is a coding agent for your terminal. It reads and edits files, runs commands, searches the web, uses a browser, and works through multi-step tasks with a plan. It runs against OpenAI-compatible APIs, Anthropic, OpenCode, or a local model server.
 
+## Quick start
+
+**macOS / Linux — latest release.** Install, configure, and start:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
+wombat setup
+wombat
+```
+
+**Current `main` — newest features.** The tagged release can lag behind this
+branch. With Go 1.26.3+:
+
+```sh
+go install github.com/ramsterr/Wombat/cmd/wombat@main
+wombat setup
+wombat
+```
+
+`go install` writes `wombat` to `$(go env GOPATH)/bin`; add that directory to
+`PATH` if the command is not found. Update a release build with `wombat upgrade`;
+rerun the `go install` command to update a `main` build (upgrade switches it to
+the latest tagged release).
+
+**Windows** — install WSL2 and Ubuntu (`wsl --install`), then run the
+macOS/Linux command inside Ubuntu. Git Bash works for the native Windows build,
+but Wombat's `bash` tool needs a POSIX `sh`; native PowerShell/cmd is not fully
+supported.
+
+`wombat setup` runs automatically on first launch and saves your provider,
+model, and API key in `~/.wombat/config.json`.
+
 ## Install
 
-The latest tagged release does not include every change on `main` yet. Use the
-source build below to run the current features.
+The release installers below install the latest tagged release. Use the source
+build when you want the current `main` features.
 
-### Run current main
+### Build from source (current main)
 
-You only need Go and git. This fetches only the latest `main` commit and no old tags; omit the flags if you need full repository history.
+You only need Go 1.26.3+ and git. This fetches only the latest `main` commit and no old tags; omit the flags if you need full repository history.
 
 ```sh
 git clone --depth 1 --single-branch --no-tags https://github.com/ramsterr/Wombat.git
@@ -43,12 +75,12 @@ Install it somewhere on your PATH:
 go build -o /usr/local/bin/wombat ./cmd/wombat
 ```
 
-Requirements: Go 1.26+ for building from source. The core agent has no runtime
+Requirements: Go 1.26.3+ for building from source. The core agent has no runtime
 dependencies. Optional features use standard tools: a Chromium browser for
 `browser`, a language server for `lsp`/`refactor`, git for isolated workers,
 and `sh` for `bash`.
 
-### Stable release (tagged versions)
+### Release installers
 
 The one-line installer, Homebrew, and `go install ...@latest` install the
 latest **tagged release**, not unreleased changes on `main`.
@@ -81,24 +113,9 @@ go install github.com/ramsterr/Wombat/cmd/wombat@latest
 
 **Windows — WSL2**
 
-Install Ubuntu from PowerShell:
-
-```powershell
-wsl --install
-```
-
-Then, inside Ubuntu:
-
-```sh
-sudo apt update && sudo apt install -y git curl
-curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-wombat
-```
-
-Git Bash also works for the native Windows build, but Wombat's `bash` tool
-needs a POSIX `sh`. Native PowerShell/cmd is not fully supported.
+Install Ubuntu from PowerShell with `wsl --install`, then run the macOS/Linux
+installer inside Ubuntu. If `wombat` is not found, add `~/.local/bin` to your
+`PATH` as shown above.
 
 ## First run
 
@@ -179,7 +196,7 @@ Browser screenshots stay in memory and are not saved in the project.
 - **Searches** — glob, grep, AST symbols, semantic search, and web search/fetch.
 - **Understands code** — language-server definitions, references, diagnostics, completions, rename, and AST-aware code actions.
 - **Sees** — screenshots, images, video, audio, and documents on models that support them.
-- **Creates** — image generation and editing, plus browser automation.
+- **Creates** — image generation and editing, plus batched browser automation.
 - **Plans** — a persistent task ledger with dependencies, checks, structured reports, and continuous scheduling: a slow step does not hold back ready work, and timed-out or transient steps retry once.
 - **Delegates** — parallel workers in isolated git worktrees, with independent review and three-way merge. A worker that needs a decision returns `needs_input` with questions and can be resumed in the same session and worktree.
 - **Recovers** — retries transient network failures, repairs rejected thinking-mode histories, and keeps long sessions usable.
