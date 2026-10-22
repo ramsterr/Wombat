@@ -288,10 +288,16 @@ func (c *chat) panelView() string {
 	if contentW < lipgloss.Width(mascot[0]) {
 		mascot = []string{"WOMBAT"}
 	}
-	if avail >= len(mascot)+1 {
-		lines = fitLines(lines, avail-len(mascot)-1)
+	footer := wombatColored(mascot)
+	if avail >= len(footer)+2 {
+		ruleW := min(lipgloss.Width(mascot[0]), max(4, contentW-2))
+		footer = append(footer, styleRule.Render(strings.Repeat("─", ruleW)))
+		footer = append(footer, styleFaint.Render(clip(versionLabel(c.opt.Version), contentW)))
+	}
+	if avail >= len(footer)+1 {
+		lines = fitLines(lines, avail-len(footer)-1)
 		lines = append(lines, "")
-		for _, line := range wombatColored(mascot) {
+		for _, line := range footer {
 			lines = append(lines, lipgloss.PlaceHorizontal(contentW, lipgloss.Center, line))
 		}
 	} else {
@@ -302,6 +308,18 @@ func (c *chat) panelView() string {
 		Width(max(1, contentW+2)).
 		Height(max(1, h-2)).
 		Render(body)
+}
+
+// versionLabel is the short version shown under the inspector mark.
+func versionLabel(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	if strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
 }
 
 // recentTools returns the newest tool entries, in display order.
