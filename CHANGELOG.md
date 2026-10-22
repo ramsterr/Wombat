@@ -19,6 +19,10 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Changed
 
+- `run_plan` now schedules continuously instead of in barrier waves. A slow
+  step no longer holds back independent or newly-ready work, writers can merge
+  while scouts are still running, timed-out and transient steps get one retry,
+  and slots are shared between scouts and writers.
 - Checkpoints now use a private shadow git repository instead of copying the
   workspace. Unchanged files are stored once, old full-copy snapshots are gone,
   and restoring a checkpoint still reverts added files while preserving files

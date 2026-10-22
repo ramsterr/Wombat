@@ -305,9 +305,9 @@ func (o *Orchestrator) systemPrompt() string {
 	}
 	b.WriteString("### Running the plan\n")
 	if o.worktrees != nil {
-		b.WriteString("After update_plan, call run_plan to execute the dependency graph. Ready steps run in parallel; write steps are isolated in worktrees, independently reviewed, and merged only when their checks pass. Do not add a separate review step; never mark a failed write step completed by hand.\n\n")
+		b.WriteString("After update_plan, call run_plan: ready steps run in parallel, a slow step does not stall other ready work, and timed-out steps retry once. Writers are isolated, reviewed, and merged only when checks pass. Do not add a review step or mark a failed write completed by hand.\n\n")
 	} else {
-		b.WriteString("After update_plan, call run_plan to execute the dependency graph: ready scout steps run in parallel and failed steps block only their dependents.\n\n")
+		b.WriteString("After update_plan, call run_plan: ready scouts run in parallel, slow steps don't stall independent work, and timeouts retry once. Failed steps block only dependents.\n\n")
 	}
 	b.WriteString("### Delegation\n")
 	if o.cfg.ParallelAgents {

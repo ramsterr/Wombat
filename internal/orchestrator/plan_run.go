@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
@@ -24,15 +23,15 @@ type runPlanArgs struct {
 func (t *runPlanTool) Name() string  { return "run_plan" }
 func (t *runPlanTool) Class() string { return "delegate" }
 func (t *runPlanTool) Description() string {
-	return "Execute the task ledger as a dependency graph. Ready steps run in parallel: scouts research, write steps run in isolated worktrees with owned files, an independent reviewer checks each patch, and passing patches merge automatically. Dependencies are respected wave by wave; failed steps block only their dependents. Use after update_plan for multi-step work instead of dispatching steps by hand."
+	return "Execute the task ledger as a dependency graph. Ready steps run in parallel: scouts research, write steps run in isolated worktrees with owned files, an independent reviewer checks each patch, and passing patches merge automatically. Scheduling is continuous, so a slow step does not hold back independent or newly-ready work; timed-out and transient failures get one retry. Failed steps block only their dependents. Use after update_plan for multi-step work instead of dispatching steps by hand."
 }
 func (t *runPlanTool) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"steps":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "optional step ids to run (default: every pending step)"},
-			"max_parallel":    map[string]any{"type": "integer", "description": "maximum steps in one wave (default 4, max 6)"},
-			"stop_on_failure": map[string]any{"type": "boolean", "description": "stop scheduling new waves after a failure (independent steps already running still finish)"},
+			"max_parallel":    map[string]any{"type": "integer", "description": "maximum steps running at once (default 4, max 6)"},
+			"stop_on_failure": map[string]any{"type": "boolean", "description": "stop scheduling new work after a failure (independent steps already running still finish)"},
 		},
 	}
 }
@@ -78,13 +77,11 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 		o.ensureWriterBase()
 	}
 	merged := false
-	if o.worktrees != nil {
-		defer func() {
-			if merged {
-				_ = o.worktrees.Unstage()
-			}
-		}()
-	}
+	defer func() {
+		if merged && o.worktrees != nil {
+			_ = o.worktrees.Unstage()
+		}
+	}()
 	o.mu.Lock()
 	if o.ledger == nil {
 		o.mu.Unlock()
@@ -101,7 +98,6 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 	if parallel > maxFleetTasks {
 		parallel = maxFleetTasks
 	}
-
 	targets, err := selectPlanSteps(ledger, a.Steps)
 	if err != nil {
 		return "", err
@@ -109,7 +105,6 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 	if len(targets) == 0 {
 		return "", fmt.Errorf("no runnable steps: %s; pass step ids to retry failed or blocked steps", stepStatusSummary(ledger))
 	}
-
 	// An explicitly requested failed or blocked step is a retry.
 	for _, id := range targets {
 		if step := ledger.Find(id); step != nil && (step.Status == StepFailed || step.Status == StepBlocked) {
@@ -119,215 +114,567 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 		}
 	}
 
-	result := planRunResult{}
-	executed := map[string]bool{}
-	for waveIndex := 1; ; waveIndex++ {
-		o.mu.Lock()
-		ready := readySteps(ledger, targets, executed)
-		goal := ledger.Goal
-		facts := append([]string(nil), ledger.Facts...)
-		o.mu.Unlock()
-		if len(ready) == 0 {
-			break
-		}
-		if len(ready) > parallel {
-			ready = ready[:parallel]
-		}
-
-		var scouts, writers []*Step
-		var validReady []*Step
-		var invalid []planTaskOutcome
-		for _, step := range ready {
-			if normalizeStepKind(step.Kind) == StepWrite && len(step.Files) == 0 {
-				executed[step.ID] = true
-				o.mu.Lock()
-				step.Status = StepFailed
-				step.Report = &WorkerReport{Status: "failed", Summary: "write step has no owned files"}
-				o.mu.Unlock()
-				invalid = append(invalid, planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: StepWrite, Status: "failed", Error: "write step has no owned files", Report: &WorkerReport{Status: "failed", Summary: "write step has no owned files"}})
-				continue
-			}
-			if normalizeStepKind(step.Kind) == StepWrite && cfg.RequireVerification && len(step.Checks) == 0 {
-				executed[step.ID] = true
-				o.mu.Lock()
-				step.Status = StepFailed
-				step.Report = &WorkerReport{Status: "failed", Summary: "write step has no checks"}
-				o.mu.Unlock()
-				invalid = append(invalid, planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: StepWrite, Status: "failed", Error: "write step has no checks", Report: &WorkerReport{Status: "failed", Summary: "write step has no checks"}})
-				continue
-			}
-			validReady = append(validReady, step)
-			if normalizeStepKind(step.Kind) == StepWrite {
-				writers = append(writers, step)
-			} else {
-				scouts = append(scouts, step)
-			}
-		}
-		if len(writers) > 0 {
-			tasks := make([]writerTask, 0, len(writers))
-			for _, step := range writers {
-				tasks = append(tasks, writerTask{StepID: step.ID, Title: step.Title, Objective: stepObjective(step), Files: step.Files})
-			}
-			if err := validateWriters(tasks); err != nil {
-				for _, step := range writers {
-					executed[step.ID] = true
-					o.mu.Lock()
-					step.Status = StepFailed
-					step.Report = &WorkerReport{Status: "failed", Summary: err.Error()}
-					o.mu.Unlock()
-					invalid = append(invalid, planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: StepWrite, Status: "failed", Error: err.Error(), Report: &WorkerReport{Status: "failed", Summary: err.Error()}})
-				}
-				writers = nil
-				kept := validReady[:0]
-				for _, step := range validReady {
-					if normalizeStepKind(step.Kind) != StepWrite {
-						kept = append(kept, step)
-					}
-				}
-				validReady = kept
-			}
-		}
-		if len(validReady) == 0 {
-			result.Waves = append(result.Waves, planWave{Index: waveIndex, Tasks: invalid})
-			if a.StopOnFailure {
-				break
-			}
-			continue
-		}
-		ready = validReady
-		if len(writers) > 0 && o.worktrees == nil {
-			msg := o.writerWarn
-			if msg == "" {
-				msg = "writers are not enabled"
-			}
-			for _, step := range writers {
-				executed[step.ID] = true
-				o.mu.Lock()
-				step.Status = StepFailed
-				step.Report = &WorkerReport{Status: "failed", Summary: msg}
-				o.mu.Unlock()
-				invalid = append(invalid, planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: StepWrite, Status: "failed", Error: msg, Report: &WorkerReport{Status: "failed", Summary: msg}})
-			}
-			writers = nil
-			kept := validReady[:0]
-			for _, step := range validReady {
-				if normalizeStepKind(step.Kind) != StepWrite {
-					kept = append(kept, step)
-				}
-			}
-			validReady = kept
-			ready = validReady
-			if len(validReady) == 0 {
-				result.Waves = append(result.Waves, planWave{Index: waveIndex, Tasks: invalid})
-				if a.StopOnFailure {
-					break
-				}
-				continue
-			}
-		}
-
-		scoutTokens, err := o.reserveScoutBudget(len(scouts))
-		writerTokens, werr := o.reserveWriterBudget(len(writers))
-		if err != nil || werr != nil {
-			msg := firstError(err, werr)
-			o.mu.Lock()
-			for _, step := range ready {
-				executed[step.ID] = true
-				step.Status = StepBlocked
-				step.Report = &WorkerReport{Status: "blocked", Summary: msg}
-			}
-			o.mu.Unlock()
-			result.Warning = msg
-			result.Waves = append(result.Waves, planWave{Index: waveIndex})
-			break
-		}
-
-		outcomes := o.runPlanWave(ctx, ready, scouts, writers, goal, facts, scoutTokens, writerTokens, cfg)
-		outcomes = append(outcomes, invalid...)
-		result.Waves = append(result.Waves, planWave{Index: waveIndex, Tasks: outcomes})
-		failed := false
-		o.mu.Lock()
-		for _, out := range outcomes {
-			if out.merged {
-				merged = true
-			}
-			executed[out.StepID] = true
-			result.Usage.Calls += out.Usage.Calls
-			result.Usage.In += out.Usage.In
-			result.Usage.Cached += out.Usage.Cached
-			result.Usage.Out += out.Usage.Out
-			step := ledger.Find(out.StepID)
-			if step == nil {
-				continue
-			}
-			step.Report = out.Report
-			if out.Review != nil {
-				step.Review = out.Review
-			}
-			if len(out.Checks) > 0 && (out.Kind == StepWrite || out.Kind == StepScout) {
-				step.Checks = nil
-				for _, c := range out.Checks {
-					step.Checks = append(step.Checks, Check{ID: c.ID, Command: c.Command, Status: c.Status, Output: truncateCheckOutput(c.Output), ExitCode: c.ExitCode, RanAt: time.Now()})
-				}
-			}
-			switch {
-			case out.Status == "completed":
-				step.Status = StepCompleted
-			case out.Status == "failed" || out.Error != "":
-				step.Status = StepFailed
-				failed = true
-			case out.Status == "blocked":
-				step.Status = StepBlocked
-			default:
-				step.Status = StepPending
-			}
-			step.Updated = time.Now()
-		}
-		ledger.Updated = time.Now()
-		saveErr := ledger.Save(o.ledgerPath)
-		result.Ledger = ledger.View()
-		o.mu.Unlock()
-		if saveErr != nil {
-			result.Warning = "could not persist ledger: " + saveErr.Error()
-		}
-		if failed && a.StopOnFailure {
-			break
-		}
+	o.mu.Lock()
+	goal := ledger.Goal
+	facts := append([]string(nil), ledger.Facts...)
+	o.mu.Unlock()
+	s := &planScheduler{
+		o:             o,
+		ctx:           ctx,
+		cfg:           cfg,
+		goal:          goal,
+		facts:         facts,
+		targets:       targets,
+		parallel:      parallel,
+		stopOnFailure: a.StopOnFailure,
+		executed:      make(map[string]bool),
+		running:       make(map[string]bool),
+		kinds:         make(map[string]string),
+		writerFiles:   make(map[string]string),
+		done:          make(chan planTaskResult, maxInt(1, parallel)),
+		waveTasks:     make(map[int][]string),
+		outcomes:      make(map[string]planTaskOutcome),
 	}
+	s.run()
+	merged = s.merged
 
-	// Steps still pending because a dependency failed are blocked, not left
-	// silently queued forever.
+	// Nothing may be left silently pending. If a target was never scheduled
+	// (failed dependency, cancelled context, or a scheduler budget), mark it
+	// blocked with the reason so the lead can retry or change the plan.
 	o.mu.Lock()
 	for _, id := range targets {
 		step := ledger.Find(id)
-		if step == nil || executed[id] || step.Status == StepCompleted {
+		if step == nil || s.executed[id] || step.Status == StepCompleted || step.Status == StepFailed || step.Status == StepBlocked {
 			continue
 		}
-		if step.Status == StepPending {
-			blocked := false
-			for _, dep := range step.DependsOn {
-				d := ledger.Find(dep)
-				if d != nil && (d.Status == StepFailed || d.Status == StepBlocked) {
-					blocked = true
-					break
-				}
+		reason := "not scheduled"
+		for _, dep := range step.DependsOn {
+			d := ledger.Find(dep)
+			if d == nil || d.Status != StepCompleted {
+				reason = "dependency did not complete"
+				break
 			}
-			if blocked {
-				step.Status = StepBlocked
-				if step.Report == nil {
-					step.Report = &WorkerReport{Status: "blocked", Summary: "dependency did not complete"}
-				}
-			}
+		}
+		step.Status = StepBlocked
+		if step.Report == nil {
+			step.Report = &WorkerReport{Status: "blocked", Summary: reason}
 		}
 	}
 	ledger.Updated = time.Now()
-	if err := ledger.Save(o.ledgerPath); err != nil && result.Warning == "" {
-		result.Warning = "could not persist ledger: " + err.Error()
-	}
-	result.Ledger = ledger.View()
+	saveErr := ledger.Save(o.ledgerPath)
+	s.result.Ledger = ledger.View()
 	o.mu.Unlock()
+	if saveErr != nil && s.result.Warning == "" {
+		s.result.Warning = "could not persist ledger: " + saveErr.Error()
+	}
+	return jsonMarshalIndent(s.result)
+}
 
-	return jsonMarshalIndent(result)
+// planScheduler runs the dependency graph continuously. A slow step keeps
+// its own slot but no longer holds a whole wave open: as soon as one step
+// finishes, any newly-ready step can start in the free slot.
+type planScheduler struct {
+	o             *Orchestrator
+	ctx           context.Context
+	cfg           Config
+	goal          string
+	facts         []string
+	targets       []string
+	parallel      int
+	stopOnFailure bool
+
+	executed    map[string]bool
+	running     map[string]bool
+	kinds       map[string]string
+	writerFiles map[string]string
+	done        chan planTaskResult
+
+	waveSeq   int
+	waveOrder []int
+	waveTasks map[int][]string
+	outcomes  map[string]planTaskOutcome
+	result    planRunResult
+	failed    bool
+	merged    bool
+}
+
+type planTaskRun struct {
+	step         *Step
+	kind         string
+	scoutTokens  int
+	writerTokens int
+	contextPack  string
+}
+
+type planTaskResult struct {
+	outcome planTaskOutcome
+}
+
+const (
+	planStepAttempts = 2
+	planRetryDelay   = 250 * time.Millisecond
+)
+
+func (s *planScheduler) run() {
+	defer s.finishWaves()
+	for {
+		if s.ctx.Err() == nil && !(s.failed && s.stopOnFailure) {
+			s.launchReady()
+		}
+		if len(s.running) == 0 {
+			return
+		}
+		res := <-s.done
+		delete(s.running, res.outcome.StepID)
+		s.apply(res.outcome)
+	}
+}
+
+func (s *planScheduler) launchReady() {
+	s.o.mu.Lock()
+	ready := readySteps(s.o.ledger, s.targets, s.executed)
+	s.o.mu.Unlock()
+
+	var candidates []*Step
+	for _, step := range ready {
+		if !s.running[step.ID] {
+			candidates = append(candidates, step)
+		}
+	}
+	slots := s.parallel - len(s.running)
+	if slots <= 0 || len(candidates) == 0 {
+		return
+	}
+	candidates = s.pickByKind(candidates, slots)
+	if len(candidates) == 0 {
+		return
+	}
+	wave := s.nextWave()
+
+	var scouts, writers []*Step
+	for _, step := range candidates {
+		kind := normalizeStepKind(step.Kind)
+		if kind != StepWrite {
+			scouts = append(scouts, step)
+			continue
+		}
+		switch {
+		case len(step.Files) == 0:
+			s.fail(step, "write step has no owned files", wave)
+		case s.cfg.RequireVerification && len(step.Checks) == 0:
+			s.fail(step, "write step has no checks", wave)
+		case s.o.worktrees == nil:
+			msg := s.o.writerWarn
+			if msg == "" {
+				msg = "writers are not enabled"
+			}
+			s.fail(step, msg, wave)
+		case s.writerConflict(step):
+			s.fail(step, "file ownership overlaps a running writer", wave)
+		default:
+			writers = append(writers, step)
+		}
+	}
+
+	if len(writers) > 0 {
+		tasks := make([]writerTask, 0, len(writers))
+		for _, step := range writers {
+			tasks = append(tasks, writerTask{StepID: step.ID, Title: step.Title, Objective: stepObjective(step), Files: step.Files})
+		}
+		if err := validateWriters(tasks); err != nil {
+			for _, step := range writers {
+				s.fail(step, err.Error(), wave)
+			}
+			writers = nil
+		}
+	}
+
+	scoutTokens := 0
+	if len(scouts) > 0 {
+		tokens, err := s.o.reserveScoutBudget(len(scouts))
+		if err != nil {
+			for _, step := range scouts {
+				s.block(step, err.Error(), wave)
+			}
+			scouts = nil
+		} else {
+			scoutTokens = tokens
+		}
+	}
+	writerTokens := 0
+	if len(writers) > 0 {
+		tokens, err := s.o.reserveWriterBudget(len(writers))
+		if err != nil {
+			for _, step := range writers {
+				s.block(step, err.Error(), wave)
+			}
+			writers = nil
+		} else {
+			writerTokens = tokens
+		}
+	}
+
+	contextPack := ""
+	if len(writers) > 0 {
+		var files, objectives []string
+		for _, step := range writers {
+			files = append(files, step.Files...)
+			objectives = append(objectives, stepObjective(step))
+		}
+		contextPack = buildContextPack(s.o.worktrees.Repo, files, strings.Join(objectives, " "))
+	}
+	for _, step := range scouts {
+		s.start(step, StepScout, scoutTokens, 0, "", wave)
+	}
+	for _, step := range writers {
+		s.start(step, StepWrite, 0, writerTokens, contextPack, wave)
+	}
+}
+
+// pickByKind prevents one kind of work from monopolising every slot. A
+// ready writer gets a slot before extra scouts, while both kinds stay under
+// their configured concurrency limits.
+func (s *planScheduler) pickByKind(ready []*Step, slots int) []*Step {
+	activeScouts, activeWriters := 0, 0
+	for id := range s.running {
+		switch s.kinds[id] {
+		case StepWrite:
+			activeWriters++
+		default:
+			activeScouts++
+		}
+	}
+	writerRoom := s.cfg.MaxParallelWriters - activeWriters
+	scoutRoom := s.cfg.MaxParallelScouts - activeScouts
+	if writerRoom < 0 {
+		writerRoom = 0
+	}
+	if scoutRoom < 0 {
+		scoutRoom = 0
+	}
+	// When both kinds are ready, do not let writers consume every slot.
+	// At least one scout can make progress alongside a slow writer batch.
+	if len(ready) > 0 && writerRoom >= slots && slots > 1 {
+		hasScout := false
+		for _, step := range ready {
+			if normalizeStepKind(step.Kind) != StepWrite {
+				hasScout = true
+				break
+			}
+		}
+		if hasScout {
+			writerRoom = slots - 1
+		}
+	}
+	var writers, scouts []*Step
+	for _, step := range ready {
+		if normalizeStepKind(step.Kind) == StepWrite {
+			if len(writers) < writerRoom {
+				writers = append(writers, step)
+			}
+		} else if len(scouts) < scoutRoom {
+			scouts = append(scouts, step)
+		}
+	}
+	selected := make([]*Step, 0, slots)
+	for _, step := range writers {
+		if len(selected) >= slots {
+			break
+		}
+		selected = append(selected, step)
+	}
+	for _, step := range scouts {
+		if len(selected) >= slots {
+			break
+		}
+		selected = append(selected, step)
+	}
+	return selected
+}
+
+func (s *planScheduler) nextWave() int {
+	s.waveSeq++
+	s.waveOrder = append(s.waveOrder, s.waveSeq)
+	return s.waveSeq
+}
+
+func (s *planScheduler) start(step *Step, kind string, scoutTokens, writerTokens int, contextPack string, wave int) {
+	run := planTaskRun{step: step, kind: kind, scoutTokens: scoutTokens, writerTokens: writerTokens, contextPack: contextPack}
+	s.running[step.ID] = true
+	s.kinds[step.ID] = kind
+	s.waveTasks[wave] = append(s.waveTasks[wave], step.ID)
+	s.o.mu.Lock()
+	if current := s.o.ledger.Find(step.ID); current != nil {
+		current.Status = StepInProgress
+	}
+	s.o.mu.Unlock()
+	if kind == StepWrite {
+		for _, file := range step.Files {
+			s.writerFiles[file] = step.ID
+		}
+	}
+	go func() {
+		out := s.executeWithRetry(run)
+		s.done <- planTaskResult{outcome: out}
+	}()
+}
+
+func (s *planScheduler) writerConflict(step *Step) bool {
+	for _, file := range step.Files {
+		if owner, ok := s.writerFiles[file]; ok && owner != step.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *planScheduler) executeWithRetry(run planTaskRun) planTaskOutcome {
+	out := s.executePlanTask(s.ctx, run, s.goal, s.facts, s.cfg)
+	// A full-access scout without a worktree edits the lead workspace. Never
+	// replay it after a timeout: a retry could apply the same side effects
+	// twice. Writers and worktree-backed workers are isolated and safe.
+	canRetry := run.kind == StepWrite || !s.cfg.FullWorkers || s.o.worktrees != nil
+	if !canRetry {
+		return out
+	}
+	for attempt := 2; attempt <= planStepAttempts; attempt++ {
+		if s.ctx.Err() != nil || !retryablePlanOutcome(out) {
+			break
+		}
+		if planRetryDelay > 0 {
+			select {
+			case <-time.After(planRetryDelay):
+			case <-s.ctx.Done():
+				return out
+			}
+		}
+		next := s.executePlanTask(s.ctx, run, s.goal, s.facts, s.cfg)
+		next.Usage.Calls += out.Usage.Calls
+		next.Usage.In += out.Usage.In
+		next.Usage.Cached += out.Usage.Cached
+		next.Usage.Out += out.Usage.Out
+		if next.Error == "" {
+			next.Warning = combineWarnings(fmt.Errorf("retried after: %s", oneLine(out.Error, 180)), next.Warning)
+		}
+		out = next
+	}
+	return out
+}
+
+func retryablePlanOutcome(out planTaskOutcome) bool {
+	if out.Status != "failed" && out.Error == "" {
+		return false
+	}
+	msg := strings.ToLower(out.Error)
+	for _, needle := range []string{
+		"timed out", "timeout", "deadline exceeded",
+		"connection reset", "connection refused", "unexpected eof",
+		"temporarily unavailable", "temporary failure",
+		"bad gateway", "service unavailable", "gateway timeout",
+		"rate limit", "too many requests", "429", "502", "503", "504",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *planScheduler) executePlanTask(ctx context.Context, run planTaskRun, goal string, facts []string, cfg Config) planTaskOutcome {
+	step := run.step
+	out := planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: run.kind}
+	if run.kind == StepWrite {
+		copyStep := *step
+		r := writerRun{
+			task: writerTask{
+				StepID: step.ID, Title: step.Title, Objective: stepObjective(step),
+				Role: step.Role, Deliverable: step.Deliverable, Files: append([]string(nil), step.Files...),
+			},
+			step:     &copyStep,
+			maxSteps: cfg.WriterMaxSteps,
+			tokens:   run.writerTokens,
+			context:  run.contextPack,
+			outcome:  writerOutcome{StepID: step.ID, Title: step.Title},
+		}
+		s.o.runWriter(ctx, &r, goal, facts)
+		out.Usage = r.outcome.Usage
+		out.Report = r.outcome.Report
+		out.Review = r.outcome.Review
+		out.Worktree = r.outcome.Worktree
+		out.Status = r.outcome.Status
+		out.Error = r.outcome.Error
+		out.Warning = r.outcome.Warning
+		out.Checks = r.outcome.Checks
+		if r.outcome.Status == "completed" && r.patch != "" {
+			out.merged = true
+			s.o.mergeMu.Lock()
+			err := s.o.mergeWriter(ctx, &r, &writeBatchResult{})
+			s.o.mergeMu.Unlock()
+			out.Merged = err == nil
+			out.Checks = r.outcome.Checks
+			if err != nil {
+				out.Status = "failed"
+				out.Error = combineWarnings(err, r.outcome.Warning)
+			}
+		}
+		if r.worktree != nil && !cfg.KeepWorktrees && out.Merged {
+			_ = r.worktree.Remove()
+		}
+		out.Worktree = r.outcome.Worktree
+		return out
+	}
+
+	args := delegateArgs{
+		StepID:      step.ID,
+		Title:       step.Title,
+		Objective:   stepObjective(step),
+		Role:        step.Role,
+		Deliverable: step.Deliverable,
+		Files:       append([]string(nil), step.Files...),
+	}
+	var report *WorkerReport
+	var usage ReportUsage
+	var merged bool
+	var err error
+	if cfg.FullWorkers && s.o.worktrees != nil {
+		report, usage, _, merged, err = s.o.runFullWorker(ctx, args, step, goal, facts, cfg.WorkerMaxSteps, run.scoutTokens)
+	} else {
+		report, usage, _, err = s.o.runWorker(ctx, args, step, goal, facts, cfg.WorkerMaxSteps, run.scoutTokens, cfg.FullWorkers)
+	}
+	out.Usage = usage
+	out.Report = report
+	out.merged = merged
+	if report != nil {
+		out.Status = report.Status
+	}
+	if err != nil {
+		out.Status = "failed"
+		out.Error = err.Error()
+	}
+	if out.Status == "completed" && len(step.Checks) > 0 {
+		checks := runCheckCommands(ctx, s.o.lead.Env, step.Checks, 0)
+		out.Checks = checks
+		for _, check := range checks {
+			if check.Status != CheckPassed {
+				out.Status = "failed"
+				out.Error = "check failed: " + check.Command
+				break
+			}
+		}
+	}
+	return out
+}
+
+func (s *planScheduler) fail(step *Step, message string, wave int) {
+	out := planTaskOutcome{
+		StepID: step.ID, Title: step.Title, Kind: normalizeStepKind(step.Kind),
+		Status: "failed", Error: message,
+		Report: &WorkerReport{Status: "failed", Summary: message},
+	}
+	s.record(out, wave)
+}
+
+func (s *planScheduler) block(step *Step, message string, wave int) {
+	out := planTaskOutcome{
+		StepID: step.ID, Title: step.Title, Kind: normalizeStepKind(step.Kind),
+		Status: "blocked", Error: message,
+		Report: &WorkerReport{Status: "blocked", Summary: message},
+	}
+	s.record(out, wave)
+}
+
+func (s *planScheduler) record(out planTaskOutcome, wave int) {
+	s.executed[out.StepID] = true
+	s.waveTasks[wave] = append(s.waveTasks[wave], out.StepID)
+	s.outcomes[out.StepID] = out
+	s.o.mu.Lock()
+	if step := s.o.ledger.Find(out.StepID); step != nil {
+		step.Status = StepFailed
+		if out.Status == "blocked" {
+			step.Status = StepBlocked
+		}
+		step.Report = out.Report
+		step.Updated = time.Now()
+	}
+	s.o.mu.Unlock()
+	if out.Status == "failed" {
+		s.failed = true
+	}
+	if out.Error != "" && s.result.Warning == "" {
+		s.result.Warning = out.Error
+	}
+}
+
+func (s *planScheduler) apply(out planTaskOutcome) {
+	if out.Kind == StepWrite {
+		for file, owner := range s.writerFiles {
+			if owner == out.StepID {
+				delete(s.writerFiles, file)
+			}
+		}
+	}
+	s.outcomes[out.StepID] = out
+	s.executed[out.StepID] = true
+	if out.merged {
+		s.merged = true
+	}
+	s.o.mu.Lock()
+	step := s.o.ledger.Find(out.StepID)
+	s.result.Usage.Calls += out.Usage.Calls
+	s.result.Usage.In += out.Usage.In
+	s.result.Usage.Cached += out.Usage.Cached
+	s.result.Usage.Out += out.Usage.Out
+	if step != nil {
+		step.Report = out.Report
+		if out.Review != nil {
+			step.Review = out.Review
+		}
+		if len(out.Checks) > 0 && (out.Kind == StepWrite || out.Kind == StepScout) {
+			step.Checks = nil
+			for _, c := range out.Checks {
+				step.Checks = append(step.Checks, Check{ID: c.ID, Command: c.Command, Status: c.Status, Output: truncateCheckOutput(c.Output), ExitCode: c.ExitCode, RanAt: time.Now()})
+			}
+		}
+		switch {
+		case out.Status == "completed":
+			step.Status = StepCompleted
+		case out.Status == "failed" || out.Error != "":
+			step.Status = StepFailed
+		case out.Status == "blocked":
+			step.Status = StepBlocked
+		default:
+			step.Status = StepPending
+		}
+		step.Updated = time.Now()
+	}
+	if out.Kind == StepWrite {
+		s.o.writerTokens += out.Usage.In + out.Usage.Out
+	} else {
+		s.o.workerTokens += out.Usage.In + out.Usage.Out
+	}
+	s.o.ledger.Updated = time.Now()
+	saveErr := s.o.ledger.Save(s.o.ledgerPath)
+	s.result.Ledger = s.o.ledger.View()
+	s.o.mu.Unlock()
+	if out.Status == "failed" || out.Error != "" {
+		s.failed = true
+	}
+	if saveErr != nil && s.result.Warning == "" {
+		s.result.Warning = "could not persist ledger: " + saveErr.Error()
+	}
+	s.o.lead.AddUsageStats(agent.UsageStats{Calls: out.Usage.Calls, In: out.Usage.In, Cached: out.Usage.Cached, Out: out.Usage.Out})
+}
+
+func (s *planScheduler) finishWaves() {
+	for _, index := range s.waveOrder {
+		wave := planWave{Index: index}
+		for _, id := range s.waveTasks[index] {
+			if out, ok := s.outcomes[id]; ok {
+				wave.Tasks = append(wave.Tasks, out)
+			}
+		}
+		s.result.Waves = append(s.result.Waves, wave)
+	}
 }
 
 func stepStatusSummary(l *Ledger) string {
@@ -460,170 +807,6 @@ func (o *Orchestrator) reserveWriterBudget(n int) (int, error) {
 	o.writers += n
 	o.totalDelegations += n
 	return per, nil
-}
-
-func (o *Orchestrator) runPlanWave(ctx context.Context, ready, scouts, writers []*Step, goal string, facts []string, scoutTokens, writerTokens int, cfg Config) []planTaskOutcome {
-	outcomes := make([]planTaskOutcome, len(ready))
-	index := make(map[string]int, len(ready))
-	byID := make(map[string]*Step, len(ready))
-	for i, step := range ready {
-		index[step.ID] = i
-		byID[step.ID] = step
-		outcomes[i] = planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: normalizeStepKind(step.Kind)}
-	}
-
-	var wg sync.WaitGroup
-	scoutSem := make(chan struct{}, maxInt(1, cfg.MaxParallelScouts))
-	for _, step := range scouts {
-		wg.Add(1)
-		go func(step *Step) {
-			defer wg.Done()
-			select {
-			case scoutSem <- struct{}{}:
-				defer func() { <-scoutSem }()
-			case <-ctx.Done():
-				i := index[step.ID]
-				outcomes[i].Status = "failed"
-				outcomes[i].Error = ctx.Err().Error()
-				return
-			}
-			args := delegateArgs{
-				StepID:      step.ID,
-				Title:       step.Title,
-				Objective:   stepObjective(step),
-				Role:        step.Role,
-				Deliverable: step.Deliverable,
-				Files:       append([]string(nil), step.Files...),
-			}
-			var report *WorkerReport
-			var usage ReportUsage
-			var merged bool
-			var err error
-			if o.cfg.FullWorkers && o.worktrees != nil {
-				report, usage, _, merged, err = o.runFullWorker(ctx, args, step, goal, facts, cfg.WorkerMaxSteps, scoutTokens)
-			} else {
-				report, usage, _, err = o.runWorker(ctx, args, step, goal, facts, cfg.WorkerMaxSteps, scoutTokens, o.cfg.FullWorkers)
-			}
-			i := index[step.ID]
-			outcomes[i].Usage = usage
-			outcomes[i].Report = report
-			outcomes[i].merged = merged
-			outcomes[i].Status = report.Status
-			if err != nil {
-				outcomes[i].Status = "failed"
-				outcomes[i].Error = err.Error()
-			}
-			o.lead.AddUsageStats(agent.UsageStats{Calls: usage.Calls, In: usage.In, Cached: usage.Cached, Out: usage.Out})
-		}(step)
-	}
-
-	writerSem := make(chan struct{}, maxInt(1, cfg.MaxParallelWriters))
-	runs := make([]writerRun, len(writers))
-	var packFiles []string
-	var packObjectives []string
-	for _, step := range writers {
-		packFiles = append(packFiles, step.Files...)
-		packObjectives = append(packObjectives, stepObjective(step))
-	}
-	contextPack := ""
-	if len(writers) > 0 {
-		contextPack = buildContextPack(o.worktrees.Repo, packFiles, strings.Join(packObjectives, " "))
-	}
-	for i, step := range writers {
-		wtask := writerTask{
-			StepID:      step.ID,
-			Title:       step.Title,
-			Objective:   stepObjective(step),
-			Role:        step.Role,
-			Deliverable: step.Deliverable,
-			Files:       append([]string(nil), step.Files...),
-		}
-		copyStep := *step
-		runs[i] = writerRun{
-			task:     wtask,
-			step:     &copyStep,
-			maxSteps: cfg.WriterMaxSteps,
-			tokens:   writerTokens,
-			context:  contextPack,
-			outcome:  writerOutcome{StepID: step.ID, Title: step.Title},
-		}
-		wg.Add(1)
-		go func(r *writerRun) {
-			defer wg.Done()
-			select {
-			case writerSem <- struct{}{}:
-				defer func() { <-writerSem }()
-			case <-ctx.Done():
-				r.outcome.Status = "failed"
-				r.outcome.Error = ctx.Err().Error()
-				return
-			}
-			o.runWriter(ctx, r, goal, facts)
-		}(&runs[i])
-	}
-	wg.Wait()
-
-	// Scout steps can declare read-only checks too. Run them sequentially in
-	// the lead workspace and gate completion on the result.
-	for i := range outcomes {
-		if outcomes[i].Kind != StepScout || outcomes[i].Status != "completed" {
-			continue
-		}
-		step := byID[outcomes[i].StepID]
-		if step == nil || len(step.Checks) == 0 {
-			continue
-		}
-		checks := runCheckCommands(ctx, o.lead.Env, step.Checks, 0)
-		outcomes[i].Checks = checks
-		for _, check := range checks {
-			if check.Status != CheckPassed {
-				outcomes[i].Status = "failed"
-				outcomes[i].Error = "check failed: " + check.Command
-				break
-			}
-		}
-	}
-
-	var mergeResult writeBatchResult
-	for i := range runs {
-		r := &runs[i]
-		out := &outcomes[index[r.task.StepID]]
-		out.Usage = r.outcome.Usage
-		out.Report = r.outcome.Report
-		out.Review = r.outcome.Review
-		out.Worktree = r.outcome.Worktree
-		out.Status = r.outcome.Status
-		out.Error = r.outcome.Error
-		out.Warning = r.outcome.Warning
-		out.Checks = r.outcome.Checks
-		if r.outcome.Status == "completed" && r.patch != "" {
-			out.merged = true
-			o.mergeMu.Lock()
-			err := o.mergeWriter(ctx, r, &mergeResult)
-			o.mergeMu.Unlock()
-			out.Merged = err == nil
-			out.Checks = r.outcome.Checks
-			if err != nil {
-				out.Status = "failed"
-				out.Error = combineWarnings(err, r.outcome.Warning)
-			}
-		}
-		if r.worktree != nil && !o.cfg.KeepWorktrees && out.Merged {
-			_ = r.worktree.Remove()
-		}
-		out.Worktree = r.outcome.Worktree
-		o.lead.AddUsageStats(agent.UsageStats{Calls: out.Usage.Calls, In: out.Usage.In, Cached: out.Usage.Cached, Out: out.Usage.Out})
-	}
-	o.mu.Lock()
-	for i := range outcomes {
-		if outcomes[i].Kind == StepWrite {
-			o.writerTokens += outcomes[i].Usage.In + outcomes[i].Usage.Out
-		} else {
-			o.workerTokens += outcomes[i].Usage.In + outcomes[i].Usage.Out
-		}
-	}
-	o.mu.Unlock()
-	return outcomes
 }
 
 func stepObjective(step *Step) string {

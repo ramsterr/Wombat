@@ -174,7 +174,7 @@ use the network, browse, generate images, and use the coding/research toolset.
 Orchestration tools and `question` stay with the lead.
 
 - `delegate_many` runs independent workers in one wave.
-- `run_plan` executes the ledger as a dependency graph, wave by wave.
+- `run_plan` executes the ledger as a dependency graph with continuous scheduling: free slots start newly-ready work instead of waiting for a slow step, and timed-out/transient steps retry once.
 - `delegate_write` gives writers explicit file ownership.
 - `rename` and `refactor` use a real language server.
 - Workers run in git worktrees when possible; changes are reviewed and merged.
