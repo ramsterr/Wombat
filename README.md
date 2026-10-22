@@ -11,10 +11,10 @@ source build below to run the current features.
 
 ### Run current main
 
-You only need Go and git:
+You only need Go and git. The `--depth 1` clone skips old history; omit it if you need the full repository history.
 
 ```sh
-git clone https://github.com/ramsterr/Wombat.git
+git clone --depth 1 https://github.com/ramsterr/Wombat.git
 cd Wombat
 go build -o wombat ./cmd/wombat
 ./wombat version
