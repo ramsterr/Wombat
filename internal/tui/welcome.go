@@ -15,7 +15,7 @@ var welcomeTips = []string{
 	"esc stops a run; your work is checkpointed first",
 	"/sessions resumes an earlier conversation in this directory",
 	"ctrl+y copies the last reply; /copy picks any reply",
-	"/mouse turns off mouse capture so you can select text normally",
+	"text selection works by default; /mouse enables wheel scrolling",
 	"workers run in parallel git worktrees — ideal for independent files",
 }
 

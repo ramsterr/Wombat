@@ -176,7 +176,13 @@ func Run(opt Options) (Action, error) {
 }
 
 func (m *rootModel) Init() tea.Cmd {
-	return m.chat.Init()
+	cmds := []tea.Cmd{m.chat.Init()}
+	if !m.opt.Mouse {
+		// Make sure a previous session that crashed in mouse mode cannot keep
+		// capturing the pointer. Selection must work out of the box.
+		cmds = append(cmds, tea.DisableMouse)
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *rootModel) open(id screenID) tea.Cmd {

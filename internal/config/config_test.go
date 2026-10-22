@@ -37,6 +37,32 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Permission("bash") != "allow" || cfg.Permission("write") != "allow" {
 		t.Fatalf("default permissions wrong: %+v", cfg.Permissions)
 	}
+	if cfg.Mouse {
+		t.Fatal("mouse reporting must be off by default so text selection works")
+	}
+	if cfg.Version != 3 {
+		t.Fatalf("config version = %d, want 3", cfg.Version)
+	}
+}
+
+func TestOldConfigTurnsOffMouse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	t.Setenv("WOMBAT_CONFIG", "")
+	raw := `{"version":2,"provider":"openai","model":"gpt-5","mouse":true}`
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mouse {
+		t.Error("an old config with mouse:true should be migrated to selection-friendly mouse:false")
+	}
+	if cfg.Version != 3 {
+		t.Errorf("migrated version = %d, want 3", cfg.Version)
+	}
 }
 
 func TestSaveLoadRoundtrip(t *testing.T) {

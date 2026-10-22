@@ -36,9 +36,11 @@ All notable changes to Wombat are recorded here. The format follows
   inspector, and browsable with `/previews` or `/preview <n>`.
 - **Copy support**: `ctrl+y` copies the last reply; `/copy` opens a picker for
   any earlier reply; `/copy all` copies the transcript. A terminal-clipboard
-  fallback keeps copy working when the platform helper is unavailable.
-  Terminal control sequences and stray mouse reports are scrubbed from the
-  composer and transcript so scrolling cannot corrupt the screen.
+  fallback keeps copy working when the platform helper is unavailable. Mouse
+  reporting is off by default so terminal text selection works; `/mouse`
+  enables wheel scrolling. Terminal control sequences and stray mouse reports
+  are scrubbed from the composer and transcript so scrolling cannot corrupt
+  the screen.
 
 ### Fixed
 

@@ -176,8 +176,8 @@ Type a request and press Enter. Useful shortcuts:
   the whole transcript
 - `alt+1..5` — jump between chat, sessions, models, usage, and doctor
 - `pgup` / `pgdn` or `ctrl+up/down` — scroll the transcript
-- mouse wheel — scroll when mouse mode is on (the default); `/mouse` turns it
-  off so you can select text normally
+- mouse wheel — mouse reporting is off by default so you can select and copy
+  text normally; run `/mouse` to enable wheel scrolling
 
 Common slash commands:
 

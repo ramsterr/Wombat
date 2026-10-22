@@ -1460,10 +1460,10 @@ func (c *chat) command(line string) tea.Cmd {
 		c.cfg.Mouse = c.mouse
 		_ = c.cfg.Save()
 		if c.mouse {
-			c.note("mouse on — wheel scrolls; hold Option/Shift to select text, or ctrl+y copies the last reply", false)
+			c.note("mouse on — wheel scrolls; run /mouse again to select text normally", false)
 			return tea.EnableMouseCellMotion
 		}
-		c.note("mouse off — select and copy normally; ctrl+y copies the last reply", false)
+		c.note("mouse off — select text normally; run /mouse again for wheel scrolling", false)
 		return tea.DisableMouse
 	case "/theme":
 		if arg == "" {
@@ -2136,6 +2136,9 @@ func (c *chat) hint() string {
 	default:
 		left = keyHint("enter", "send") + "   " + keyHint("/", "commands") + "   " +
 			keyHint("ctrl+y", "copy") + "   " + keyHint("ctrl+g", "help")
+		if c.w >= 112 {
+			left += "   " + keyHint("/mouse", "select")
+		}
 	}
 	right := ""
 	if c.window > 0 {

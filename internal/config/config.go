@@ -135,7 +135,7 @@ func Path() string {
 
 func Defaults() *Config {
 	c := &Config{
-		Version:   2,
+		Version:   3,
 		Provider:  "openai",
 		Model:     "",
 		Providers: map[string]*Provider{},
@@ -157,7 +157,7 @@ func Defaults() *Config {
 		Checkpoints:         true,
 		RequireVerification: false,
 		Writers:             true,
-		Mouse:               true,
+		Mouse:               false,
 		Theme:               "wombat",
 		Panel:               true,
 		PaintBackground:     true,
@@ -188,7 +188,12 @@ func Load() (*Config, error) {
 	// actually works, without touching the user's model or provider setup.
 	if c.Version < 2 {
 		c.Permissions = Defaults().Permissions
-		c.Version = 2
+	}
+	// Version 3 turns mouse reporting off by default so terminal text
+	// selection works out of the box. /mouse turns wheel reporting back on.
+	if c.Version < 3 {
+		c.Mouse = false
+		c.Version = 3
 	}
 	if c.Providers == nil {
 		c.Providers = map[string]*Provider{}

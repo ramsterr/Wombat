@@ -272,10 +272,10 @@ func TestThemePickerRestoresOnEscape(t *testing.T) {
 	}
 }
 
-func TestConfigEnablesMouseAndBackground(t *testing.T) {
+func TestConfigDefaultsForCopy(t *testing.T) {
 	cfg := config.Defaults()
-	if !cfg.Mouse {
-		t.Error("mouse should be on by default so the wheel scrolls")
+	if cfg.Mouse {
+		t.Error("mouse reporting should be off by default so text selection works")
 	}
 	if !cfg.PaintBackground {
 		t.Error("the terminal background should follow the theme by default")
