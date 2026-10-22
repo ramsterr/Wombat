@@ -305,42 +305,66 @@ func (c *chat) helpLines(width int) []string {
 	return out
 }
 
-// themeCard renders the theme picker.
+// themeCard renders the theme picker. On normal terminals it is a two-column
+// grid so every theme is visible at once; very narrow terminals fall back to a
+// scrolling single column.
 func (c *chat) themeCard() string {
 	mainW := c.mainWidth()
 	cardW := min(max(44, mainW-6), 72)
 	innerW := max(32, cardW-6)
-	lines := []string{
-		styleAccent.Bold(true).Render("◈  THEMES") + "  " + styleFaint.Render("ctrl+t cycles"),
-		styleDim.Render("select with ↑↓, apply with enter, cancel with esc"),
-		"",
+	lines := []string{styleAccent.Bold(true).Render("◈  THEMES") + "  " + styleFaint.Render("ctrl+t cycles")}
+	if c.vp.Height >= 22 {
+		lines = append(lines, styleDim.Render("select with ↑↓, apply with enter, cancel with esc"))
 	}
-	maxRows := max(3, min(len(themeOrder), c.vp.Height-10))
-	start := 0
-	if c.themeSel >= maxRows {
-		start = c.themeSel - maxRows + 1
-	}
-	end := min(len(themeOrder), start+maxRows)
-	for i := start; i < end; i++ {
-		t := themeEntries()[i]
-		name := padRight(t.label, 14)
-		blurb := clip(t.blurb, max(8, innerW-27))
-		row := "  " + styleDim.Render(name) + " " + swatches(t) + "  " + styleFaint.Render(blurb)
-		if i == c.themeSel {
-			row = " > " + name + " " + swatches(t) + "  " + blurb
-			lines = append(lines, " "+styleSelected.Render(pad(clip(row, innerW-1), max(8, innerW-1))))
-		} else {
-			lines = append(lines, " "+clipANSI(row, max(8, innerW-1)))
+	lines = append(lines, "")
+
+	themes := themeEntries()
+	colW := (innerW - 3) / 2
+	if innerW >= 46 && c.vp.Height >= 15 {
+		rows := (len(themes) + 1) / 2
+		for r := 0; r < rows; r++ {
+			left := themeCell(r, c.themeSel, colW)
+			right := ""
+			if r+rows < len(themes) {
+				right = themeCell(r+rows, c.themeSel, colW)
+			}
+			lines = append(lines, " "+padRight(left, colW)+"  "+right)
+		}
+	} else {
+		maxRows := max(3, min(len(themes), c.vp.Height-10))
+		start := 0
+		if c.themeSel >= maxRows {
+			start = c.themeSel - maxRows + 1
+		}
+		end := min(len(themes), start+maxRows)
+		for i := start; i < end; i++ {
+			lines = append(lines, " "+themeCell(i, c.themeSel, innerW-1))
+		}
+		if end < len(themes) {
+			lines = append(lines, styleFaint.Render(fmt.Sprintf("  … %d more below", len(themes)-end)))
 		}
 	}
-	if end < len(themeOrder) {
-		lines = append(lines, styleFaint.Render(fmt.Sprintf("  … %d more below", len(themeOrder)-end)))
+	if c.vp.Height >= 22 {
+		sel := themes[c.themeSel]
+		lines = append(lines, "", " "+styleAccent.Render(sel.label)+"  "+styleDim.Render(clip(sel.blurb, innerW-4)))
 	}
 	lines = append(lines, "", " "+styleFaint.Render("1-9 jump · enter apply · esc restores the previous theme"))
 	for i := range lines {
 		lines[i] = clipANSI(lines[i], innerW)
 	}
 	return styleModal.Width(innerW + 4).Render(strings.Join(lines, "\n"))
+}
+
+// themeCell is one row in the theme grid.
+func themeCell(i, sel, width int) string {
+	t := themeEntries()[i]
+	name := padRight(t.label, 14)
+	row := "  " + styleDim.Render(name) + " " + swatches(t)
+	if i == sel {
+		row = " > " + name + " " + swatches(t)
+		return styleSelected.Render(pad(clip(row, width), max(8, width)))
+	}
+	return clipANSI(row, width)
 }
 
 // modalView places the active overlay in the transcript region.

@@ -213,6 +213,10 @@ type chat struct {
 	pending []llm.Attachment
 	mouse   bool
 
+	// showBanner keeps the session-opening banner at the top of the
+	// transcript for the whole session. It scrolls up as chat happens.
+	showBanner bool
+
 	// previewURL is the newest preview the agent produced. previews keeps the
 	// full, de-duplicated list shown in the inspector and /previews.
 	previewURL string
@@ -341,6 +345,7 @@ func newChat(opt Options) (*chat, error) {
 		c.loadHistory()
 		c.refreshSourceCounts()
 	}
+	c.showBanner = len(c.entries) == 0
 	return c, nil
 }
 
@@ -597,6 +602,7 @@ func (c *chat) openSession(id string) error {
 	}
 	buildErr := c.rebuild(false)
 	c.loadHistory()
+	c.showBanner = len(c.entries) == 0
 	c.refreshSourceCounts()
 	c.follow = true
 	c.layout()
@@ -1144,22 +1150,32 @@ func (c *chat) refresh() {
 	if c.w <= 0 || c.h <= 0 {
 		return
 	}
-	if len(c.entries) == 0 {
-		c.vp.SetContent(c.welcome())
-		c.vp.GotoTop()
-		c.follow = false
-	} else {
-		var blocks []string
-		for _, e := range c.entries {
-			if lines := c.entryLines(e); len(lines) > 0 {
-				blocks = append(blocks, strings.Join(lines, "\n"))
-			}
+	var blocks []string
+	if c.showBanner {
+		if banner := c.welcome(); banner != "" {
+			blocks = append(blocks, banner)
 		}
-		content := strings.Join(blocks, "\n\n")
+	}
+	for _, e := range c.entries {
+		if lines := c.entryLines(e); len(lines) > 0 {
+			blocks = append(blocks, strings.Join(lines, "\n"))
+		}
+	}
+	if len(blocks) == 0 {
+		c.vp.SetContent("")
+		return
+	}
+	content := strings.Join(blocks, "\n\n")
+	if !c.showBanner {
 		if pad := c.vp.Height - (strings.Count(content, "\n") + 1); pad > 0 {
 			content = strings.Repeat("\n", pad) + content
 		}
-		c.vp.SetContent(content)
+	}
+	c.vp.SetContent(content)
+	if len(c.entries) == 0 && c.showBanner {
+		c.follow = false
+		c.vp.GotoTop()
+		return
 	}
 	if c.follow {
 		c.vp.GotoBottom()
@@ -1470,7 +1486,7 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.note("mouse off — select text normally; run /mouse again for wheel scrolling", false)
 		return tea.DisableMouse
-	case "/theme":
+	case "/theme", "/themes":
 		if arg == "" {
 			return c.openThemePicker()
 		}
@@ -1506,6 +1522,7 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.sess = ns
 		c.entries = nil
+		c.showBanner = true
 		c.pending = nil
 		c.previewURL = ""
 		c.previews = nil
