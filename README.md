@@ -247,6 +247,14 @@ Browser screenshots stay in memory and are not saved in the project.
 - **Recovers** — retries transient network failures, repairs rejected thinking-mode histories, and keeps long sessions usable.
 - **Caches** — context pruning and summarization, checkpoints, and resumable sessions.
 
+## Coming next
+
+- Images in the terminal
+- Premade environments for specific kinds of tasks
+- Agent observability
+- Source tracking
+- Personalisation
+
 ## Parallel agents
 
 Workers are full-access by default. They can read, write, edit, run commands,
