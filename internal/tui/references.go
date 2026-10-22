@@ -248,9 +248,8 @@ func (c *chat) referenceCard() string {
 	mainW := c.mainWidth()
 	cardW := min(max(40, mainW-10), 72)
 	innerW := max(28, cardW-6)
-	left, right := themeGradient()
 	lines := []string{
-		gradientText("◈  REFERENCES", left, right) + "  " + styleFaint.Render("this project"),
+		styleAccent2.Bold(true).Render("◈  REFERENCES") + "  " + styleFaint.Render("this project"),
 		styleDim.Render("keep paths and links beside the chat; enter adds the value below"),
 		"",
 		c.refInput.View(),

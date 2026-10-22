@@ -13,19 +13,16 @@ All notable changes to Wombat are recorded here. The format follows
   and the key map; a live `ctrl+o` preview opener; prompt history; a searchable
   command palette with command groups and inline options; and `@`-file
   completion with `Tab`.
-- **Thirteen colour themes** — `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
-  `nord`, `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`,
-  `monokai`, `iceberg`, and `nightfox` — with `/theme`, a live picker, and
-  `ctrl+t` cycling. Each theme has its own full-body wombat pose and motif.
-  The choice is saved in the config.
+- **Seven colour themes** — `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
+  `nord`, `rosepine`, and `dracula` — with `/theme`, a picker, and `ctrl+t`
+  cycling. The choice is saved in the config.
 - **A help and command centre** on `ctrl+g`/`?`/`/help` (`/keys`), plus a
   grouped command reference. `alt+1..5` jumps between chat, sessions, models,
-  usage, and doctor.
+  usage, and doctor. The `/` palette shows theme names and swatches inline.
 - **Richer transcripts**: tool glyphs and live timers, diff-coloured tool
-  output, box tables, numbered lists, links, fenced-code labels, and gradient
-  headings.
-- A compact ASCII mascot and quick-start card on the welcome screen, and a
-  shared navigation bar on every secondary screen.
+  output, box tables, numbered lists, links, and fenced-code labels.
+- A single sitting-wombat line-art mascot and a clean quick-start card on the
+  welcome screen, and a shared navigation bar on every secondary screen.
 - **Project references** in the inspector (`ctrl+r`, `/reference add|rm|clear`).
   Files, folders, and URLs are stored per project under `~/.wombat/references/`
   and survive sessions.
@@ -37,9 +34,11 @@ All notable changes to Wombat are recorded here. The format follows
 - **Multiple previews**: local servers, HTML, PDFs, images, and video are
   collected, de-duplicated by origin or file path, ordered newest-first in the
   inspector, and browsable with `/previews` or `/preview <n>`.
-- **Copy support**: `ctrl+y` copies the last reply; `/copy all` copies the
-  transcript. Terminal control sequences and stray mouse reports are scrubbed
-  from the composer and transcript so scrolling cannot corrupt the screen.
+- **Copy support**: `ctrl+y` copies the last reply; `/copy` opens a picker for
+  any earlier reply; `/copy all` copies the transcript. A terminal-clipboard
+  fallback keeps copy working when the platform helper is unavailable.
+  Terminal control sequences and stray mouse reports are scrubbed from the
+  composer and transcript so scrolling cannot corrupt the screen.
 
 ### Fixed
 

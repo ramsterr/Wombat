@@ -57,7 +57,7 @@ var List = []Command{
 	{Name: "/status", Group: "Context", Summary: "show the current settings"},
 	{Name: "/preview", Group: "Tools", Args: "[n]", Summary: "open a preview the agent produced"},
 	{Name: "/previews", Group: "Tools", Summary: "list every preview the agent produced"},
-	{Name: "/copy", Group: "Session", Args: "[all]", Summary: "copy the last reply, or the whole transcript"},
+	{Name: "/copy", Group: "Session", Args: "[n|all]", Summary: "pick a reply to copy, or copy the transcript"},
 	{Name: "/cost", Group: "Context", Summary: "token usage and cost"},
 	{Name: "/model", Group: "Models", Args: "[name]", Summary: "switch model"},
 	{Name: "/provider", Group: "Models", Args: "[name]", Summary: "switch provider"},

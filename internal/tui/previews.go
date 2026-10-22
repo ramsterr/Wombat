@@ -366,9 +366,8 @@ func (c *chat) previewsCard() string {
 	mainW := c.mainWidth()
 	cardW := min(max(44, mainW-8), 92)
 	innerW := max(30, cardW-6)
-	left, right := themeGradient()
 	lines := []string{
-		gradientText("◈  PREVIEWS", left, right) + "  " + styleFaint.Render(itoa(len(c.previews))+" detected"),
+		styleAccent2.Bold(true).Render("◈  PREVIEWS") + "  " + styleFaint.Render(itoa(len(c.previews))+" detected"),
 		styleDim.Render("sites, pages, PDFs, images, and video the agent produced"),
 		"",
 	}

@@ -172,7 +172,8 @@ Type a request and press Enter. Useful shortcuts:
 - `ctrl+t` — cycle colour themes
 - `ctrl+p` / `ctrl+n` — prompt history
 - `ctrl+r` — add a project reference (file, folder, or URL)
-- `ctrl+y` — copy the last reply; `/copy all` copies the transcript
+- `ctrl+y` — copy the last reply; `/copy` picks any reply; `/copy all` copies
+  the whole transcript
 - `alt+1..5` — jump between chat, sessions, models, usage, and doctor
 - `pgup` / `pgdn` or `ctrl+up/down` — scroll the transcript
 - mouse wheel — scroll when mouse mode is on (the default); `/mouse` turns it
@@ -186,7 +187,7 @@ Common slash commands:
 /reference     keep files and links in the inspector
 /sources       browse the sites and files the session used
 /preview [n]   open a preview; /previews lists them all
-/copy [all]    copy the last reply or the whole transcript
+/copy [n|all]  pick a reply to copy, or copy the transcript
 /model         switch model
 /mode          chat or create mode
 /attach <path> attach a file
@@ -201,13 +202,12 @@ Common slash commands:
 ```
 
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
-`nord`, `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`,
-`monokai`, `iceberg`, and `nightfox`. Each one has its own full-body wombat
-plate in the welcome screen and a live preview in the theme picker. Pick one
-with `/theme`, or cycle with `ctrl+t`; the choice is saved in
-`~/.wombat/config.json`. The theme also tints the terminal background while
-Wombat is open and restores it on exit (`wombat config set paint_background
-false` disables this).
+`nord`, `rosepine`, and `dracula`. Pick one with `/theme`, or cycle with
+`ctrl+t`; the choice is saved in `~/.wombat/config.json`. The welcome screen
+uses one clean sitting-wombat line-art mascot, and the theme picker shows every
+theme with its swatches while you type. The theme also tints the terminal
+background while Wombat is open and restores it on exit (`wombat config set
+paint_background false` disables this).
 
 **References** are project-scoped notes that stay in the right-hand inspector.
 Press `ctrl+r` to add a path or URL, or use `/reference add <path|url>`. Remove

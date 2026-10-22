@@ -157,7 +157,6 @@ func (c *chat) sourcesCard() string {
 	cardH := min(max(12, c.vp.Height-2), 24)
 	innerH := max(6, cardH-5)
 
-	left, right := themeGradient()
 	tabs := []string{"all", "sites", "files"}
 	var tabLine []string
 	for i, t := range tabs {
@@ -168,7 +167,7 @@ func (c *chat) sourcesCard() string {
 		}
 	}
 	lines := []string{
-		gradientText("◈  SOURCES", left, right) + "  " + styleFaint.Render("sites & files used in this session"),
+		styleAccent2.Bold(true).Render("◈  SOURCES") + "  " + styleFaint.Render("sites & files used in this session"),
 		strings.Join(tabLine, " "),
 		"",
 	}

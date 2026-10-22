@@ -36,10 +36,7 @@ type theme struct {
 const themeDefault = "wombat"
 
 // themeOrder is also the order shown by /theme and ctrl+t.
-var themeOrder = []string{
-	"wombat", "tokyo", "catppuccin", "gruvbox", "nord", "rosepine", "dracula",
-	"everforest", "kanagawa", "solarized", "monokai", "iceberg", "nightfox",
-}
+var themeOrder = []string{"wombat", "tokyo", "catppuccin", "gruvbox", "nord", "rosepine", "dracula"}
 
 var themeCatalog = map[string]theme{
 	"wombat": {
@@ -188,130 +185,6 @@ var themeCatalog = map[string]theme{
 		code:    lipgloss.Color("#F8F8F2"),
 		sandbox: lipgloss.Color("#FF79C6"),
 		outside: lipgloss.Color("#6272A4"),
-	}, "everforest": {
-		name:    "everforest",
-		label:   "Everforest",
-		blurb:   "moss, bark, and quiet green light",
-		ink:     lipgloss.Color("#1E2326"),
-		surface: lipgloss.Color("#1E2326"),
-		panel:   lipgloss.Color("#272E33"),
-		border:  lipgloss.Color("#414B50"),
-		text:    lipgloss.Color("#D3C6AA"),
-		dim:     lipgloss.Color("#9DA9A0"),
-		faint:   lipgloss.Color("#7A8478"),
-		accent:  lipgloss.Color("#A7C080"),
-		accent2: lipgloss.Color("#7FBBB3"),
-		green:   lipgloss.Color("#A7C080"),
-		red:     lipgloss.Color("#E67E80"),
-		warn:    lipgloss.Color("#DBBC7F"),
-		link:    lipgloss.Color("#7FBBB3"),
-		code:    lipgloss.Color("#D3C6AA"),
-		sandbox: lipgloss.Color("#D699B6"),
-		outside: lipgloss.Color("#83C092"),
-	},
-	"kanagawa": {
-		name:    "kanagawa",
-		label:   "Kanagawa",
-		blurb:   "ink wash, wave, and paper",
-		ink:     lipgloss.Color("#16161D"),
-		surface: lipgloss.Color("#1F1F28"),
-		panel:   lipgloss.Color("#2A2A37"),
-		border:  lipgloss.Color("#54546D"),
-		text:    lipgloss.Color("#DCD7BA"),
-		dim:     lipgloss.Color("#C8C093"),
-		faint:   lipgloss.Color("#727169"),
-		accent:  lipgloss.Color("#7E9CD8"),
-		accent2: lipgloss.Color("#957FB8"),
-		green:   lipgloss.Color("#98BB6C"),
-		red:     lipgloss.Color("#E46876"),
-		warn:    lipgloss.Color("#E6C384"),
-		link:    lipgloss.Color("#7FB4CA"),
-		code:    lipgloss.Color("#DCD7BA"),
-		sandbox: lipgloss.Color("#D27E99"),
-		outside: lipgloss.Color("#7AA89F"),
-	},
-	"solarized": {
-		name:    "solarized",
-		label:   "Solarized",
-		blurb:   "the classic warm/cool contrast",
-		ink:     lipgloss.Color("#002B36"),
-		surface: lipgloss.Color("#002B36"),
-		panel:   lipgloss.Color("#073642"),
-		border:  lipgloss.Color("#586E75"),
-		text:    lipgloss.Color("#93A1A1"),
-		dim:     lipgloss.Color("#839496"),
-		faint:   lipgloss.Color("#586E75"),
-		accent:  lipgloss.Color("#B58900"),
-		accent2: lipgloss.Color("#2AA198"),
-		green:   lipgloss.Color("#859900"),
-		red:     lipgloss.Color("#DC322F"),
-		warn:    lipgloss.Color("#CB4B16"),
-		link:    lipgloss.Color("#268BD2"),
-		code:    lipgloss.Color("#EEE8D5"),
-		sandbox: lipgloss.Color("#D33682"),
-		outside: lipgloss.Color("#6C71C4"),
-	},
-	"monokai": {
-		name:    "monokai",
-		label:   "Monokai",
-		blurb:   "high-contrast neon on charcoal",
-		ink:     lipgloss.Color("#19181A"),
-		surface: lipgloss.Color("#1E1F1C"),
-		panel:   lipgloss.Color("#272822"),
-		border:  lipgloss.Color("#49483E"),
-		text:    lipgloss.Color("#F8F8F2"),
-		dim:     lipgloss.Color("#CFCFC2"),
-		faint:   lipgloss.Color("#75715E"),
-		accent:  lipgloss.Color("#A6E22E"),
-		accent2: lipgloss.Color("#66D9EF"),
-		green:   lipgloss.Color("#A6E22E"),
-		red:     lipgloss.Color("#F92672"),
-		warn:    lipgloss.Color("#E6DB74"),
-		link:    lipgloss.Color("#66D9EF"),
-		code:    lipgloss.Color("#F8F8F2"),
-		sandbox: lipgloss.Color("#AE81FF"),
-		outside: lipgloss.Color("#FD971F"),
-	}, "iceberg": {
-		name:    "iceberg",
-		label:   "Iceberg",
-		blurb:   "glacier blue and deep water",
-		ink:     lipgloss.Color("#161821"),
-		surface: lipgloss.Color("#161821"),
-		panel:   lipgloss.Color("#1E2132"),
-		border:  lipgloss.Color("#3B4252"),
-		text:    lipgloss.Color("#C6C8D1"),
-		dim:     lipgloss.Color("#A4A7B5"),
-		faint:   lipgloss.Color("#6B7089"),
-		accent:  lipgloss.Color("#84A0C6"),
-		accent2: lipgloss.Color("#89B8C2"),
-		green:   lipgloss.Color("#B4BE82"),
-		red:     lipgloss.Color("#E27878"),
-		warn:    lipgloss.Color("#E2A478"),
-		link:    lipgloss.Color("#89B8C2"),
-		code:    lipgloss.Color("#C6C8D1"),
-		sandbox: lipgloss.Color("#A093C7"),
-		outside: lipgloss.Color("#6B8BA4"),
-	},
-	"nightfox": {
-		name:    "nightfox",
-		label:   "Nightfox",
-		blurb:   "midnight blue with amber eyes",
-		ink:     lipgloss.Color("#192330"),
-		surface: lipgloss.Color("#192330"),
-		panel:   lipgloss.Color("#212E3F"),
-		border:  lipgloss.Color("#393B44"),
-		text:    lipgloss.Color("#CDCECF"),
-		dim:     lipgloss.Color("#AEB3C2"),
-		faint:   lipgloss.Color("#738091"),
-		accent:  lipgloss.Color("#719CD6"),
-		accent2: lipgloss.Color("#F2A65A"),
-		green:   lipgloss.Color("#81B29A"),
-		red:     lipgloss.Color("#C94F6D"),
-		warn:    lipgloss.Color("#DBC074"),
-		link:    lipgloss.Color("#63CDCF"),
-		code:    lipgloss.Color("#CDCECF"),
-		sandbox: lipgloss.Color("#9D79BC"),
-		outside: lipgloss.Color("#7CA1F3"),
 	},
 }
 
@@ -539,52 +412,10 @@ func swatches(t theme) string {
 	return b.String()
 }
 
-// gradientText paints a short rune string with a smooth two-colour gradient.
-func gradientText(s, from, to string) string {
-	runes := []rune(s)
-	if len(runes) == 0 {
-		return ""
-	}
-	fr, fg, fb, ok := hexRGB(from)
-	tr, tg, tb, ok2 := hexRGB(to)
-	if !ok || !ok2 {
-		return s
-	}
-	var b strings.Builder
-	denom := max(1, len(runes)-1)
-	for i, r := range runes {
-		t := float64(i) / float64(denom)
-		hex := fmt.Sprintf("#%02x%02x%02x",
-			int(float64(fr)+float64(tr-fr)*t),
-			int(float64(fg)+float64(tg-fg)*t),
-			int(float64(fb)+float64(tb-fb)*t))
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Render(string(r)))
-	}
-	return b.String()
-}
-
-// themeGradient returns the two signature colours of the active theme.
-func themeGradient() (string, string) {
-	t := themeCatalog[activeTheme]
-	return colorHex(t.accent), colorHex(t.accent2)
-}
-
 func colorHex(c lipgloss.TerminalColor) string {
 	s := fmt.Sprint(c)
 	if strings.HasPrefix(s, "#") {
 		return s
 	}
 	return "#F5B86B"
-}
-
-func hexRGB(s string) (int, int, int, bool) {
-	s = strings.TrimPrefix(strings.TrimSpace(s), "#")
-	if len(s) != 6 {
-		return 0, 0, 0, false
-	}
-	var r, g, b int
-	if _, err := fmt.Sscanf(s, "%02x%02x%02x", &r, &g, &b); err != nil {
-		return 0, 0, 0, false
-	}
-	return r, g, b, true
 }

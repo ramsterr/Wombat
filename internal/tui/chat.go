@@ -74,6 +74,7 @@ const (
 	modalReference
 	modalSources
 	modalPreviews
+	modalCopy
 )
 
 type textMsg string
@@ -247,6 +248,10 @@ type chat struct {
 	// project references shown in the inspector
 	refs     []reference
 	refInput textinput.Model
+
+	// copy picker
+	copyItems []string
+	copySel   int
 
 	// sites and files browser
 	sourceItems []sourceItem
@@ -704,13 +709,13 @@ func sortPaletteByGroup(entries []paletteEntry) {
 // splitCommand splits an input like "/sandbox net" into the command and the
 // argument.
 func splitCommand(text string) (name string, arg string, hasArg bool) {
-	name = strings.TrimSpace(text)
-	if i := strings.IndexAny(name, " \t"); i >= 0 {
-		arg = strings.TrimSpace(name[i+1:])
-		name = name[:i]
-		hasArg = true
+	raw := strings.TrimLeft(text, " \t")
+	if i := strings.IndexAny(raw, " \t"); i >= 0 {
+		name = raw[:i]
+		arg = strings.TrimSpace(raw[i+1:])
+		return name, arg, true
 	}
-	return name, arg, hasArg
+	return strings.TrimSpace(raw), "", false
 }
 
 // fuzzyCommands falls back to a subsequence match when no command starts
@@ -1079,7 +1084,11 @@ func (c *chat) commandOverlayRows() int {
 		rows += paletteGroupCount(c.cmdList[c.cmdTop:end])
 	}
 	if c.selectedCommandHasOptions() {
-		rows++
+		if c.selectedCommandInsert() == "/theme" {
+			rows += 2
+		} else {
+			rows++
+		}
 	}
 	return rows
 }
@@ -1093,6 +1102,17 @@ func paletteGroupCount(entries []paletteEntry) int {
 		}
 	}
 	return len(seen)
+}
+
+func (c *chat) selectedCommandInsert() string {
+	if c.cmdCommand != "" || len(c.cmdList) == 0 {
+		return ""
+	}
+	sel := c.cmdSel
+	if sel < 0 || sel >= len(c.cmdList) {
+		return ""
+	}
+	return c.cmdList[sel].insert
 }
 
 func (c *chat) selectedCommandHasOptions() bool {
@@ -1507,7 +1527,19 @@ func (c *chat) command(line string) tea.Cmd {
 	case "/previews":
 		return c.openPreviews()
 	case "/copy":
-		return c.copyLastReply(strings.EqualFold(strings.TrimSpace(arg), "all"))
+		arg = strings.TrimSpace(arg)
+		if strings.EqualFold(arg, "all") {
+			return c.copyToClipboard(c.transcriptText(), "transcript")
+		}
+		if n, err := strconv.Atoi(arg); err == nil && n >= 1 {
+			items := c.copyableMessages()
+			if n <= len(items) {
+				return c.copyToClipboard(items[n-1], fmt.Sprintf("reply %d", n))
+			}
+			c.note("no reply matches "+arg, true)
+			return nil
+		}
+		return c.openCopyPicker()
 	case "/preview":
 		if arg != "" {
 			if n, err := strconv.Atoi(arg); err == nil && n >= 1 && n <= len(c.previews) {
@@ -2047,7 +2079,7 @@ func openLocalURL(url string) error {
 }
 
 func (c *chat) header() string {
-	left := styleBrand.Render(themeMark(activeTheme) + " WOMBAT")
+	left := styleBrand.Render("◈ WOMBAT")
 	if c.opt.Version != "" {
 		left += " " + styleFaint.Render(clip(c.opt.Version, 18))
 	}
@@ -2103,7 +2135,7 @@ func (c *chat) hint() string {
 		left += "   " + keyHint("esc", "interrupt")
 	default:
 		left = keyHint("enter", "send") + "   " + keyHint("/", "commands") + "   " +
-			keyHint("@", "files") + "   " + keyHint("ctrl+g", "help")
+			keyHint("ctrl+y", "copy") + "   " + keyHint("ctrl+g", "help")
 	}
 	right := ""
 	if c.window > 0 {
@@ -2310,14 +2342,22 @@ func (c *chat) paletteView() string {
 			lastGroup = entry.group
 		}
 		label := pad(entry.label, 26)
+		swatch := ""
+		if c.cmdCommand == "/theme" {
+			if t, ok := themeCatalog[entry.label]; ok {
+				swatch = "  " + swatches(t)
+			}
+		}
 		if i == c.cmdSel {
-			row := " > " + label + entry.summary
+			row := " > " + label + entry.summary + swatch
 			b.WriteString(styleSelected.Render(pad(row, inner)) + "\n")
 		} else {
-			b.WriteString("   " + styleAccent.Render(label) + styleDim.Render(entry.summary) + "\n")
+			b.WriteString("   " + styleAccent.Render(label) + styleDim.Render(entry.summary) + swatch + "\n")
 		}
 		if i == c.cmdSel && entry.isCommand && entry.hasOptions {
-			if cmd, ok := commands.Find(entry.insert); ok {
+			if entry.insert == "/theme" {
+				b.WriteString(themeStrip(inner) + "\n")
+			} else if cmd, ok := commands.Find(entry.insert); ok {
 				var opts []string
 				for _, o := range cmd.Options {
 					opts = append(opts, o.Value)
@@ -2332,6 +2372,25 @@ func (c *chat) paletteView() string {
 	}
 	b.WriteString(styleFaint.Render("  ↑↓ select · tab complete · enter run · esc dismiss"))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// themeStrip lists every theme with its swatch under the selected /theme row.
+func themeStrip(width int) string {
+	var lines []string
+	line := "       " + styleAccent2.Render("↳ THEMES  ")
+	for _, t := range themeEntries() {
+		part := styleDim.Render(t.label) + " " + swatches(t)
+		if lipgloss.Width(line)+2+lipgloss.Width(part) > width {
+			lines = append(lines, line)
+			line = "         "
+		}
+		if line != "         " {
+			line += "  "
+		}
+		line += part
+	}
+	lines = append(lines, line)
+	return strings.Join(lines, "\n")
 }
 
 func pad(s string, n int) string {
@@ -2696,8 +2755,7 @@ func renderMarkdown(s string, width int) []string {
 			text := clip(strings.TrimSpace(strings.TrimLeft(trimmed, "#")), max(8, width-2))
 			switch {
 			case level <= 1:
-				left, right := themeGradient()
-				out = append(out, styleTitle.Render(gradientText(text, left, right)))
+				out = append(out, styleTitle.Render(text))
 			case level == 2:
 				out = append(out, styleTitle.Render(text))
 			default:

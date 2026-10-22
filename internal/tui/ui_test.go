@@ -387,26 +387,6 @@ func TestScrollbarAppearsForLongTranscripts(t *testing.T) {
 	}
 }
 
-func TestAllThemeArtFits(t *testing.T) {
-	for _, name := range themeOrder {
-		for _, tc := range []struct {
-			size artSize
-			w    int
-			h    int
-		}{{artMini, 32, 8}, {artSmall, 40, 8}, {artFull, 60, 12}} {
-			lines := themeArt(name, tc.size)
-			if len(lines) != tc.h {
-				t.Errorf("%s art has %d rows, want %d", name, len(lines), tc.h)
-			}
-			for _, line := range lines {
-				if got := lipgloss.Width(line); got > tc.w {
-					t.Errorf("%s art line is %d wide, want <= %d", name, got, tc.w)
-				}
-			}
-		}
-	}
-}
-
 func TestEveryThemeWelcomeFits(t *testing.T) {
 	for _, name := range themeOrder {
 		applyTheme(name)
@@ -439,6 +419,57 @@ func TestThemePickerScrollsThroughEveryTheme(t *testing.T) {
 		if card := c.themeCard(); card == "" {
 			t.Fatalf("theme %d has an empty card", i)
 		}
+	}
+}
+
+func TestPaletteShowsThemeOptions(t *testing.T) {
+	c := testChat(t)
+	c.resize(120, 34)
+	c.ta.SetValue("/theme")
+	c.updatePalette()
+	view := c.paletteView()
+	for _, want := range []string{"THEMES", "Wombat", "Tokyo Night", "Catppuccin"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("theme palette is missing %q:\n%s", want, view)
+		}
+	}
+	c.ta.SetValue("/theme ")
+	c.updatePalette()
+	view = c.paletteView()
+	for _, want := range []string{"wombat", "tokyo", "catppuccin"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("theme options are missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestCopyPicker(t *testing.T) {
+	c := testChat(t)
+	c.resize(120, 34)
+	c.entries = []*chatEntry{
+		{kind: entryUser, text: "question"},
+		{kind: entryAssistant, text: "first answer"},
+		{kind: entryAssistant, text: "second answer"},
+	}
+	if got := c.copyableMessages(); len(got) != 2 || got[0] != "second answer" {
+		t.Fatalf("copyableMessages = %+v", got)
+	}
+	if cmd := c.openCopyPicker(); cmd != nil {
+		t.Fatal("openCopyPicker should not return a command")
+	}
+	if c.modal != modalCopy || len(c.copyItems) != 2 {
+		t.Fatalf("copy picker = %+v", c.copyItems)
+	}
+	if card := c.copyCard(); !strings.Contains(card, "COPY") || !strings.Contains(card, "second answer") {
+		t.Errorf("copy card =\n%s", card)
+	}
+	c.copyKey(keyMsg("down"))
+	if c.copySel != 1 {
+		t.Errorf("selection = %d", c.copySel)
+	}
+	c.copyKey(keyMsg("esc"))
+	if c.modal != modalNone {
+		t.Error("escape did not close the copy picker")
 	}
 }
 

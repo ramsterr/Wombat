@@ -11,24 +11,23 @@ var welcomeTips = []string{
 	"type / to browse every command, with options inline",
 	"type @ to pick a file, then Tab to complete the path",
 	"ctrl+b opens the inspector; ctrl+o opens the newest preview",
-	"ctrl+t cycles themes; /theme opens the live picker",
+	"ctrl+t cycles themes; /theme opens the picker",
 	"esc stops a run; your work is checkpointed first",
 	"/sessions resumes an earlier conversation in this directory",
-	"ctrl+y copies the last reply; /mouse restores normal selection",
+	"ctrl+y copies the last reply; /copy picks any reply",
+	"/mouse turns off mouse capture so you can select text normally",
 	"workers run in parallel git worktrees — ideal for independent files",
 }
 
-// welcome is the first screen: a field-guide plate with the theme's wombat,
-// the workspace facts, and the few keys worth knowing immediately.
+// welcome is the landing screen: one sitting wombat, the wordmark, the
+// workspace facts, and the keys worth knowing immediately.
 func (c *chat) welcome() string {
 	w := c.contentWidth()
 	h := c.vp.Height
 	if w <= 0 || h <= 0 {
 		return ""
 	}
-	left, right := themeGradient()
-	mark := themeMark(activeTheme)
-	title := gradientText(mark+"  W O M B A T", left, right)
+	title := styleAccent.Bold(true).Render("W O M B A T")
 	subtitle := styleDim.Render("a coding agent for your terminal")
 	if c.opt.Version != "" {
 		subtitle += styleFaint.Render("  ·  " + c.opt.Version)
@@ -39,71 +38,48 @@ func (c *chat) welcome() string {
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, strings.Join(rows, "\n"))
 	}
 
-	full := w >= 70 && (h >= 24 || (h >= 17 && h < 21))
-	size := artSmall
-	if full {
-		size = artFull
-	}
-	artW := 36
-	if full {
-		artW = 60
-	}
-	cardW := min(max(44, w-2), 80)
-	innerW := cardW - 6
-	if innerW < artW && size == artFull {
-		size = artSmall
-		artW = 36
-	}
-	if innerW < artW {
-		size = artMini
-		artW = 24
-	}
-	art := themeArt(activeTheme, size)
-
-	info := c.welcomeInfo(innerW, full)
+	showArt := h >= 18 && w >= 52
+	cardW := min(max(44, w-4), 70)
+	innerW := max(32, cardW-6)
+	info := c.welcomeInfo(innerW, h >= 24)
 	keys := keyList(innerW,
 		[2]string{"/", "commands"},
 		[2]string{"@", "files"},
-		[2]string{"ctrl+b", "inspector"},
+		[2]string{"ctrl+y", "copy"},
 		[2]string{"ctrl+g", "help"},
 	)
 	if lipgloss.Height(keys) > 1 {
 		keys = keyList(innerW, [2]string{"/", "commands"}, [2]string{"@", "files"}, [2]string{"ctrl+g", "help"})
 	}
 
-	artBlock := strings.Join(art, "\n")
-	artBlock = lipgloss.Place(innerW, len(art), lipgloss.Center, lipgloss.Top, artBlock)
-	infoBlock := lipgloss.Place(innerW, lipgloss.Height(info), lipgloss.Center, lipgloss.Top, info)
-	keysBlock := lipgloss.Place(innerW, lipgloss.Height(keys), lipgloss.Center, lipgloss.Top, keys)
-
-	compactFull := full && h < 21
+	compact := h < 20
 	var content []string
-	if compactFull {
-		info = c.welcomeInfo(innerW, false)
-		infoBlock = lipgloss.Place(innerW, lipgloss.Height(info), lipgloss.Center, lipgloss.Top, info)
-		content = []string{lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title)}
-		content = append(content, strings.Split(artBlock, "\n")...)
-		content = append(content, strings.Split(infoBlock, "\n")...)
-		content = append(content, strings.Split(keysBlock, "\n")...)
+	if showArt {
+		art := strings.Join(wombatArt(), "\n")
+		art = lipgloss.Place(innerW, len(wombatMascot), lipgloss.Center, lipgloss.Top, art)
+		content = append(content, strings.Split(art, "\n")...)
+		if !compact {
+			content = append(content, "")
+		}
+	}
+	content = append(content, lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title))
+	if !compact {
+		content = append(content, lipgloss.PlaceHorizontal(innerW, lipgloss.Center, subtitle), "")
 	} else {
-		content = []string{
-			lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title),
-			lipgloss.PlaceHorizontal(innerW, lipgloss.Center, subtitle),
-		}
-		content = append(content, strings.Split(artBlock, "\n")...)
 		content = append(content, "")
-		content = append(content, strings.Split(infoBlock, "\n")...)
+	}
+	content = append(content, strings.Split(lipgloss.Place(innerW, lipgloss.Height(info), lipgloss.Center, lipgloss.Top, info), "\n")...)
+	if !compact {
 		content = append(content, "")
-		content = append(content, strings.Split(keysBlock, "\n")...)
-		if !full && h >= 24 && innerW >= 54 {
-			content = append(content, "",
-				styleFaint.Render("tip  ")+styleDim.Render(clip(welcomeTips[int(time.Now().Unix()/45)%len(welcomeTips)], innerW-6)))
-		}
+	}
+	content = append(content, strings.Split(lipgloss.Place(innerW, lipgloss.Height(keys), lipgloss.Center, lipgloss.Top, keys), "\n")...)
+	if h >= 26 && innerW >= 54 {
+		content = append(content, "",
+			styleFaint.Render("tip  ")+styleDim.Render(clip(welcomeTips[int(time.Now().Unix()/45)%len(welcomeTips)], innerW-6)))
 	}
 	block := strings.Join(content, "\n")
 
-	useCard := h >= 21 && w >= 56
-	if useCard {
+	if h >= 23 && w >= 56 {
 		hero := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(cAccent).
