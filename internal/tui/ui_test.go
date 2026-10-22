@@ -387,6 +387,61 @@ func TestScrollbarAppearsForLongTranscripts(t *testing.T) {
 	}
 }
 
+func TestAllThemeArtFits(t *testing.T) {
+	for _, name := range themeOrder {
+		for _, tc := range []struct {
+			size artSize
+			w    int
+			h    int
+		}{{artMini, 32, 8}, {artSmall, 40, 8}, {artFull, 60, 12}} {
+			lines := themeArt(name, tc.size)
+			if len(lines) != tc.h {
+				t.Errorf("%s art has %d rows, want %d", name, len(lines), tc.h)
+			}
+			for _, line := range lines {
+				if got := lipgloss.Width(line); got > tc.w {
+					t.Errorf("%s art line is %d wide, want <= %d", name, got, tc.w)
+				}
+			}
+		}
+	}
+}
+
+func TestEveryThemeWelcomeFits(t *testing.T) {
+	for _, name := range themeOrder {
+		applyTheme(name)
+		c := testChat(t)
+		c.resize(120, 34)
+		c.layout()
+		c.refresh()
+		for _, line := range strings.Split(c.view(), "\n") {
+			if got := lipgloss.Width(line); got > c.w {
+				t.Errorf("%s welcome line is %d wide, terminal %d", name, got, c.w)
+			}
+		}
+	}
+	applyTheme(themeDefault)
+}
+
+func TestThemePickerScrollsThroughEveryTheme(t *testing.T) {
+	c := testChat(t)
+	c.resize(120, 34)
+	c.openThemePicker()
+	for i := range themeOrder {
+		c.themeSel = i
+		c.layout()
+		c.refresh()
+		for _, line := range strings.Split(c.view(), "\n") {
+			if got := lipgloss.Width(line); got > c.w {
+				t.Errorf("theme %d picker line is %d wide, terminal %d", i, got, c.w)
+			}
+		}
+		if card := c.themeCard(); card == "" {
+			t.Fatalf("theme %d has an empty card", i)
+		}
+	}
+}
+
 func TestGitBranch(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {

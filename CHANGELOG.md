@@ -13,9 +13,11 @@ All notable changes to Wombat are recorded here. The format follows
   and the key map; a live `ctrl+o` preview opener; prompt history; a searchable
   command palette with command groups and inline options; and `@`-file
   completion with `Tab`.
-- **Seven colour themes** — `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
-  `nord`, `rosepine`, and `dracula` — with `/theme`, a live picker, and
-  `ctrl+t` cycling. The choice is saved in the config.
+- **Thirteen colour themes** — `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
+  `nord`, `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`,
+  `monokai`, `iceberg`, and `nightfox` — with `/theme`, a live picker, and
+  `ctrl+t` cycling. Each theme has its own full-body wombat pose and motif.
+  The choice is saved in the config.
 - **A help and command centre** on `ctrl+g`/`?`/`/help` (`/keys`), plus a
   grouped command reference. `alt+1..5` jumps between chat, sessions, models,
   usage, and doctor.

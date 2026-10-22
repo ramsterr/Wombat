@@ -2047,7 +2047,7 @@ func openLocalURL(url string) error {
 }
 
 func (c *chat) header() string {
-	left := styleBrand.Render("◈ WOMBAT")
+	left := styleBrand.Render(themeMark(activeTheme) + " WOMBAT")
 	if c.opt.Version != "" {
 		left += " " + styleFaint.Render(clip(c.opt.Version, 18))
 	}

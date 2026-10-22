@@ -201,10 +201,13 @@ Common slash commands:
 ```
 
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
-`nord`, `rosepine`, and `dracula`. Pick one with `/theme`, or cycle with
-`ctrl+t`; the choice is saved in `~/.wombat/config.json`. The theme also tints
-the terminal background while Wombat is open and restores it on exit
-(`wombat config set paint_background false` disables this).
+`nord`, `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`,
+`monokai`, `iceberg`, and `nightfox`. Each one has its own full-body wombat
+plate in the welcome screen and a live preview in the theme picker. Pick one
+with `/theme`, or cycle with `ctrl+t`; the choice is saved in
+`~/.wombat/config.json`. The theme also tints the terminal background while
+Wombat is open and restores it on exit (`wombat config set paint_background
+false` disables this).
 
 **References** are project-scoped notes that stay in the right-hand inspector.
 Press `ctrl+r` to add a path or URL, or use `/reference add <path|url>`. Remove

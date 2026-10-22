@@ -7,119 +7,140 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// mascot is the small terminal wombat. It is deliberately compact so it still
-// fits above the input on a 24-row terminal.
-var mascot = []string{
-	"      ▄▄         ▄▄",
-	"     ▟██▙       ▟██▙",
-	"    ▟███████████████▙",
-	"   ▐█████████████████▌",
-	"   ▐███   ◉     ◉   ███▌",
-	"    ▜███████████████▛",
-	"     ▝▀▀█████████▀▀▘",
-	"          ▀▀▀▀▀",
-}
-
 var welcomeTips = []string{
 	"type / to browse every command, with options inline",
 	"type @ to pick a file, then Tab to complete the path",
-	"ctrl+b opens the inspector; ctrl+o opens the live preview",
-	"ctrl+t cycles themes; /theme opens the full picker",
+	"ctrl+b opens the inspector; ctrl+o opens the newest preview",
+	"ctrl+t cycles themes; /theme opens the live picker",
 	"esc stops a run; your work is checkpointed first",
 	"/sessions resumes an earlier conversation in this directory",
-	"paste a screenshot with ctrl+v and ask about it",
+	"ctrl+y copies the last reply; /mouse restores normal selection",
 	"workers run in parallel git worktrees — ideal for independent files",
 }
 
-// welcome is the first screen: a calm, informative landing card. It keeps
-// the most useful settings visible without turning the chat into a dashboard.
+// welcome is the first screen: a field-guide plate with the theme's wombat,
+// the workspace facts, and the few keys worth knowing immediately.
 func (c *chat) welcome() string {
 	w := c.contentWidth()
 	h := c.vp.Height
 	if w <= 0 || h <= 0 {
 		return ""
 	}
-	compact := w < 56 || h < 15
-	sideBySide := w >= 100 && h >= 18
-
-	model := c.provName + "/" + c.modelName
-	if strings.TrimSpace(model) == "/" || strings.TrimSpace(model) == "" {
-		model = "not configured"
-	}
-	session := c.sessionID()
-	if session == "new" {
-		session = "fresh session"
-	}
-	cwd := shortPath(c.opt.Cwd, max(10, w-16))
-
 	left, right := themeGradient()
-	var title string
-	if compact {
-		title = styleBrand.Render("◈ ") + gradientText("WOMBAT", left, right)
-	} else {
-		title = gradientText("◈  W O M B A T", left, right)
-	}
+	mark := themeMark(activeTheme)
+	title := gradientText(mark+"  W O M B A T", left, right)
 	subtitle := styleDim.Render("a coding agent for your terminal")
 	if c.opt.Version != "" {
 		subtitle += styleFaint.Render("  ·  " + c.opt.Version)
 	}
 
-	infoWidth := max(24, w-6)
-	rows := []string{
-		title,
-		subtitle,
-		"",
-		styleFaint.Render("model    ") + styleTitle.Render(clip(model, infoWidth-10)),
-		styleFaint.Render("mode     ") + styleAccent.Render(c.modeLabel()) +
-			styleFaint.Render("   ·   theme ") + styleDim.Render(themeLabel),
-		styleFaint.Render("session  ") + styleDim.Render(clip(session, infoWidth-10)),
-		styleFaint.Render("dir      ") + styleDim.Render(cwd),
+	if h < 12 || w < 40 {
+		rows := []string{title, subtitle, "", styleFaint.Render("type a message, or / for commands")}
+		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, strings.Join(rows, "\n"))
 	}
-	if c.branch != "" {
-		rows = append(rows, styleFaint.Render("branch   ")+styleAccent2.Render(clip(c.branch, infoWidth-10)))
-	}
-	rows = append(rows,
-		"",
-		keyList(min(infoWidth, 70),
-			[2]string{"/", "commands"},
-			[2]string{"@", "files"},
-			[2]string{"ctrl+b", "inspector"},
-			[2]string{"ctrl+o", "preview"},
-			[2]string{"ctrl+g", "help"},
-		),
-		"",
-		styleFaint.Render("tip  ")+styleDim.Render(clip(welcomeTips[int(time.Now().Unix()/45)%len(welcomeTips)], infoWidth-6)),
-		"",
-		styleFaint.Render("type a message to begin"),
-	)
 
-	if h < 14 {
-		rows = []string{
-			title,
-			subtitle,
-			"",
-			styleFaint.Render("type a message, or / for commands"),
+	full := w >= 70 && (h >= 24 || (h >= 17 && h < 21))
+	size := artSmall
+	if full {
+		size = artFull
+	}
+	artW := 36
+	if full {
+		artW = 60
+	}
+	cardW := min(max(44, w-2), 80)
+	innerW := cardW - 6
+	if innerW < artW && size == artFull {
+		size = artSmall
+		artW = 36
+	}
+	if innerW < artW {
+		size = artMini
+		artW = 24
+	}
+	art := themeArt(activeTheme, size)
+
+	info := c.welcomeInfo(innerW, full)
+	keys := keyList(innerW,
+		[2]string{"/", "commands"},
+		[2]string{"@", "files"},
+		[2]string{"ctrl+b", "inspector"},
+		[2]string{"ctrl+g", "help"},
+	)
+	if lipgloss.Height(keys) > 1 {
+		keys = keyList(innerW, [2]string{"/", "commands"}, [2]string{"@", "files"}, [2]string{"ctrl+g", "help"})
+	}
+
+	artBlock := strings.Join(art, "\n")
+	artBlock = lipgloss.Place(innerW, len(art), lipgloss.Center, lipgloss.Top, artBlock)
+	infoBlock := lipgloss.Place(innerW, lipgloss.Height(info), lipgloss.Center, lipgloss.Top, info)
+	keysBlock := lipgloss.Place(innerW, lipgloss.Height(keys), lipgloss.Center, lipgloss.Top, keys)
+
+	compactFull := full && h < 21
+	var content []string
+	if compactFull {
+		info = c.welcomeInfo(innerW, false)
+		infoBlock = lipgloss.Place(innerW, lipgloss.Height(info), lipgloss.Center, lipgloss.Top, info)
+		content = []string{lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title)}
+		content = append(content, strings.Split(artBlock, "\n")...)
+		content = append(content, strings.Split(infoBlock, "\n")...)
+		content = append(content, strings.Split(keysBlock, "\n")...)
+	} else {
+		content = []string{
+			lipgloss.PlaceHorizontal(innerW, lipgloss.Center, title),
+			lipgloss.PlaceHorizontal(innerW, lipgloss.Center, subtitle),
+		}
+		content = append(content, strings.Split(artBlock, "\n")...)
+		content = append(content, "")
+		content = append(content, strings.Split(infoBlock, "\n")...)
+		content = append(content, "")
+		content = append(content, strings.Split(keysBlock, "\n")...)
+		if !full && h >= 24 && innerW >= 54 {
+			content = append(content, "",
+				styleFaint.Render("tip  ")+styleDim.Render(clip(welcomeTips[int(time.Now().Unix()/45)%len(welcomeTips)], innerW-6)))
 		}
 	}
-	info := strings.Join(rows, "\n")
-	card := info
-	var art []string
-	for _, line := range mascot {
-		art = append(art, gradientText(line, left, right))
+	block := strings.Join(content, "\n")
+
+	useCard := h >= 21 && w >= 56
+	if useCard {
+		hero := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(cAccent).
+			Padding(1, 2).
+			Width(innerW + 4)
+		block = hero.Render(block)
 	}
-	artBlock := strings.Join(art, "\n")
-	switch {
-	case sideBySide:
-		card = lipgloss.JoinHorizontal(lipgloss.Center,
-			artBlock,
-			strings.Repeat(" ", 3),
-			info,
-		)
-	case !compact && h >= 26:
-		card = lipgloss.JoinVertical(lipgloss.Center, artBlock, "", info)
+	if lipgloss.Width(block) > w {
+		block = clipANSI(block, w)
 	}
-	if lipgloss.Width(card) > w {
-		card = clipANSI(card, w)
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, block)
+}
+
+// welcomeInfo is the two-column metadata block.
+func (c *chat) welcomeInfo(width int, full bool) string {
+	model := c.provName + "/" + c.modelName
+	if strings.TrimSpace(model) == "/" || strings.TrimSpace(model) == "" {
+		model = "not configured"
 	}
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, card)
+	colW := max(18, width/2)
+	cell := func(label, value string) string {
+		return styleFaint.Render(pad(label, 8)) + value
+	}
+	row := func(a, b string) string {
+		return padRight(a, colW) + b
+	}
+	rows := []string{
+		row(cell("theme", styleAccent.Render(themeLabel)), cell("model", styleTitle.Render(clip(model, max(8, colW-9))))),
+		row(cell("mode", styleAccent.Render(c.modeLabel())), cell("dir", styleDim.Render(shortPath(c.opt.Cwd, max(8, colW-9))))),
+	}
+	if full {
+		branch := "—"
+		if c.branch != "" {
+			branch = c.branch
+		}
+		rows = append(rows, row(cell("branch", styleAccent2.Render(clip(branch, max(8, colW-9)))),
+			cell("session", styleDim.Render(clip(c.sessionID(), max(8, colW-9))))))
+	}
+	return strings.Join(rows, "\n")
 }

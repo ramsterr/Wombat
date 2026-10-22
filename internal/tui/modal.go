@@ -303,51 +303,107 @@ func (c *chat) helpLines(width int) []string {
 	return out
 }
 
-// themeCard renders the live theme picker.
+// themeCard renders the live theme picker. On a wide terminal it becomes a
+// two-column plate: the list on the left and a live mascot preview on the right.
 func (c *chat) themeCard() string {
 	mainW := c.mainWidth()
-	cardW := min(max(38, mainW-6), 72)
-	innerW := max(28, cardW-6)
+	wide := mainW >= 78 && c.vp.Height >= 20
+	cardW := min(max(44, mainW-6), 96)
+	innerW := max(32, cardW-6)
 	left, right := themeGradient()
 	lines := []string{
-		gradientText("◈  THEMES", left, right) + "  " + styleFaint.Render("ctrl+t cycles"),
+		gradientText(themeMark(activeTheme)+"  THEMES", left, right) + "  " + styleFaint.Render("ctrl+t cycles"),
 		styleDim.Render("select with ↑↓, apply with enter, cancel with esc"),
 		"",
 	}
-	for i, t := range themeEntries() {
-		marker := "  "
-		style := styleDim
-		if i == c.themeSel {
-			marker = styleAccent.Render("▌ ")
-			style = styleTitle
+
+	if wide {
+		listW := min(34, innerW-30)
+		rightW := innerW - listW - 5
+		size := artMini
+		if rightW >= 36 {
+			size = artSmall
 		}
-		name := padRight(t.label, 13)
-		blurb := t.blurb
-		if room := innerW - 1 - 2 - 13 - 1 - 6 - 2; room > 0 {
-			blurb = clip(blurb, room)
-		} else {
-			blurb = ""
+		rows := themeListLines(c.themeSel, listW)
+		preview := c.themePreviewLines(themeOrder[c.themeSel], rightW, size)
+		body := joinArtColumns(rows, preview, listW)
+		lines = append(lines, strings.Split(body, "\n")...)
+	} else {
+		maxRows := max(3, min(len(themeOrder), c.vp.Height-9))
+		start := 0
+		if c.themeSel >= maxRows {
+			start = c.themeSel - maxRows + 1
 		}
-		line := marker + style.Render(name) + " " + swatches(t)
-		if blurb != "" {
-			line += "  " + styleFaint.Render(blurb)
+		end := min(len(themeOrder), start+maxRows)
+		for i := start; i < end; i++ {
+			lines = append(lines, themeListLine(i, c.themeSel, innerW))
 		}
-		if i == c.themeSel {
-			line = marker + styleSelectedSoft.Render(name) + " " + swatches(t)
-			if blurb != "" {
-				line += "  " + styleDim.Render(blurb)
-			}
+		if end < len(themeOrder) {
+			lines = append(lines, styleFaint.Render(fmt.Sprintf("  … %d more below", len(themeOrder)-end)))
 		}
-		lines = append(lines, " "+line)
 	}
-	lines = append(lines,
-		"",
-		" "+styleFaint.Render("1-9 jump · esc restores the previous theme"),
-	)
+
+	lines = append(lines, "", " "+styleFaint.Render("1-9 jump · enter apply · esc restores the previous theme"))
 	for i := range lines {
 		lines[i] = clipANSI(lines[i], innerW)
 	}
 	return styleModal.Width(innerW + 4).Render(strings.Join(lines, "\n"))
+}
+
+func themeListLines(sel, width int) []string {
+	out := make([]string, 0, len(themeOrder))
+	for i := range themeOrder {
+		out = append(out, themeListLine(i, sel, width))
+	}
+	return out
+}
+
+func themeListLine(i, sel, width int) string {
+	t := themeEntries()[i]
+	name := padRight(t.label, 13)
+	if i == sel {
+		row := " > " + name + " " + swatches(t)
+		return " " + styleSelected.Render(pad(row, max(8, width-1)))
+	}
+	row := "  " + styleDim.Render(name) + " " + swatches(t)
+	return " " + clipANSI(row, max(8, width-1))
+}
+
+func (c *chat) themePreviewLines(name string, width int, size artSize) []string {
+	t, ok := themeCatalog[name]
+	if !ok {
+		t = themeCatalog[themeDefault]
+	}
+	art := themeArt(name, size)
+	out := []string{
+		gradientText(themeMark(name)+"  "+t.label, colorHex(t.accent), colorHex(t.accent2)),
+		styleDim.Render(clip(t.blurb, width)),
+		"",
+	}
+	out = append(out, art...)
+	out = append(out, "",
+		swatches(t),
+		styleFaint.Render(clip("the quick brown fox", width)),
+	)
+	return out
+}
+
+// joinArtColumns puts the theme list and its preview side by side with a thin
+// vertical rule, padding both sides to the same height.
+func joinArtColumns(left, right []string, leftW int) string {
+	n := max(len(left), len(right))
+	var out []string
+	for i := 0; i < n; i++ {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		out = append(out, padRight(l, leftW)+"  "+styleRule.Render("│")+"  "+r)
+	}
+	return strings.Join(out, "\n")
 }
 
 // modalView places the active overlay in the transcript region.
