@@ -210,7 +210,7 @@ Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
 `iceberg`, `nightfox`, `onedark`, and `github`. Pick one with `/theme`, or cycle
 with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The welcome screen
-uses the Wombat mark line art, and the inspector keeps a compact copy at the
+shows the Wombat banner, and the inspector keeps a compact WOMBAT mark at the
 bottom. The theme also tints the terminal background while Wombat is open and
 restores it on exit (`wombat config set paint_background false` disables this).
 

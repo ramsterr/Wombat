@@ -284,14 +284,11 @@ func (c *chat) panelView() string {
 	// The wombat always sits at the bottom of the inspector. Reserve its
 	// space first, then let the sections above use what is left.
 	avail := max(1, h-2)
-	mascot := wombatMini
-	if contentW < 23 {
-		mascot = wombatTiny
+	mascot := wombatWordmark
+	if contentW < lipgloss.Width(mascot[0]) {
+		mascot = []string{"WOMBAT"}
 	}
-	if contentW < 18 {
-		mascot = nil
-	}
-	if len(mascot) > 0 && avail >= len(mascot)+2 {
+	if avail >= len(mascot)+1 {
 		lines = fitLines(lines, avail-len(mascot)-1)
 		lines = append(lines, "")
 		for _, line := range wombatColored(mascot) {

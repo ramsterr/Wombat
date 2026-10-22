@@ -1146,6 +1146,8 @@ func (c *chat) refresh() {
 	}
 	if len(c.entries) == 0 {
 		c.vp.SetContent(c.welcome())
+		c.vp.GotoTop()
+		c.follow = false
 	} else {
 		var blocks []string
 		for _, e := range c.entries {

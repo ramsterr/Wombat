@@ -22,9 +22,9 @@ All notable changes to Wombat are recorded here. The format follows
   usage, and doctor. The `/` palette shows theme names and swatches inline.
 - **Richer transcripts**: tool glyphs and live timers, diff-coloured tool
   output, box tables, numbered lists, links, and fenced-code labels.
-- The Wombat mark line art on the welcome screen, plus a compact copy pinned to
-  the bottom of the inspector so it stays visible while the chat runs. The
-  inspector key list was removed.
+- The Wombat banner shown at the start of every new session, plus a compact
+  WOMBAT mark pinned to the bottom of the inspector. The inspector key list was
+  removed.
 - **Project references** in the inspector (`ctrl+r`, `/reference add|rm|clear`).
   Files, folders, and URLs are stored per project under `~/.wombat/references/`
   and survive sessions.

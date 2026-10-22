@@ -485,8 +485,8 @@ func TestInspectorShowsMascot(t *testing.T) {
 	c.panel = true
 	c.layout()
 	view := stripANSI(c.panelView())
-	if !strings.Contains(view, "@") {
-		t.Errorf("the inspector is missing the wombat mascot:\n%s", view)
+	if !strings.Contains(view, "█") {
+		t.Errorf("the inspector is missing the WOMBAT mark:\n%s", view)
 	}
 }
 
