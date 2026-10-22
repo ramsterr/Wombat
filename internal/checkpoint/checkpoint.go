@@ -306,7 +306,14 @@ func (m *Manager) Restore(id string) error {
 		if path == "" {
 			continue
 		}
-		_, _ = m.git("checkout", "--force", manifest.ID, "--", path)
+		if _, err := m.git("checkout", "--force", manifest.ID, "--", path); err != nil {
+			// A scoped path that did not exist at snapshot time has nothing
+			// to check out; the removal pass below still drops it.
+			if strings.Contains(err.Error(), "did not match any file") {
+				continue
+			}
+			return fmt.Errorf("restore %s: %w", id, err)
+		}
 	}
 	// A full restore also removes files created after the snapshot. A
 	// scoped restore only removes extras inside its scope.

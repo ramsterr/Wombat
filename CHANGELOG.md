@@ -6,6 +6,12 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A checkpoint restore now aborts when git reports a real error instead of
+  silently reporting success. A scoped path that did not exist at snapshot time
+  is still skipped.
+
 ## [0.2.6] — 2026-10-22
 
 ### Removed
