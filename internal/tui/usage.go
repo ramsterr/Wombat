@@ -348,22 +348,3 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
-
-func plainLen(s string) int {
-	n := 0
-	inEsc := false
-	for _, r := range s {
-		if r == '\x1b' {
-			inEsc = true
-			continue
-		}
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
-			}
-			continue
-		}
-		n++
-	}
-	return n
-}

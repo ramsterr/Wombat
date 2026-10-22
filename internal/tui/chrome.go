@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -18,7 +19,7 @@ func chromeLine(left, right string, width int) string {
 	}
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
-		return " " + clip(left, max(1, width-2)) + " "
+		return " " + clipANSI(left, max(1, width-2)) + " "
 	}
 	return " " + left + strings.Repeat(" ", gap) + right + " "
 }
@@ -258,35 +259,27 @@ func clipANSI(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	plain := plainLen(s)
-	if plain <= width {
-		return s
-	}
-	// Fall back to clipping the visible runes; this is only used for
-	// descriptive text where losing the trailing style is acceptable.
 	var out strings.Builder
 	visible := 0
-	inEsc := false
-	for _, r := range s {
-		if r == 0x1b {
-			inEsc = true
-			out.WriteRune(r)
-			continue
-		}
-		if inEsc {
-			out.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
-			}
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			next := ansiEscapeEnd(s, i)
+			out.WriteString(s[i:next])
+			i = next
 			continue
 		}
 		if visible >= width-1 {
 			break
 		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if size <= 0 {
+			break
+		}
 		out.WriteRune(r)
 		visible++
+		i += size
 	}
-	return out.String() + styleFaint.Render("…")
+	return out.String() + "\x1b[0m" + styleFaint.Render("…")
 }
 
 // elapsedLabel formats a run duration for the live status line.

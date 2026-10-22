@@ -73,6 +73,7 @@ const (
 	modalTheme
 	modalReference
 	modalSources
+	modalPreviews
 )
 
 type textMsg string
@@ -211,10 +212,11 @@ type chat struct {
 	pending []llm.Attachment
 	mouse   bool
 
-	// previewURL is the newest local development URL a tool reported. It
-	// stays at the top of the chat so a running site can be opened while the
-	// agent keeps polishing it.
+	// previewURL is the newest preview the agent produced. previews keeps the
+	// full, de-duplicated list shown in the inspector and /previews.
 	previewURL string
+	previews   []preview
+	previewSel int
 
 	auto   bool
 	always map[string]bool
@@ -576,6 +578,8 @@ func (c *chat) openSession(id string) error {
 	}
 	c.sess = s
 	c.entries = nil
+	c.previews = nil
+	c.previewURL = ""
 	c.refs = loadReferences(c.opt.Cwd)
 	c.cumIn, c.cumOut, c.cumCached, c.history = 0, 0, 0, 0
 	if s.Meta.Provider != "" {
@@ -955,13 +959,18 @@ func (c *chat) loadHistory() {
 				c.entries = append(c.entries, &chatEntry{kind: entryNote, text: "context was compacted (summary above kept verbatim)"})
 				continue
 			}
-			c.entries = append(c.entries, &chatEntry{kind: entryUser, text: m.Content, atts: m.Attachments})
+			c.entries = append(c.entries, &chatEntry{kind: entryUser, text: sanitizeTerminalText(m.Content), atts: m.Attachments})
 		case "assistant":
 			if strings.TrimSpace(m.Content) != "" || m.Reasoning != "" {
-				c.entries = append(c.entries, &chatEntry{kind: entryAssistant, text: m.Content, reasoning: m.Reasoning})
+				c.entries = append(c.entries, &chatEntry{
+					kind: entryAssistant,
+					text: sanitizeTerminalText(m.Content), reasoning: sanitizeTerminalText(m.Reasoning),
+				})
 			}
 			for _, tc := range m.ToolCalls {
-				e := &chatEntry{kind: entryTool, name: tc.Name, detail: toolArgsPreview(tc.Arguments), running: true}
+				detail := toolArgsPreview(tc.Arguments)
+				c.detectPreviewFromDetail(tc.Name, detail)
+				e := &chatEntry{kind: entryTool, name: tc.Name, detail: detail, running: true}
 				c.entries = append(c.entries, e)
 				pending = append(pending, e)
 			}
@@ -973,8 +982,9 @@ func (c *chat) loadHistory() {
 			pending = pending[1:]
 			e.running = false
 			e.ok = !strings.HasPrefix(m.Content, "error:")
-			e.result = clip(strings.TrimRight(m.Content, "\n"), 700)
+			e.result = clip(strings.TrimRight(sanitizeTerminalText(m.Content), "\n"), 700)
 			e.dur = 0
+			c.detectToolPreview(e.name, m.Content)
 		}
 	}
 	c.follow = true
@@ -1139,12 +1149,12 @@ func max(a, b int) int {
 }
 
 func (c *chat) note(text string, isErr bool) {
-	c.entries = append(c.entries, &chatEntry{kind: entryNote, text: text, isErr: isErr})
+	c.entries = append(c.entries, &chatEntry{kind: entryNote, text: sanitizeTerminalText(text), isErr: isErr})
 	c.refresh()
 }
 
 func (c *chat) notePre(text string) {
-	c.entries = append(c.entries, &chatEntry{kind: entryNote, text: text, pre: true})
+	c.entries = append(c.entries, &chatEntry{kind: entryNote, text: sanitizeTerminalText(text), pre: true})
 	c.refresh()
 }
 
@@ -1187,6 +1197,7 @@ func (c *chat) sessionID() string {
 }
 
 func (c *chat) submit(text string) tea.Cmd {
+	text = sanitizeTerminalText(text)
 	c.ta.Reset()
 	c.cmdList = nil
 	c.cmdSel = 0
@@ -1429,11 +1440,11 @@ func (c *chat) command(line string) tea.Cmd {
 		c.cfg.Mouse = c.mouse
 		_ = c.cfg.Save()
 		if c.mouse {
-			c.note("mouse on — wheel scrolls; hold Option/Shift to select text", false)
-			return func() tea.Msg { return tea.EnableMouseCellMotion() }
+			c.note("mouse on — wheel scrolls; hold Option/Shift to select text, or ctrl+y copies the last reply", false)
+			return tea.EnableMouseCellMotion
 		}
-		c.note("mouse off — select and copy normally; pgup/pgdn scroll", false)
-		return func() tea.Msg { return tea.DisableMouse() }
+		c.note("mouse off — select and copy normally; ctrl+y copies the last reply", false)
+		return tea.DisableMouse
 	case "/theme":
 		if arg == "" {
 			return c.openThemePicker()
@@ -1472,6 +1483,8 @@ func (c *chat) command(line string) tea.Cmd {
 		c.entries = nil
 		c.pending = nil
 		c.previewURL = ""
+		c.previews = nil
+		c.previewSel = 0
 		c.cumIn, c.cumOut, c.cumCached, c.history = 0, 0, 0, 0
 		if err := c.rebuild(false); err != nil {
 			c.note("error: "+err.Error(), true)
@@ -1491,12 +1504,28 @@ func (c *chat) command(line string) tea.Cmd {
 			}()
 			return nil
 		}
+	case "/previews":
+		return c.openPreviews()
+	case "/copy":
+		return c.copyLastReply(strings.EqualFold(strings.TrimSpace(arg), "all"))
 	case "/preview":
-		if c.previewURL == "" {
-			c.note("no local preview detected yet", true)
+		if arg != "" {
+			if n, err := strconv.Atoi(arg); err == nil && n >= 1 && n <= len(c.previews) {
+				if err := c.openPreview(c.previews[n-1]); err != nil {
+					c.note("could not open preview: "+err.Error(), true)
+				} else {
+					c.note("opened "+c.previews[n-1].Ref, false)
+				}
+				break
+			}
+			c.note("no preview matches "+arg, true)
 			break
 		}
-		if err := openLocalURL(c.previewURL); err != nil {
+		if c.previewURL == "" {
+			c.note("no preview detected yet", true)
+			break
+		}
+		if err := c.openNewestPreview(); err != nil {
 			c.note("could not open preview: "+err.Error(), true)
 			break
 		}
@@ -1611,18 +1640,19 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.sp, cmd = c.sp.Update(msg)
 		return cmd
 	case textMsg:
-		c.currentAssistant().text += string(msg)
+		c.currentAssistant().text += sanitizeTerminalText(string(msg))
 		c.refresh()
 		return nil
 	case reasoningMsg:
-		c.currentAssistant().reasoning += string(msg)
+		c.currentAssistant().reasoning += sanitizeTerminalText(string(msg))
 		c.refresh()
 		return nil
 	case toolStartMsg:
 		c.finishAssistant()
 		c.runTools++
+		c.detectPreviewFromDetail(msg.name, msg.detail)
 		c.entries = append(c.entries, &chatEntry{
-			kind: entryTool, name: msg.name, detail: msg.detail,
+			kind: entryTool, name: msg.name, detail: sanitizeTerminalText(msg.detail),
 			running: true, started: time.Now(),
 		})
 		c.refresh()
@@ -1635,7 +1665,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 				e.running = false
 				e.ok = !strings.HasPrefix(msg.result, "error:")
 				e.dur = msg.dur
-				e.result = clip(strings.TrimRight(msg.result, "\n"), 700)
+				e.result = clip(strings.TrimRight(sanitizeTerminalText(msg.result), "\n"), 700)
 				break
 			}
 		}
@@ -1730,6 +1760,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 	}
 	var cmd tea.Cmd
 	c.ta, cmd = c.ta.Update(msg)
+	c.scrubInput()
 	c.updatePalette()
 	if !c.paletteOpen() {
 		c.updateFilePalette()
@@ -1843,12 +1874,14 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 	case "ctrl+b":
 		c.togglePanel()
 		return nil
+	case "ctrl+y":
+		return c.copyLastReply(false)
 	case "ctrl+o":
 		if c.previewURL == "" {
-			c.note("no local preview detected yet", true)
+			c.note("no preview detected yet", true)
 			return nil
 		}
-		if err := openLocalURL(c.previewURL); err != nil {
+		if err := c.openNewestPreview(); err != nil {
 			c.note("could not open preview: "+err.Error(), true)
 			return nil
 		}
@@ -1939,6 +1972,7 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 	}
 	var cmd tea.Cmd
 	c.ta, cmd = c.ta.Update(msg)
+	c.scrubInput()
 	c.updatePalette()
 	if !c.paletteOpen() {
 		c.updateFilePalette()
@@ -1973,10 +2007,9 @@ func (c *chat) modeLabel() string {
 }
 
 var previewURLPattern = regexp.MustCompile(`https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::[0-9]+)?(?:[/?#][^\s"'<>)]*)?(?:$|[^\w.-])`)
-var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func findPreviewURL(text string) string {
-	text = ansiPattern.ReplaceAllString(text, "")
+	text = sanitizeTerminalText(text)
 	matches := previewURLPattern.FindAllString(text, -1)
 	if len(matches) == 0 {
 		return ""
@@ -1986,31 +2019,12 @@ func findPreviewURL(text string) string {
 	return url
 }
 
-func (c *chat) detectToolPreview(name, text string) {
-	// Only a browser open or a development-server banner counts. Reading an
-	// old log or file in a fresh chat must not resurrect a previous preview.
-	switch name {
-	case "browser", "worker:browser":
-	case "bash", "worker:bash":
-		if !serverBanner(text) {
-			return
-		}
-	default:
-		return
-	}
-	url := findPreviewURL(text)
-	if url == "" || url == c.previewURL {
-		return
-	}
-	c.previewURL = url
-	c.layout()
-}
-
 func serverBanner(text string) bool {
 	lower := strings.ToLower(text)
 	for _, marker := range []string{
 		"local:", "ready in", "serving http", "listening on",
 		"uvicorn running", "development server", "running at",
+		"server running", "available at", "preview at", "compiled successfully",
 	} {
 		if strings.Contains(lower, marker) {
 			return true
@@ -2030,37 +2044,6 @@ func openLocalURL(url string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start()
-}
-
-func (c *chat) previewBar() string {
-	if c.previewURL == "" {
-		return ""
-	}
-	status := "ready"
-	if c.question != nil {
-		status = "waiting for your feedback"
-	} else if c.streaming {
-		status = "still iterating · esc to stop"
-	}
-	icon := "●"
-	if c.streaming {
-		icon = c.sp.View()
-	}
-	left := stylePreviewText.Render(" "+icon+" preview ready ") + " " +
-		styleLink.Render(c.previewURL) + "  " + styleFaint.Render(status)
-	right := ""
-	if c.w >= 84 && c.modal == modalNone {
-		right = keyHint("ctrl+o", "open") + " "
-	}
-	if c.w <= 0 {
-		return left
-	}
-	gap := c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 1 {
-		return lipgloss.NewStyle().Background(cPanel).Width(c.w).Render(clipANSI(" "+left+" ", c.w))
-	}
-	line := " " + left + strings.Repeat(" ", gap) + right + " "
-	return lipgloss.NewStyle().Background(cPanel).Width(c.w).Render(line)
 }
 
 func (c *chat) header() string {
@@ -2144,7 +2127,7 @@ func (c *chat) permView() string {
 	color := permColor(p.perm)
 	title := lipgloss.NewStyle().Bold(true).Foreground(color).Render(permTitle(p.perm)) +
 		"  " + styleTitle.Render(p.kind)
-	detail := styleDim.Render(clip(oneline(p.detail), max(10, c.w-16)))
+	detail := styleDim.Render(clip(oneline(sanitizeTerminalText(p.detail)), max(10, c.w-16)))
 	if c.permFeedback {
 		return title + "\n" + detail + "\n" + c.permInput.View()
 	}
@@ -2168,14 +2151,16 @@ func (c *chat) questionView() string {
 		return ""
 	}
 	var b strings.Builder
-	if q.Header != "" {
-		b.WriteString(styleTitle.Render(q.Header) + "\n")
+	header := sanitizeTerminalText(q.Header)
+	question := sanitizeTerminalText(q.Question)
+	if header != "" {
+		b.WriteString(styleTitle.Render(header) + "\n")
 	}
-	b.WriteString(styleAccent.Render(q.Question) + "\n")
+	b.WriteString(styleAccent.Render(question) + "\n")
 	for i, o := range q.Options {
-		text := fmt.Sprintf("%d) %s", i+1, o.Label)
+		text := fmt.Sprintf("%d) %s", i+1, sanitizeTerminalText(o.Label))
 		if o.Description != "" {
-			text += "  " + o.Description
+			text += "  " + sanitizeTerminalText(o.Description)
 		}
 		if c.questionSel == i {
 			b.WriteString(styleSelected.Render(" > "+pad(text, max(12, c.mainWidth()-8))) + "\n")

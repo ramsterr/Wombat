@@ -185,11 +185,11 @@ func (c *chat) sourcesCard() string {
 		if it.kind == "file" {
 			glyph, gs = "◫", styleAccent2
 		}
-		text := glyph + " " + clip(it.value, innerW-14) + "  " + fmt.Sprintf("%d×", it.calls)
+		text := glyph + " " + clip(sanitizeTerminalText(it.value), innerW-14) + "  " + fmt.Sprintf("%d×", it.calls)
 		if i == c.sourceSel {
 			lines = append(lines, styleSelected.Render(" > "+pad(text, innerW-3)))
 		} else {
-			lines = append(lines, "   "+gs.Render(glyph)+" "+styleDim.Render(clip(it.value, innerW-14))+"  "+styleFaint.Render(fmt.Sprintf("%d×", it.calls)))
+			lines = append(lines, "   "+gs.Render(glyph)+" "+styleDim.Render(clip(sanitizeTerminalText(it.value), innerW-14))+"  "+styleFaint.Render(fmt.Sprintf("%d×", it.calls)))
 		}
 	}
 	if len(items) == 0 {

@@ -89,6 +89,10 @@ func TestViewFitsTerminal(t *testing.T) {
 				{kind: entryNote, text: "noted", isErr: false},
 			}
 			c.previewURL = "http://localhost:5173/"
+			c.previews = []preview{
+				{Ref: "http://localhost:5173/", Kind: "site", Label: "http://localhost:5173/"},
+				{Ref: "report.pdf", Kind: "pdf", Label: "report.pdf"},
+			}
 		}},
 		{"palette", 120, 34, func(c *chat) {
 			c.ta.SetValue("/")
@@ -104,6 +108,13 @@ func TestViewFitsTerminal(t *testing.T) {
 		{"references", 120, 34, func(c *chat) {
 			c.refs = []reference{{Value: "docs/spec.md", Kind: "file"}}
 			c.openReferencePrompt()
+		}},
+		{"preview picker", 120, 34, func(c *chat) {
+			c.previews = []preview{
+				{Ref: "http://localhost:5173/", Kind: "site", Label: "http://localhost:5173/"},
+				{Ref: "report.pdf", Kind: "pdf", Label: "report.pdf"},
+			}
+			c.openPreviews()
 		}},
 		{"sources browser", 120, 34, func(c *chat) {
 			c.sourceItems = []sourceItem{

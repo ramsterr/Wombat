@@ -174,19 +174,8 @@ func (c *chat) panelView() string {
 	}
 	blank()
 
-	add(sectionLabel("preview"))
-	if c.previewURL != "" {
-		status := "ready"
-		if c.question != nil {
-			status = "awaiting feedback"
-		} else if c.streaming {
-			status = "iterating"
-		}
-		add(statusDot(cGreen, status))
-		add(styleLink.Render(clip(c.previewURL, contentW)))
-		add(styleFaint.Render("ctrl+o open · /preview"))
-	} else {
-		add(styleFaint.Render("no local server yet"))
+	for _, line := range c.previewsSection(contentW) {
+		add(line)
 	}
 	blank()
 

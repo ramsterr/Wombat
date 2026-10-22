@@ -84,6 +84,9 @@ func (c *chat) restoreAndClose() {
 
 // modalKey handles keys for the help and theme overlays.
 func (c *chat) modalKey(msg tea.KeyMsg) tea.Cmd {
+	if c.modal == modalPreviews {
+		return c.previewKey(msg)
+	}
 	if c.modal == modalSources {
 		return c.sourceKey(msg)
 	}
@@ -228,6 +231,7 @@ func (c *chat) helpLines(width int) []string {
 		{"ctrl+o", "open the preview"},
 		{"ctrl+g", "this help"},
 		{"ctrl+r", "add a reference"},
+		{"ctrl+y", "copy the last reply"},
 		{"ctrl+t", "cycle theme"},
 		{"ctrl+p/n", "prompt history"},
 		{"alt+1..5", "chat · sessions · models · usage · doctor"},
@@ -358,6 +362,8 @@ func (c *chat) modalView() string {
 		card = c.referenceCard()
 	case modalSources:
 		card = c.sourcesCard()
+	case modalPreviews:
+		card = c.previewsCard()
 	default:
 		return ""
 	}

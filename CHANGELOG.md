@@ -32,6 +32,12 @@ All notable changes to Wombat are recorded here. The format follows
 - A scrollbar for the transcript, `ctrl+up/down` and `ctrl+home/end` scrolling,
   mouse-wheel scrolling on by default, and a themed terminal background that is
   restored when Wombat exits.
+- **Multiple previews**: local servers, HTML, PDFs, images, and video are
+  collected, de-duplicated by origin or file path, ordered newest-first in the
+  inspector, and browsable with `/previews` or `/preview <n>`.
+- **Copy support**: `ctrl+y` copies the last reply; `/copy all` copies the
+  transcript. Terminal control sequences and stray mouse reports are scrubbed
+  from the composer and transcript so scrolling cannot corrupt the screen.
 
 ### Fixed
 

@@ -172,9 +172,11 @@ Type a request and press Enter. Useful shortcuts:
 - `ctrl+t` — cycle colour themes
 - `ctrl+p` / `ctrl+n` — prompt history
 - `ctrl+r` — add a project reference (file, folder, or URL)
+- `ctrl+y` — copy the last reply; `/copy all` copies the transcript
 - `alt+1..5` — jump between chat, sessions, models, usage, and doctor
 - `pgup` / `pgdn` or `ctrl+up/down` — scroll the transcript
-- mouse wheel — scroll when mouse mode is on (the default)
+- mouse wheel — scroll when mouse mode is on (the default); `/mouse` turns it
+  off so you can select text normally
 
 Common slash commands:
 
@@ -183,6 +185,8 @@ Common slash commands:
 /keys          alias for /help
 /reference     keep files and links in the inspector
 /sources       browse the sites and files the session used
+/preview [n]   open a preview; /previews lists them all
+/copy [all]    copy the last reply or the whole transcript
 /model         switch model
 /mode          chat or create mode
 /attach <path> attach a file
@@ -210,6 +214,11 @@ stored under `~/.wombat/references/`, never in your repository.
 **Sources** (`/sources`) opens an interactive browser of every site and file the
 session has used. Switch tabs with `tab`, move with the arrows, and press enter
 to open a URL or attach a file.
+
+**Previews** are collected as the agent works: local dev servers, HTML pages,
+PDFs, images, and video. They are de-duplicated by site origin or file path, the
+newest is shown in the banner, and the inspector keeps the ordered list. Use
+`ctrl+o` to open the newest or `/previews` to choose from all of them.
 
 Wombat inherits your terminal's font; a terminal UI cannot install a font.
 For the intended look and complete glyph set, use a Nerd Font such as JetBrains

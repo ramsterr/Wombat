@@ -134,7 +134,7 @@ func (c *chat) openReferencePrompt() tea.Cmd {
 
 // addReference stores a new reference for this project.
 func (c *chat) addReference(value string) error {
-	value = strings.TrimSpace(strings.Trim(value, `"'`))
+	value = strings.TrimSpace(strings.Trim(sanitizeTerminalText(value), `"'`))
 	if value == "" {
 		return fmt.Errorf("a path or URL is required")
 	}

@@ -12,6 +12,38 @@ import (
 
 var ErrNoImage = errors.New("no image in clipboard")
 
+// Text writes text to the system clipboard.
+func Text(text string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		switch {
+		case hasCmd("wl-copy"):
+			cmd = exec.Command("wl-copy")
+		case hasCmd("xclip"):
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		case hasCmd("xsel"):
+			cmd = exec.Command("xsel", "--clipboard", "--input")
+		default:
+			return errors.New("install wl-copy, xclip, or xsel to copy text")
+		}
+	}
+	cmd.Stdin = strings.NewReader(text)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return errors.New(strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func hasCmd(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
 // Image writes the clipboard image to a temporary PNG and returns its path.
 func Image() (string, error) {
 	switch runtime.GOOS {
