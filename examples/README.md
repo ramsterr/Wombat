@@ -18,3 +18,7 @@ Reference tasks and outputs, grouped by genre. Genre folders marked only by
   explainer, plus result screenshots from issue #13.
 - `data-viz/music-chart` — Billboard year-end artist chart for 2024–2025.
 - `design/cat` — SVG cat illustration and rendered PNG.
+- `education/way-of-learning` — eighty-one-chapter interactive book on
+  machine learning, after Lao Tzu.
+- `video/david-goggins-dart-goblin` — 2m 24s HyperFrames short with a
+  black-and-white final render.

@@ -1,0 +1,10 @@
+{
+  "name": "the-way-of-learning",
+  "private": true,
+  "type": "module",
+  "description": "Eighty-one chapters on machine learning, after Lao Tzu.",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "audit": "node scripts/audit.mjs"
+  }
+}
