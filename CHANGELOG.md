@@ -13,16 +13,18 @@ All notable changes to Wombat are recorded here. The format follows
   and the key map; a live `ctrl+o` preview opener; prompt history; a searchable
   command palette with command groups and inline options; and `@`-file
   completion with `Tab`.
-- **Seven colour themes** — `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
-  `nord`, `rosepine`, and `dracula` — with `/theme`, a picker, and `ctrl+t`
-  cycling. The choice is saved in the config.
+- **Fifteen colour themes** — `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
+  `nord`, `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`,
+  `monokai`, `iceberg`, `nightfox`, `onedark`, and `github` — with `/theme`, a
+  picker, and `ctrl+t` cycling. The choice is saved in the config.
 - **A help and command centre** on `ctrl+g`/`?`/`/help` (`/keys`), plus a
   grouped command reference. `alt+1..5` jumps between chat, sessions, models,
   usage, and doctor. The `/` palette shows theme names and swatches inline.
 - **Richer transcripts**: tool glyphs and live timers, diff-coloured tool
   output, box tables, numbered lists, links, and fenced-code labels.
-- A single sitting-wombat line-art mascot and a clean quick-start card on the
-  welcome screen, and a shared navigation bar on every secondary screen.
+- The Wombat mark line art on the welcome screen, plus a compact copy pinned to
+  the bottom of the inspector so it stays visible while the chat runs. The
+  inspector key list was removed.
 - **Project references** in the inspector (`ctrl+r`, `/reference add|rm|clear`).
   Files, folders, and URLs are stored per project under `~/.wombat/references/`
   and survive sessions.

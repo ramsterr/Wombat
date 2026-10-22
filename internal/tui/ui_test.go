@@ -471,11 +471,22 @@ func TestPreviewRailLayout(t *testing.T) {
 		}
 	}
 	c.resize(100, 34)
-	if !c.previewRailVisible() {
-		t.Error("the preview rail should be visible at 100 columns")
+	if c.previewRailVisible() {
+		t.Error("the preview rail should wait for 120 columns")
 	}
-	if c.panelVisible() {
-		t.Error("the right inspector should yield to the preview rail on a 100-column terminal")
+	if !c.panelVisible() {
+		t.Error("the inspector should stay visible at 100 columns")
+	}
+}
+
+func TestInspectorShowsMascot(t *testing.T) {
+	c := testChat(t)
+	c.resize(140, 40)
+	c.panel = true
+	c.layout()
+	view := stripANSI(c.panelView())
+	if !strings.Contains(view, "@") {
+		t.Errorf("the inspector is missing the wombat mascot:\n%s", view)
 	}
 }
 

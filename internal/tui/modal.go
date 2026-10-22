@@ -315,17 +315,31 @@ func (c *chat) themeCard() string {
 		styleDim.Render("select with ↑↓, apply with enter, cancel with esc"),
 		"",
 	}
-	for i, t := range themeEntries() {
+	maxRows := max(3, min(len(themeOrder), c.vp.Height-10))
+	start := 0
+	if c.themeSel >= maxRows {
+		start = c.themeSel - maxRows + 1
+	}
+	end := min(len(themeOrder), start+maxRows)
+	for i := start; i < end; i++ {
+		t := themeEntries()[i]
 		name := padRight(t.label, 14)
-		row := "  " + styleDim.Render(name) + " " + swatches(t) + "  " + styleFaint.Render(t.blurb)
+		blurb := clip(t.blurb, max(8, innerW-27))
+		row := "  " + styleDim.Render(name) + " " + swatches(t) + "  " + styleFaint.Render(blurb)
 		if i == c.themeSel {
-			row = " > " + name + " " + swatches(t) + "  " + t.blurb
-			lines = append(lines, " "+styleSelected.Render(pad(row, max(8, innerW-1))))
+			row = " > " + name + " " + swatches(t) + "  " + blurb
+			lines = append(lines, " "+styleSelected.Render(pad(clip(row, innerW-1), max(8, innerW-1))))
 		} else {
 			lines = append(lines, " "+clipANSI(row, max(8, innerW-1)))
 		}
 	}
+	if end < len(themeOrder) {
+		lines = append(lines, styleFaint.Render(fmt.Sprintf("  … %d more below", len(themeOrder)-end)))
+	}
 	lines = append(lines, "", " "+styleFaint.Render("1-9 jump · enter apply · esc restores the previous theme"))
+	for i := range lines {
+		lines[i] = clipANSI(lines[i], innerW)
+	}
 	return styleModal.Width(innerW + 4).Render(strings.Join(lines, "\n"))
 }
 

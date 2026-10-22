@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // previewRailWidth is the total width of the left preview rail.
@@ -11,7 +13,7 @@ func (c *chat) previewRailWidth() int { return 24 }
 // previewRailVisible keeps previews on the left once there is enough room for
 // a left rail, the transcript, and the inspector.
 func (c *chat) previewRailVisible() bool {
-	return len(c.previews) > 0 && c.w >= 100 && c.vp.Height >= 8
+	return len(c.previews) > 0 && c.w >= 120 && c.vp.Height >= 8
 }
 
 // availableWidth is the terminal width minus the left rail.
@@ -45,11 +47,6 @@ func (c *chat) panelWidth() int {
 // panelVisible reports whether the inspector has room to render.
 func (c *chat) panelVisible() bool {
 	if !c.panel || c.w < 96 || c.vp.Height < 8 {
-		return false
-	}
-	// On narrow wide screens the preview rail is the priority; the right
-	// inspector returns once there is room for both.
-	if c.previewRailVisible() && c.w < 120 {
 		return false
 	}
 	return true
@@ -284,20 +281,25 @@ func (c *chat) panelView() string {
 		blank()
 	}
 
-	if len(lines)+7 <= max(1, h-2) {
-		add(sectionLabel("keys"))
-		for _, pair := range [][2]string{
-			{"ctrl+b", "hide"},
-			{"ctrl+o", "preview"},
-			{"ctrl+g", "help"},
-			{"ctrl+t", "theme"},
-			{"ctrl+r", "reference"},
-		} {
-			add(styleFaint.Render(pad(pair[0], 8)) + styleDim.Render(pair[1]))
-		}
+	// The wombat always sits at the bottom of the inspector. Reserve its
+	// space first, then let the sections above use what is left.
+	avail := max(1, h-2)
+	mascot := wombatMini
+	if contentW < 23 {
+		mascot = wombatTiny
 	}
-
-	lines = fitLines(lines, max(1, h-2))
+	if contentW < 18 {
+		mascot = nil
+	}
+	if len(mascot) > 0 && avail >= len(mascot)+2 {
+		lines = fitLines(lines, avail-len(mascot)-1)
+		lines = append(lines, "")
+		for _, line := range wombatColored(mascot) {
+			lines = append(lines, lipgloss.PlaceHorizontal(contentW, lipgloss.Center, line))
+		}
+	} else {
+		lines = fitLines(lines, avail)
+	}
 	body := strings.Join(lines, "\n")
 	return stylePanel.
 		Width(max(1, contentW+2)).

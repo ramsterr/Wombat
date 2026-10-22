@@ -206,13 +206,13 @@ Common slash commands:
 /exit          quit
 ```
 
-Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`,
-`nord`, `rosepine`, and `dracula`. Pick one with `/theme`, or cycle with
-`ctrl+t`; the choice is saved in `~/.wombat/config.json`. The welcome screen
-uses one clean sitting-wombat line-art mascot, and the theme picker shows every
-theme with its swatches while you type. The theme also tints the terminal
-background while Wombat is open and restores it on exit (`wombat config set
-paint_background false` disables this).
+Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
+`rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
+`iceberg`, `nightfox`, `onedark`, and `github`. Pick one with `/theme`, or cycle
+with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The welcome screen
+uses the Wombat mark line art, and the inspector keeps a compact copy at the
+bottom. The theme also tints the terminal background while Wombat is open and
+restores it on exit (`wombat config set paint_background false` disables this).
 
 **References** are project-scoped notes that stay in the right-hand inspector.
 Press `ctrl+r` to add a path or URL, or use `/reference add <path|url>`. Remove
@@ -225,8 +225,8 @@ to open a URL or attach a file.
 
 **Previews** are collected as the agent works: local dev servers, HTML pages,
 PDFs, images, and video. They are de-duplicated by site origin or file path, the
-newest is shown in the banner, and the inspector keeps the ordered list. Use
-`ctrl+o` to open the newest or `/previews` to choose from all of them.
+newest is shown in the banner, and the left preview rail keeps the ordered
+list. Use `ctrl+o` to open the newest or `/previews` to choose from all of them.
 
 Wombat inherits your terminal's font; a terminal UI cannot install a font.
 For the intended look and complete glyph set, use a Nerd Font such as JetBrains

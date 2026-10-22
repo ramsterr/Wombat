@@ -1088,7 +1088,7 @@ func (c *chat) commandOverlayRows() int {
 	}
 	if c.selectedCommandHasOptions() {
 		if c.selectedCommandInsert() == "/theme" {
-			rows += 2
+			rows += 3
 		} else {
 			rows++
 		}
