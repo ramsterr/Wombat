@@ -191,14 +191,14 @@ func screenTabs(active screenID) string {
 	}{
 		{scrChat, "chat"},
 		{scrSessions, "sessions"},
-		{scrProviders, "providers"},
+		{scrProviders, "configure"},
 		{scrModels, "models"},
 		{scrUsage, "usage"},
 		{scrDoctor, "doctor"},
 	}
 	parts := []string{styleBrand.Render("◈")}
 	for _, it := range items {
-		if it.id == active {
+		if it.id == active || (it.id == scrProviders && active == scrProviderForm) {
 			parts = append(parts, styleButton.Render(" "+it.label+" "))
 		} else {
 			parts = append(parts, styleFaint.Render(it.label))

@@ -420,6 +420,48 @@ func TestProvidersScreenListsProviders(t *testing.T) {
 	}
 }
 
+func TestConfigureSavesProvider(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	c := testChat(t)
+	m := newConfigure(c.opt, "groq").resize(120, 34)
+	m.base.SetValue("https://api.groq.com/openai/v1")
+	m.key.SetValue("gsk-test")
+	_, cmd := m.save()
+	if cmd == nil {
+		t.Fatal("save did not return a command")
+	}
+	pc := c.opt.Cfg.Providers["groq"]
+	if pc == nil || pc.APIKey != "gsk-test" || pc.BaseURL != "https://api.groq.com/openai/v1" {
+		t.Fatalf("provider was not saved: %+v", pc)
+	}
+}
+
+func TestConfigureRequiresCloudKey(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	c := testChat(t)
+	m := newConfigure(c.opt, "groq").resize(120, 34)
+	m, cmd := m.save()
+	if cmd != nil {
+		t.Fatal("empty key should not save")
+	}
+	if m.err == "" {
+		t.Fatal("empty key should report an error")
+	}
+}
+
+func TestModelsLeftRightSwitchesProvider(t *testing.T) {
+	c := testChat(t)
+	m := newModels(c.opt).resize(120, 34)
+	before := m.provider()
+	m, cmd := m.update(keyMsg("right"))
+	if cmd == nil {
+		t.Fatal("switching provider should start a fetch")
+	}
+	if m.provider() == before {
+		t.Fatalf("provider did not change from %s", before)
+	}
+}
+
 func TestReasoningPickerAfterModelSelection(t *testing.T) {
 	c := testChat(t)
 	c.cfg.Reasoning = ""

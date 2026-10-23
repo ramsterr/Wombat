@@ -173,6 +173,17 @@ type unknownProviderErr struct{ name string }
 
 func (e *unknownProviderErr) Error() string { return "unknown provider: " + e.name }
 
+func (m modelsModel) switchProvider(delta int) (modelsModel, tea.Cmd) {
+	if len(m.providers) == 0 {
+		return m, nil
+	}
+	m.pi = (m.pi + delta + len(m.providers)) % len(m.providers)
+	m.loading = true
+	m.loadErr = ""
+	m.list.SetItems(nil)
+	return m, tea.Batch(m.spin.Tick, fetchModels(m.opt.Cfg, m.provider()))
+}
+
 func (m modelsModel) update(msg tea.Msg) (modelsModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case modelListMsg:
@@ -202,14 +213,12 @@ func (m modelsModel) update(msg tea.Msg) (modelsModel, tea.Cmd) {
 			switch msg.String() {
 			case "esc", "q":
 				return m, pop
-			case "tab", "p":
-				if len(m.providers) > 1 {
-					m.pi = (m.pi + 1) % len(m.providers)
-					m.loading = true
-					m.loadErr = ""
-					m.list.SetItems(nil)
-					return m, tea.Batch(m.spin.Tick, fetchModels(m.opt.Cfg, m.provider()))
-				}
+			case "tab", "p", "right", "l":
+				return m.switchProvider(1)
+			case "shift+tab", "left", "h":
+				return m.switchProvider(-1)
+			case "c":
+				return m, func() tea.Msg { return openConfigureMsg{name: m.provider()} }
 			case "r":
 				m.loading = true
 				m.loadErr = ""
@@ -235,7 +244,7 @@ func (m modelsModel) update(msg tea.Msg) (modelsModel, tea.Cmd) {
 }
 
 func (m modelsModel) view() string {
-	header := chromeLine(screenTabs(scrModels), keyHint("esc", "back")+"  "+keyHint("enter", "select")+"  "+keyHint("p", "provider")+"  "+keyHint("/", "filter"), m.w) + "\n" + rule(m.w)
+	header := chromeLine(screenTabs(scrModels), keyHint("esc", "back")+"  "+keyHint("enter", "select")+"  "+keyHint("←/→", "provider")+"  "+keyHint("c", "configure")+"  "+keyHint("/", "filter"), m.w) + "\n" + rule(m.w)
 	var tabs []string
 	start, end := 0, len(m.providers)
 	if max := 9; end-start > max {

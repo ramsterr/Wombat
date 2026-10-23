@@ -122,7 +122,9 @@ func (m providersModel) update(msg tea.Msg) (providersModel, tea.Cmd) {
 
 func (m providersModel) view() string {
 	header := chromeLine(screenTabs(scrProviders),
-		keyHint("esc", "back")+"  "+keyHint("enter", "choose")+"  "+keyHint("/", "filter"), m.w) + "\n" + rule(m.w)
+		keyHint("esc", "back")+"  "+keyHint("enter", "configure")+"  "+keyHint("/", "filter"), m.w) + "\n" + rule(m.w)
+	title := " " + styleAccent.Bold(true).Render("CONFIGURE A PROVIDER") +
+		styleFaint.Render("   enter sets the base URL and API key")
 	body := lipgloss.NewStyle().Padding(1, 1).Render(m.list.View())
-	return header + "\n" + body
+	return header + "\n" + title + "\n" + body
 }

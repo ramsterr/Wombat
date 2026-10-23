@@ -28,6 +28,7 @@ const (
 	scrChat screenID = iota
 	scrSessions
 	scrProviders
+	scrProviderForm
 	scrModels
 	scrDoctor
 	scrUsage
@@ -134,6 +135,7 @@ type rootModel struct {
 	chat      *chat
 	sessions  sessionsModel
 	providers providersModel
+	configure configureModel
 	models    modelsModel
 	doctor    doctorModel
 	usage     usageModel
@@ -235,6 +237,8 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sessions = m.sessions.resize(msg.Width, msg.Height)
 		case scrProviders:
 			m.providers = m.providers.resize(msg.Width, msg.Height)
+		case scrProviderForm:
+			m.configure = m.configure.resize(msg.Width, msg.Height)
 		case scrModels:
 			m.models = m.models.resize(msg.Width, msg.Height)
 		case scrDoctor:
@@ -255,10 +259,22 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = scrChat
 		return m, m.chat.focusInput()
 	case pickProviderMsg:
+		m.configure = newConfigure(m.opt, msg.name)
+		m.configure = m.configure.resize(m.width, m.height)
+		m.screen = scrProviderForm
+		return m, m.configure.Init()
+	case openConfigureMsg:
+		m.configure = newConfigure(m.opt, msg.name)
+		m.configure = m.configure.resize(m.width, m.height)
+		m.screen = scrProviderForm
+		return m, m.configure.Init()
+	case providerConfiguredMsg:
 		m.models = newModelsFor(m.opt, msg.name)
 		m.models = m.models.resize(m.width, m.height)
 		m.screen = scrModels
 		return m, m.models.Init()
+	case providerFormCancelMsg:
+		return m, m.open(scrProviders)
 	case pickModelMsg:
 		if err := m.chat.rebuild(true); err != nil {
 			m.chat.note("error: "+err.Error(), true)
@@ -287,6 +303,8 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessions, overlay = m.sessions.update(msg)
 	case scrProviders:
 		m.providers, overlay = m.providers.update(msg)
+	case scrProviderForm:
+		m.configure, overlay = m.configure.update(msg)
 	case scrModels:
 		m.models, overlay = m.models.update(msg)
 	case scrDoctor:
@@ -342,7 +360,10 @@ func (m *rootModel) View() string {
 	switch m.screen {
 	case scrSessions:
 		return m.sessions.view()
-	case scrProviders:
+	case scrProviders, scrProviderForm:
+		if m.screen == scrProviderForm {
+			return m.configure.view()
+		}
 		return m.providers.view()
 	case scrModels:
 		return m.models.view()

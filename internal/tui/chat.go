@@ -1459,23 +1459,15 @@ func (c *chat) command(line string) tea.Cmd {
 			c.note("model: "+c.provName+"/"+c.modelName, false)
 			c.maybeOpenReasoningPicker()
 		}
-	case "/provider", "/providers":
+	case "/configure", "/provider", "/providers":
 		if busy() {
 			return nil
 		}
 		if arg == "" {
 			return openScreen(scrProviders)
 		}
-		if _, ok := c.cfg.Providers[arg]; !ok {
-			c.note("provider "+arg+" not in config — run `wombat setup`", true)
-			break
-		}
-		c.cfg.Provider = arg
-		c.cfg.Model = ""
-		_ = c.cfg.Save()
-		c.provName = arg
-		c.modelName = ""
-		return openScreen(scrModels)
+		name := strings.Fields(arg)[0]
+		return func() tea.Msg { return openConfigureMsg{name: name} }
 	case "/models":
 		return openScreen(scrModels)
 	case "/sessions":
