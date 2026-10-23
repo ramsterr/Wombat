@@ -11,8 +11,28 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/ramsterr/Wombat?style=flat-square"></a>
 </p>
 
+
+
+
+
+
 Wombat is a general purpose agent.
 Can do anything and beyond than your standard agent harness , that too for lesser tokens at times.
+
+#   Why Wombat?
+
+Its lightweight , fast and preview first.
+
+<img width="3360" height="2100" alt="image" src="https://github.com/user-attachments/assets/3d7f5750-5b49-4b45-9e0b-879473ab4f20" />
+
+# see other features:
+
+# whats preview first?
+agents are notorious for iterating for multiple minutes in the name of "improvement" and "polishing" without even making any considerable improvements.
+
+wombat gives the user the power to review fast and feed back faster.
+example:
+<img width="766" height="194" alt="image" src="https://github.com/user-attachments/assets/c8ab105b-8a81-4054-b054-e7f661a5e682" />
 
 
 ## Quick start
