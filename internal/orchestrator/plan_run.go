@@ -190,6 +190,7 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 		kinds:         make(map[string]string),
 		writerFiles:   make(map[string]string),
 		done:          make(chan planTaskResult, maxInt(1, parallel)),
+		started:       make(chan struct{}),
 		waveTasks:     make(map[int][]string),
 		outcomes:      make(map[string]planTaskOutcome),
 	}
@@ -208,6 +209,11 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 		close(sess.done)
 	}()
 	if a.Background {
+		// Do not report "running" before the scheduler has actually launched
+		// its first tasks: the turn may end right after this returns and
+		// cancel the plan, and a plan that never started would silently do
+		// nothing.
+		<-s.started
 		return o.planStatusJSON(sess)
 	}
 	<-sess.done
@@ -322,6 +328,7 @@ type planScheduler struct {
 	kinds       map[string]string
 	writerFiles map[string]string
 	done        chan planTaskResult
+	started     chan struct{}
 
 	waveSeq   int
 	waveOrder []int
@@ -351,9 +358,12 @@ const (
 
 func (s *planScheduler) run() {
 	defer s.finishWaves()
-	for {
+	for first := true; ; first = false {
 		if s.ctx.Err() == nil && !(s.failed && s.stopOnFailure) {
 			s.launchReady()
+		}
+		if first {
+			close(s.started)
 		}
 		if len(s.running) == 0 {
 			return
