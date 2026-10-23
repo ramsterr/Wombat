@@ -266,6 +266,7 @@ Wombat different.
 |---|---|
 | Code editing | Read, write, edit, multi-edit, atomic multi-file patches, and literal/regex replacement. |
 | Shell and jobs | Run commands, manage background jobs, run tests and builds. |
+| Git | Status, diff, log, show, and blame as structured read-only tools, including inside worker worktrees. |
 | Verification | `verify`, `verify_site`, browser assertions, and project checks. |
 | Code intelligence | Language-server definitions, references, diagnostics, completions, rename, and refactor. |
 | Search | Glob, grep, AST symbols, and semantic search. |
