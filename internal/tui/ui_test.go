@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/ramsterr/Wombat/internal/commands"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
@@ -559,6 +560,21 @@ func TestReasoningPickerAfterModelSelection(t *testing.T) {
 	}
 }
 
+func TestThemeCommandListsEveryTheme(t *testing.T) {
+	cmd, ok := commands.Find("/theme")
+	if !ok {
+		t.Fatal("/theme command missing")
+	}
+	if len(cmd.Options) != len(themeOrder) {
+		t.Fatalf("/theme offers %d themes, catalog has %d", len(cmd.Options), len(themeOrder))
+	}
+	for i, name := range themeOrder {
+		if cmd.Options[i].Value != name {
+			t.Errorf("theme option %d = %q, want %q", i, cmd.Options[i].Value, name)
+		}
+	}
+}
+
 func TestThemePickerShowsEveryTheme(t *testing.T) {
 	for _, sz := range [][2]int{{120, 34}, {80, 24}, {60, 20}, {44, 20}} {
 		c := testChat(t)
@@ -606,7 +622,7 @@ func TestPaletteShowsThemeOptions(t *testing.T) {
 	c.ta.SetValue("/theme ")
 	c.updatePalette()
 	view = c.paletteView()
-	for _, want := range []string{"wombat", "tokyo", "catppuccin"} {
+	for _, want := range []string{"Wombat", "Tokyo Night", "Catppuccin"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("theme options are missing %q:\n%s", want, view)
 		}

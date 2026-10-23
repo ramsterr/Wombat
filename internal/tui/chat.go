@@ -1107,6 +1107,9 @@ func (c *chat) commandOverlayRows() int {
 	if !c.paletteOpen() {
 		return 0
 	}
+	if c.cmdCommand == "/theme" {
+		return (len(c.cmdList)+1)/2 + 4
+	}
 	limit := min(c.paletteLimit(), len(c.cmdList))
 	c.syncPaletteWindow(limit)
 	n := limit
@@ -2497,6 +2500,9 @@ func (c *chat) paletteView() string {
 	if len(c.cmdList) == 0 {
 		return ""
 	}
+	if c.cmdCommand == "/theme" {
+		return c.themePaletteView()
+	}
 	limit := c.paletteLimit()
 	if limit > len(c.cmdList) {
 		limit = len(c.cmdList)
@@ -2575,6 +2581,42 @@ func themeStrip(width int) string {
 	}
 	lines = append(lines, line)
 	return strings.Join(lines, "\n")
+}
+
+// themePaletteView is the two-column theme option grid. It shows every theme
+// at once instead of a scrolling single column.
+func (c *chat) themePaletteView() string {
+	inner := max(20, c.mainWidth()-4)
+	var b strings.Builder
+	b.WriteString(" " + styleAccent2.Render("commands") + " " + styleFaint.Render("options for /theme") + "\n")
+	colW := max(18, (inner-3)/2)
+	rows := (len(c.cmdList) + 1) / 2
+	sel := min(c.cmdSel, len(c.cmdList)-1)
+	for r := 0; r < rows; r++ {
+		var cells []string
+		for col := 0; col < 2; col++ {
+			i := r*2 + col
+			if i >= len(c.cmdList) {
+				break
+			}
+			entry := c.cmdList[i]
+			t, ok := themeCatalog[entry.label]
+			if !ok {
+				continue
+			}
+			name := padRight(t.label, 14)
+			row := "  " + name + " " + swatches(t)
+			if i == sel {
+				row = " > " + name + " " + swatches(t)
+				cells = append(cells, styleSelected.Render(pad(clip(row, colW), colW)))
+			} else {
+				cells = append(cells, clipANSI(row, colW))
+			}
+		}
+		b.WriteString(" " + strings.Join(cells, "  ") + "\n")
+	}
+	b.WriteString(styleFaint.Render("  ↑↓ select · tab complete · enter run · esc dismiss"))
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func pad(s string, n int) string {
