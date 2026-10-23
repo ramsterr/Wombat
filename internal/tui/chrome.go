@@ -191,6 +191,7 @@ func screenTabs(active screenID) string {
 	}{
 		{scrChat, "chat"},
 		{scrSessions, "sessions"},
+		{scrProviders, "providers"},
 		{scrModels, "models"},
 		{scrUsage, "usage"},
 		{scrDoctor, "doctor"},

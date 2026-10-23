@@ -42,13 +42,31 @@ func (c *chat) lastAssistantText() string {
 	return ""
 }
 
-// copyableMessages returns recent agent replies, newest first.
-func (c *chat) copyableMessages() []string {
-	var out []string
+// copyItem is one selectable block in the copy picker.
+type copyItem struct {
+	label string
+	text  string
+}
+
+// copyableMessages returns recent user, agent, and tool output, newest first.
+func (c *chat) copyableMessages() []copyItem {
+	var out []copyItem
 	for i := len(c.entries) - 1; i >= 0 && len(out) < 20; i-- {
 		e := c.entries[i]
-		if e.kind == entryAssistant && strings.TrimSpace(e.text) != "" {
-			out = append(out, e.text)
+		switch e.kind {
+		case entryUser:
+			if strings.TrimSpace(e.text) != "" {
+				out = append(out, copyItem{label: "you", text: e.text})
+			}
+		case entryAssistant:
+			if strings.TrimSpace(e.text) != "" {
+				out = append(out, copyItem{label: "wombat", text: e.text})
+			}
+		case entryTool:
+			if strings.TrimSpace(e.result) != "" {
+				label := "tool · " + e.name
+				out = append(out, copyItem{label: label, text: e.result})
+			}
 		}
 	}
 	return out
@@ -117,8 +135,9 @@ func (c *chat) copyKey(msg tea.KeyMsg) tea.Cmd {
 		if c.copySel < 0 || c.copySel >= len(c.copyItems) {
 			return nil
 		}
+		item := c.copyItems[c.copySel]
 		c.modal = modalNone
-		return c.copyToClipboard(c.copyItems[c.copySel], "reply")
+		return c.copyToClipboard(item.text, item.label)
 	case "a":
 		c.modal = modalNone
 		return c.copyToClipboard(c.transcriptText(), "transcript")
@@ -142,8 +161,9 @@ func (c *chat) copyCard() string {
 	}
 	end := min(len(c.copyItems), start+limit)
 	for i := start; i < end; i++ {
-		snippet := clip(oneline(c.copyItems[i]), max(12, innerW-10))
-		text := fmt.Sprintf("%2d  %s", i+1, snippet)
+		item := c.copyItems[i]
+		snippet := clip(oneline(item.text), max(12, innerW-18))
+		text := fmt.Sprintf("%2d  %-14s %s", i+1, clip(item.label, 14), snippet)
 		if i == c.copySel {
 			lines = append(lines, styleSelected.Render(" > "+pad(text, innerW-3)))
 		} else {

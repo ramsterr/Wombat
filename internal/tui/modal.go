@@ -84,6 +84,9 @@ func (c *chat) restoreAndClose() {
 
 // modalKey handles keys for the help and theme overlays.
 func (c *chat) modalKey(msg tea.KeyMsg) tea.Cmd {
+	if c.modal == modalReasoning {
+		return c.reasoningKey(msg)
+	}
 	if c.modal == modalCopy {
 		return c.copyKey(msg)
 	}
@@ -406,6 +409,8 @@ func (c *chat) modalView() string {
 		card = c.previewsCard()
 	case modalCopy:
 		card = c.copyCard()
+	case modalReasoning:
+		card = c.reasoningCard()
 	default:
 		return ""
 	}

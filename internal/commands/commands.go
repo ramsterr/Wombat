@@ -44,6 +44,7 @@ var List = []Command{
 		{Value: "create", Summary: "read, write, edit, and run any command"},
 	}},
 	{Name: "/modes", Group: "Session", Summary: "list the working modes"},
+	{Name: "/reasoning", Group: "Models", Args: "[off|low|medium|high|max]", Summary: "choose the model's reasoning level"},
 	{Name: "/thinking", Group: "Session", Args: "[on|off]", Summary: "show or hide the model's thinking", Options: []Option{
 		{Value: "on", Summary: "show the model's thinking as it arrives"},
 		{Value: "off", Summary: "hide it and show a one-line summary instead"},
@@ -60,7 +61,8 @@ var List = []Command{
 	{Name: "/copy", Group: "Session", Args: "[n|all]", Summary: "pick a reply to copy, or copy the transcript"},
 	{Name: "/cost", Group: "Context", Summary: "token usage and cost"},
 	{Name: "/model", Group: "Models", Args: "[name]", Summary: "switch model"},
-	{Name: "/provider", Group: "Models", Args: "[name]", Summary: "switch provider"},
+	{Name: "/provider", Group: "Models", Args: "[name]", Summary: "choose a provider"},
+	{Name: "/providers", Group: "Models", Summary: "list every provider"},
 	{Name: "/models", Group: "Models", Summary: "browse models"},
 	{Name: "/attach", Group: "Files", Args: "<path>", Summary: "attach an image, video, audio, or file"},
 	{Name: "/paste", Group: "Files", Summary: "attach an image from the clipboard"},

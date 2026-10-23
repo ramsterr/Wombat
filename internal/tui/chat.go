@@ -75,6 +75,7 @@ const (
 	modalSources
 	modalPreviews
 	modalCopy
+	modalReasoning
 )
 
 type textMsg string
@@ -253,8 +254,12 @@ type chat struct {
 	refs     []reference
 	refInput textinput.Model
 
+	// reasoning picker
+	reasoningOptions []string
+	reasoningSel     int
+
 	// copy picker
-	copyItems []string
+	copyItems []copyItem
 	copySel   int
 
 	// sites and files browser
@@ -1452,13 +1457,14 @@ func (c *chat) command(line string) tea.Cmd {
 			c.note("error: "+err.Error(), true)
 		} else {
 			c.note("model: "+c.provName+"/"+c.modelName, false)
+			c.maybeOpenReasoningPicker()
 		}
-	case "/provider":
+	case "/provider", "/providers":
 		if busy() {
 			return nil
 		}
 		if arg == "" {
-			return openScreen(scrModels)
+			return openScreen(scrProviders)
 		}
 		if _, ok := c.cfg.Providers[arg]; !ok {
 			c.note("provider "+arg+" not in config — run `wombat setup`", true)
@@ -1486,6 +1492,34 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.note("mouse off — select text normally; run /mouse again for wheel scrolling", false)
 		return tea.DisableMouse
+	case "/reasoning":
+		if arg != "" {
+			for _, level := range reasoningLevels {
+				if strings.EqualFold(level, arg) {
+					c.cfg.Reasoning = level
+					_ = c.cfg.Save()
+					c.note("reasoning: "+level, false)
+					return nil
+				}
+			}
+			c.note("reasoning must be off, low, medium, high, or max", true)
+			return nil
+		}
+		c.reasoningOptions = reasoningLevels
+		c.reasoningSel = 0
+		current := strings.ToLower(strings.TrimSpace(c.cfg.Reasoning))
+		if current == "" {
+			current = "medium"
+		}
+		for i, level := range reasoningLevels {
+			if level == current {
+				c.reasoningSel = i
+			}
+		}
+		c.modal = modalReasoning
+		c.layout()
+		c.refresh()
+		return nil
 	case "/theme", "/themes":
 		if arg == "" {
 			return c.openThemePicker()
@@ -1556,7 +1590,7 @@ func (c *chat) command(line string) tea.Cmd {
 		if n, err := strconv.Atoi(arg); err == nil && n >= 1 {
 			items := c.copyableMessages()
 			if n <= len(items) {
-				return c.copyToClipboard(items[n-1], fmt.Sprintf("reply %d", n))
+				return c.copyToClipboard(items[n-1].text, items[n-1].label)
 			}
 			c.note("no reply matches "+arg, true)
 			return nil

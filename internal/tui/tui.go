@@ -27,6 +27,7 @@ type screenID int
 const (
 	scrChat screenID = iota
 	scrSessions
+	scrProviders
 	scrModels
 	scrDoctor
 	scrUsage
@@ -41,6 +42,8 @@ type openScreenMsg struct{ id screenID }
 type pickSessionMsg struct{ id string }
 
 type pickModelMsg struct{}
+
+type pickProviderMsg struct{ name string }
 
 type exitMsg struct {
 	kind string
@@ -128,11 +131,12 @@ type rootModel struct {
 	width  int
 	height int
 
-	chat     *chat
-	sessions sessionsModel
-	models   modelsModel
-	doctor   doctorModel
-	usage    usageModel
+	chat      *chat
+	sessions  sessionsModel
+	providers providersModel
+	models    modelsModel
+	doctor    doctorModel
+	usage     usageModel
 
 	action Action
 	err    error
@@ -192,6 +196,11 @@ func (m *rootModel) open(id screenID) tea.Cmd {
 		m.sessions = m.sessions.resize(m.width, m.height)
 		m.screen = scrSessions
 		return m.sessions.Init()
+	case scrProviders:
+		m.providers = newProviders(m.opt)
+		m.providers = m.providers.resize(m.width, m.height)
+		m.screen = scrProviders
+		return m.providers.Init()
 	case scrModels:
 		m.models = newModels(m.opt)
 		m.models = m.models.resize(m.width, m.height)
@@ -224,6 +233,8 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.screen {
 		case scrSessions:
 			m.sessions = m.sessions.resize(msg.Width, msg.Height)
+		case scrProviders:
+			m.providers = m.providers.resize(msg.Width, msg.Height)
 		case scrModels:
 			m.models = m.models.resize(msg.Width, msg.Height)
 		case scrDoctor:
@@ -243,11 +254,17 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.screen = scrChat
 		return m, m.chat.focusInput()
+	case pickProviderMsg:
+		m.models = newModelsFor(m.opt, msg.name)
+		m.models = m.models.resize(m.width, m.height)
+		m.screen = scrModels
+		return m, m.models.Init()
 	case pickModelMsg:
 		if err := m.chat.rebuild(true); err != nil {
 			m.chat.note("error: "+err.Error(), true)
 		}
 		m.screen = scrChat
+		m.chat.maybeOpenReasoningPicker()
 		return m, m.chat.focusInput()
 	case permAskMsg:
 		m.screen = scrChat
@@ -268,6 +285,8 @@ func (m *rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case scrSessions:
 		m.sessions, overlay = m.sessions.update(msg)
+	case scrProviders:
+		m.providers, overlay = m.providers.update(msg)
 	case scrModels:
 		m.models, overlay = m.models.update(msg)
 	case scrDoctor:
@@ -323,6 +342,8 @@ func (m *rootModel) View() string {
 	switch m.screen {
 	case scrSessions:
 		return m.sessions.view()
+	case scrProviders:
+		return m.providers.view()
 	case scrModels:
 		return m.models.view()
 	case scrDoctor:

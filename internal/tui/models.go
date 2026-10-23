@@ -88,6 +88,18 @@ func newModels(opt Options) modelsModel {
 	return modelsModel{opt: opt, providers: providers, pi: pi, list: l, spin: sp, loading: true}
 }
 
+func newModelsFor(opt Options, provider string) modelsModel {
+	m := newModels(opt)
+	for i, p := range m.providers {
+		if p == provider {
+			m.pi = i
+			break
+		}
+	}
+	m.loading = true
+	return m
+}
+
 func (m modelsModel) provider() string {
 	if len(m.providers) == 0 {
 		return m.opt.Cfg.Provider

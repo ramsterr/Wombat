@@ -404,6 +404,41 @@ func TestEveryThemeWelcomeFits(t *testing.T) {
 	applyTheme(themeDefault)
 }
 
+func TestProvidersScreenListsProviders(t *testing.T) {
+	c := testChat(t)
+	m := newProviders(c.opt).resize(120, 34)
+	names := map[string]bool{}
+	for _, it := range m.list.Items() {
+		if p, ok := it.(providerItem); ok {
+			names[p.name] = true
+		}
+	}
+	for _, want := range []string{"openai", "anthropic", "ollama", "openrouter"} {
+		if !names[want] {
+			t.Errorf("providers screen is missing %q", want)
+		}
+	}
+}
+
+func TestReasoningPickerAfterModelSelection(t *testing.T) {
+	c := testChat(t)
+	c.cfg.Reasoning = ""
+	c.maybeOpenReasoningPicker()
+	if c.modal != modalReasoning {
+		t.Fatalf("reasoning picker did not open for %s", c.modelName)
+	}
+	if c.reasoningSel != 2 {
+		t.Errorf("default reasoning selection = %d, want medium", c.reasoningSel)
+	}
+	c.reasoningKey(keyMsg("enter"))
+	if c.cfg.Reasoning != "medium" {
+		t.Errorf("reasoning = %q", c.cfg.Reasoning)
+	}
+	if c.modal != modalNone {
+		t.Error("reasoning picker did not close")
+	}
+}
+
 func TestThemePickerShowsEveryTheme(t *testing.T) {
 	for _, sz := range [][2]int{{120, 34}, {80, 24}, {60, 20}, {44, 20}} {
 		c := testChat(t)
@@ -530,13 +565,13 @@ func TestCopyPicker(t *testing.T) {
 		{kind: entryAssistant, text: "first answer"},
 		{kind: entryAssistant, text: "second answer"},
 	}
-	if got := c.copyableMessages(); len(got) != 2 || got[0] != "second answer" {
+	if got := c.copyableMessages(); len(got) != 3 || got[0].text != "second answer" {
 		t.Fatalf("copyableMessages = %+v", got)
 	}
 	if cmd := c.openCopyPicker(); cmd != nil {
 		t.Fatal("openCopyPicker should not return a command")
 	}
-	if c.modal != modalCopy || len(c.copyItems) != 2 {
+	if c.modal != modalCopy || len(c.copyItems) != 3 {
 		t.Fatalf("copy picker = %+v", c.copyItems)
 	}
 	if card := c.copyCard(); !strings.Contains(card, "COPY") || !strings.Contains(card, "second answer") {
