@@ -164,6 +164,7 @@ runs.
 | `wombat version` | print the version |
 
 ## Inside the chat
+<img width="3360" height="2100" alt="image" src="https://github.com/user-attachments/assets/3d7f5750-5b49-4b45-9e0b-879473ab4f20" />
 
 Type a request and press Enter. Useful shortcuts:
 
@@ -209,13 +210,6 @@ Common slash commands:
 /cost          token and cache usage
 /exit          quit
 ```
-#   Why Wombat?
-
-Its lightweight , fast and preview first.
-
-<img width="3360" height="2100" alt="image" src="https://github.com/user-attachments/assets/3d7f5750-5b49-4b45-9e0b-879473ab4f20" />
-
-# see other features:
 
 # whats preview first?
 agents are notorious for iterating for multiple minutes in the name of "improvement" and "polishing" without even making any considerable improvements.
