@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 )
 
 // searchBatch is the result set from one backend.
@@ -14,23 +15,37 @@ type searchBatch struct {
 }
 
 type candidate struct {
-	result  SearchResult
-	engines int
-	score   float64
-	order   int
+	result   SearchResult
+	engines  map[string]bool
+	bestRank int
+	hits     int
+	score    float64
+	order    int
+}
+
+type rankOptions struct {
+	Freshness  string
+	MaxPerHost int
 }
 
 var trustedSearchHosts = []string{
-	"github.com", "gitlab.com", "stackoverflow.com", "stackexchange.com",
-	"developer.mozilla.org", "docs.python.org", "python.org", "pkg.go.dev",
-	"go.dev", "golang.org", "scikit-learn.org", "pytorch.org", "tensorflow.org",
-	"numpy.org", "pandas.pydata.org", "readthedocs.io", "arxiv.org",
-	"wikipedia.org", "wikimedia.org", "developer.apple.com", "learn.microsoft.com",
-	"docs.microsoft.com", "cloud.google.com", "aws.amazon.com", "kubernetes.io",
-	"docker.com", "rust-lang.org", "crates.io", "nodejs.org", "npmjs.com",
-	"react.dev", "vuejs.org", "angular.io", "openai.com", "anthropic.com",
-	"huggingface.co", "kaggle.com", "gsocorganizations.dev",
-	"summerofcode.withgoogle.com",
+	"github.com", "gitlab.com", "bitbucket.org", "stackoverflow.com", "stackexchange.com",
+	"sourcegraph.com", "developer.mozilla.org", "web.dev", "caniuse.com", "w3.org",
+	"whatwg.org", "ietf.org", "rfc-editor.org", "docs.python.org", "python.org",
+	"peps.python.org", "pkg.go.dev", "go.dev", "golang.org", "git-scm.com",
+	"scikit-learn.org", "pytorch.org", "tensorflow.org", "numpy.org", "pandas.pydata.org",
+	"readthedocs.io", "arxiv.org", "wikipedia.org", "wikimedia.org",
+	"developer.apple.com", "learn.microsoft.com", "docs.microsoft.com", "cloud.google.com",
+	"aws.amazon.com", "kubernetes.io", "helm.sh", "docker.com", "rust-lang.org",
+	"crates.io", "nodejs.org", "npmjs.com", "pypi.org", "react.dev", "vuejs.org",
+	"angular.io", "typescriptlang.org", "spring.io", "kotlinlang.org", "swift.org",
+	"php.net", "ruby-lang.org", "postgresql.org", "sqlite.org", "mysql.com",
+	"redis.io", "mongodb.com", "elastic.co", "grafana.com", "prometheus.io",
+	"terraform.io", "ansible.com", "jenkins.io", "postman.com", "openai.com",
+	"anthropic.com", "huggingface.co", "kaggle.com", "gsocorganizations.dev",
+	"summerofcode.withgoogle.com", "nature.com", "science.org", "acm.org",
+	"ieee.org", "springer.com", "sciencedirect.com", "pubmed.ncbi.nlm.nih.gov",
+	"ncbi.nlm.nih.gov", "who.int", "cdc.gov", "nih.gov", "un.org", "europa.eu",
 }
 
 var adultSubstrings = []string{
@@ -62,6 +77,11 @@ var spamHostTerms = []string{
 	"examtopics", "braindumps", "nulled", "warez", "porn", "xxx",
 }
 
+var searchEngineBoost = map[string]float64{
+	"exa": 0.9, "tavily": 0.5, "brave": 0.4, "serper": 0.4,
+	"bing": 0.15, "duckduckgo": 0.1, "mojeek": 0.1,
+}
+
 var stopwords = map[string]bool{
 	"the": true, "a": true, "an": true, "and": true, "or": true, "of": true,
 	"to": true, "in": true, "on": true, "for": true, "with": true, "is": true,
@@ -70,39 +90,67 @@ var stopwords = map[string]bool{
 }
 
 // rankSearchResults merges the backends, removes poisoned results, rewards
-// trusted and cross-engine hits, and keeps a couple of hits per domain.
+// trusted and cross-engine hits, and limits how many results one domain can
+// contribute. It is the test-friendly default used with three hits per host.
 func rankSearchResults(query string, batches []searchBatch, limit int) []SearchResult {
+	return rankSearchResultsWithOptions(query, batches, limit, rankOptions{MaxPerHost: 3})
+}
+
+func rankSearchResultsWithOptions(query string, batches []searchBatch, limit int, opts rankOptions) []SearchResult {
 	query = strings.TrimSpace(query)
 	tokens := queryTokens(query)
 	lowerQuery := strings.ToLower(query)
+	maxPerHost := opts.MaxPerHost
+	if maxPerHost <= 0 {
+		maxPerHost = 3
+	}
+	cutoff, filterFreshness := freshnessCutoff(opts.Freshness)
 	byURL := map[string]*candidate{}
 	order := 0
 	for _, batch := range batches {
-		for pos, r := range batch.results {
+		for _, r := range batch.results {
 			r.URL = canonicalResultURL(r.URL)
 			r.Title = strings.TrimSpace(stripTags(r.Title))
 			r.Snippet = cleanSnippet(r.Snippet)
+			r.Author = cleanMetaValue(r.Author)
+			r.Published = normalizeDate(r.Published)
 			if r.URL == "" || r.Title == "" {
 				continue
 			}
 			if isAdultResult(r) || isParked(r) || isSpamHost(r) {
 				continue
 			}
+			if filterFreshness {
+				if t, ok := publishedTime(r.Published); ok && t.Before(cutoff) {
+					continue
+				}
+			}
 			c, ok := byURL[r.URL]
 			if !ok {
-				c = &candidate{result: r, order: order}
+				c = &candidate{result: r, engines: map[string]bool{}, order: order}
 				order++
 				byURL[r.URL] = c
 			} else {
 				if len(r.Snippet) > len(c.result.Snippet) {
 					c.result.Snippet = r.Snippet
 				}
-				if len(r.Title) > len(c.result.Title) && !candidateHasTitle(c, r.Title) {
+				if len(r.Title) > len(c.result.Title) {
 					c.result.Title = r.Title
 				}
+				if c.result.Published == "" && r.Published != "" {
+					c.result.Published = r.Published
+				}
+				if c.result.Author == "" && r.Author != "" {
+					c.result.Author = r.Author
+				}
 			}
-			c.engines++
-			_ = pos
+			if r.engine != "" {
+				c.engines[r.engine] = true
+			}
+			if r.rank > 0 && (c.bestRank == 0 || r.rank < c.bestRank) {
+				c.bestRank = r.rank
+			}
+			c.hits++
 		}
 	}
 	if len(byURL) == 0 {
@@ -110,7 +158,7 @@ func rankSearchResults(query string, batches []searchBatch, limit int) []SearchR
 	}
 	cands := make([]*candidate, 0, len(byURL))
 	for _, c := range byURL {
-		c.score = scoreCandidate(lowerQuery, tokens, c.result, c.engines)
+		c.score = scoreCandidate(lowerQuery, tokens, c, opts.Freshness)
 		cands = append(cands, c)
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
@@ -119,27 +167,51 @@ func rankSearchResults(query string, batches []searchBatch, limit int) []SearchR
 		}
 		return cands[i].order < cands[j].order
 	})
+
+	// First give every domain one slot, then fill the rest. This keeps a
+	// strong site from crowding out the whole result set while still allowing
+	// several useful pages from it.
 	out := make([]SearchResult, 0, limit)
+	picked := map[string]bool{}
 	perHost := map[string]int{}
 	for _, c := range cands {
 		if len(out) >= limit {
 			break
 		}
-		host := hostnameOf(c.result.URL)
-		if perHost[host] >= 2 {
+		host := resultHost(c.result.URL)
+		if perHost[host] == 0 {
+			perHost[host]++
+			picked[c.result.URL] = true
+			out = append(out, c.result)
+		}
+	}
+	for _, c := range cands {
+		if len(out) >= limit {
+			break
+		}
+		if picked[c.result.URL] {
+			continue
+		}
+		host := resultHost(c.result.URL)
+		if perHost[host] >= maxPerHost {
 			continue
 		}
 		perHost[host]++
+		picked[c.result.URL] = true
 		out = append(out, c.result)
 	}
 	return out
 }
 
-func candidateHasTitle(c *candidate, title string) bool {
-	return strings.EqualFold(c.result.Title, title)
+func resultHost(raw string) string {
+	if host := hostnameOf(raw); host != "" {
+		return host
+	}
+	return "_"
 }
 
-func scoreCandidate(query string, tokens []string, r SearchResult, engines int) float64 {
+func scoreCandidate(query string, tokens []string, c *candidate, freshness string) float64 {
+	r := c.result
 	host := hostnameOf(r.URL)
 	title := strings.ToLower(r.Title)
 	snippet := strings.ToLower(r.Snippet)
@@ -148,7 +220,7 @@ func scoreCandidate(query string, tokens []string, r SearchResult, engines int) 
 	if trustedHost(host) {
 		score += 4.0
 	}
-	if strings.HasSuffix(host, ".gov") || strings.HasSuffix(host, ".edu") {
+	if trustedSuffix(host) {
 		score += 3.5
 	}
 	for _, token := range tokens {
@@ -176,8 +248,31 @@ func scoreCandidate(query string, tokens []string, r SearchResult, engines int) 
 	if len(tokens) > 1 && strings.Contains(snippet, strings.Join(tokens, " ")) {
 		score += 0.8
 	}
-	if engines > 1 {
-		score += float64(engines-1) * 0.8
+	if len(c.engines) > 1 {
+		score += float64(len(c.engines)-1) * 0.9
+	}
+	boost := 0.0
+	for engine := range c.engines {
+		if b := searchEngineBoost[engine]; b > boost {
+			boost = b
+		}
+	}
+	score += boost
+	if c.bestRank > 0 {
+		score += 1.6 / float64(c.bestRank)
+	}
+	if c.hits > len(c.engines) {
+		extra := float64(c.hits - len(c.engines))
+		if extra > 3 {
+			extra = 3
+		}
+		score += extra * 0.1
+	}
+	recency := recencyBoost(r.Published)
+	if strings.TrimSpace(freshness) != "" {
+		score += recency * 1.5
+	} else {
+		score += recency * 0.3
 	}
 	if n := len([]rune(r.Title)); n >= 8 && n <= 120 {
 		score += 0.3
@@ -197,14 +292,48 @@ func scoreCandidate(query string, tokens []string, r SearchResult, engines int) 
 	if spam > 0 {
 		score -= float64(spam) * 2.5
 	}
-	if strings.Contains(query, "site:") {
-		hostPart := strings.TrimSpace(strings.SplitN(query, "site:", 2)[1])
-		hostPart = strings.Fields(hostPart)[0]
-		if strings.Contains(host, hostPart) {
+	if i := strings.Index(query, "site:"); i >= 0 {
+		fields := strings.Fields(query[i+5:])
+		if len(fields) > 0 && strings.Contains(host, strings.Trim(fields[0], "/")) {
 			score += 4
 		}
 	}
 	return score
+}
+
+func freshnessCutoff(freshness string) (time.Time, bool) {
+	days := 0
+	switch strings.ToLower(strings.TrimSpace(freshness)) {
+	case "day":
+		days = 1
+	case "week":
+		days = 7
+	case "month":
+		days = 30
+	case "year":
+		days = 365
+	}
+	if days == 0 {
+		return time.Time{}, false
+	}
+	return time.Now().AddDate(0, 0, -days), true
+}
+
+func recencyBoost(published string) float64 {
+	t, ok := publishedTime(published)
+	if !ok {
+		return 0
+	}
+	age := time.Since(t)
+	switch {
+	case age < 7*24*time.Hour:
+		return 1
+	case age < 30*24*time.Hour:
+		return 0.6
+	case age < 365*24*time.Hour:
+		return 0.25
+	}
+	return 0
 }
 
 func queryTokens(query string) []string {
@@ -226,6 +355,16 @@ func trustedHost(host string) bool {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	for _, d := range trustedSearchHosts {
 		if host == d || strings.HasSuffix(host, "."+d) {
+			return true
+		}
+	}
+	return false
+}
+
+func trustedSuffix(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, suffix := range []string{".gov", ".edu", ".mil", ".int", ".ac.uk", ".edu.au", ".ac.jp", ".ac.nz", ".ac.za", ".ac.in", ".edu.sg"} {
+		if strings.HasSuffix(host, suffix) {
 			return true
 		}
 	}

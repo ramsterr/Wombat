@@ -347,13 +347,20 @@ wombat config
 ### Web search and fetch
 
 `websearch` runs the available backends in parallel — Brave, Serper, Exa, and
-Tavily when configured, plus Bing RSS and DuckDuckGo HTML — then merges,
-cross-checks, and ranks their results. Official docs, GitHub, and trusted
-domains are boosted; tracking parameters are removed; adult and SEO-spam hits
-are filtered; and a domain can contribute at most two results. Scraped backends
-use strict safe search. Results are cached for ten minutes. Set
-`EXA_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, or `SERPER_API_KEY` before
-starting Wombat to use your own search account:
+Tavily when configured, plus Bing RSS, DuckDuckGo HTML, and Mojeek RSS — then
+merges, cross-checks, and ranks their results. It accepts 2–4 query variants,
+`freshness`, `language`, `region`, and pagination; searches retry transient
+failures and allow up to 15 seconds, with a 5-second grace window after the
+first backend replies. By default it also fetches the top three pages and adds
+a relevant excerpt plus any date and author it can find; `depth=deep` fetches
+up to six pages and `depth=fast` skips page fetching. Official docs, GitHub,
+and trusted domains are boosted, engine position and Exa results carry extra
+weight, tracking parameters are removed, adult and SEO-spam hits are filtered,
+and a domain can contribute at most three results. Backend failures are
+reported instead of hidden. Scraped backends use strict safe search. Results
+are cached for ten minutes. Set `EXA_API_KEY`, `TAVILY_API_KEY`,
+`BRAVE_API_KEY`, or `SERPER_API_KEY` before starting Wombat to use your own
+search account:
 
 ```sh
 export EXA_API_KEY=...
@@ -365,7 +372,7 @@ export SERPER_API_KEY=...
 `webfetch` extracts the main article text with its title and description,
 pretty-prints JSON, returns text/XML, and gives a clear note for PDFs and
 binary payloads. It caches responses for repeated reads, retries transient
-connection failures, and uses a 12-second HTTP client.
+connection failures, and shares a 15-second HTTP client with search.
 
 `imagesearch` returns direct image URLs from Google Images (through Serper),
 Brave Images, DuckDuckGo Images, and Openverse, and can download the selected
