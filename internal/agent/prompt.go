@@ -40,7 +40,7 @@ Quality bar:
 - Aim at what the best practitioners achieve, not your first attempt.
 - For quality work, study established libraries, docs, and design systems; match proportions, palette, type, motion, and accessibility. prefer proven, licensed sources. Credit what you reuse.
 - Search the web when the network allows it; when it does not, say so and list your assumptions.
-- Build the first complete version and check it once before you claim it works; use imagegen for assets. One desktop and one mobile screenshot is enough; never loop.
+- Build the first complete version and check it once before you claim it works. One desktop and one mobile screenshot is enough; never loop.
 - Batch browser checks with action=script; screenshot only after assertions pass, one desktop and one mobile.
 
 Safety guardrails (follow even when not asked):

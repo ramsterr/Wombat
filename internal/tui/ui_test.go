@@ -420,6 +420,36 @@ func TestProvidersScreenListsProviders(t *testing.T) {
 	}
 }
 
+func TestImageGenIsOptIn(t *testing.T) {
+	c := testChat(t)
+	if c.imageGen {
+		t.Fatal("image generation must be off by default")
+	}
+	if hasTool(availableTools(false), "imagegen") {
+		t.Error("imagegen must not be offered unless the user enables it")
+	}
+	if !hasTool(availableTools(true), "imagegen") {
+		t.Error("imagegen should be offered after opt-in")
+	}
+	c.command("/imagen on")
+	if !c.imageGen {
+		t.Fatal("/imagen on did not enable image generation")
+	}
+	c.command("/imagen off")
+	if c.imageGen {
+		t.Fatal("/imagen off did not disable image generation")
+	}
+}
+
+func hasTool(list []tools.Tool, name string) bool {
+	for _, tool := range list {
+		if tool.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestConfigureSavesProvider(t *testing.T) {
 	t.Setenv("WOMBAT_HOME", t.TempDir())
 	c := testChat(t)

@@ -177,6 +177,9 @@ type chat struct {
 
 	// showThinking controls whether the model's thinking is displayed.
 	showThinking bool
+	// imageGen is opt-in per session. Without it the imagegen tool is not
+	// even offered to the model.
+	imageGen bool
 
 	// cmdList is the palette of matching commands or options. cmdSel is the
 	// highlighted entry and cmdTop is the first visible one.
@@ -540,7 +543,7 @@ func (c *chat) rebuild(reset bool) error {
 	c.ag = &agent.Agent{
 		Provider:      prov,
 		Model:         c.modelName,
-		Tools:         tools.RegistryWithQuestion(),
+		Tools:         availableTools(c.imageGen),
 		Env:           env,
 		Sess:          c.sess,
 		Compact:       true,
@@ -575,6 +578,12 @@ func (c *chat) rebuild(reset bool) error {
 		}
 	}
 	c.ag.Hooks = c.hooks()
+	c.ag.SystemExtra = func() string {
+		if c.imageGen {
+			return ""
+		}
+		return "Image generation is disabled. Do not generate or edit images unless the user enables it with /imagen."
+	}
 	c.window = c.ag.ContextWindow
 	c.history = c.ag.HistoryTokens()
 	c.sess.Meta.Provider = c.provName
@@ -593,6 +602,7 @@ func (c *chat) openSession(id string) error {
 	}
 	c.sess = s
 	c.entries = nil
+	c.imageGen = false
 	c.previews = nil
 	c.previewURL = ""
 	c.refs = loadReferences(c.opt.Cwd)
@@ -1187,6 +1197,21 @@ func (c *chat) refresh() {
 	}
 }
 
+// availableTools excludes image generation unless the user opted in.
+func availableTools(allowImage bool) []tools.Tool {
+	all := tools.RegistryWithQuestion()
+	if allowImage {
+		return all
+	}
+	out := make([]tools.Tool, 0, len(all))
+	for _, tool := range all {
+		if tool.Name() != "imagegen" {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -1484,6 +1509,36 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.note("mouse off — select text normally; run /mouse again for wheel scrolling", false)
 		return tea.DisableMouse
+	case "/imagen":
+		switch strings.ToLower(strings.TrimSpace(arg)) {
+		case "", "toggle":
+			c.imageGen = !c.imageGen
+		case "on", "enable":
+			c.imageGen = true
+		case "off", "disable":
+			c.imageGen = false
+		default:
+			c.imageGen = true
+			if c.sess != nil {
+				if err := c.rebuild(false); err != nil {
+					c.note("error: "+err.Error(), true)
+					return nil
+				}
+			}
+			return c.submit("Generate an image with the imagegen tool: " + strings.TrimSpace(arg))
+		}
+		if c.sess != nil {
+			if err := c.rebuild(false); err != nil {
+				c.note("error: "+err.Error(), true)
+				return nil
+			}
+		}
+		if c.imageGen {
+			c.note("image generation enabled for this session; /imagen off disables it", false)
+		} else {
+			c.note("image generation disabled; /imagen enables it", false)
+		}
+		return nil
 	case "/reasoning":
 		if arg != "" {
 			for _, level := range reasoningLevels {
@@ -1548,6 +1603,7 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 		c.sess = ns
 		c.entries = nil
+		c.imageGen = false
 		c.showBanner = true
 		c.pending = nil
 		c.previewURL = ""

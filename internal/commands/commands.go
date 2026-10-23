@@ -45,6 +45,7 @@ var List = []Command{
 	}},
 	{Name: "/modes", Group: "Session", Summary: "list the working modes"},
 	{Name: "/reasoning", Group: "Models", Args: "[off|low|medium|high|max]", Summary: "choose the model's reasoning level"},
+	{Name: "/imagen", Group: "Tools", Args: "[on|off|prompt]", Summary: "enable image generation, or generate an image"},
 	{Name: "/thinking", Group: "Session", Args: "[on|off]", Summary: "show or hide the model's thinking", Options: []Option{
 		{Value: "on", Summary: "show the model's thinking as it arrives"},
 		{Value: "off", Summary: "hide it and show a one-line summary instead"},

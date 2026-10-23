@@ -196,6 +196,7 @@ Common slash commands:
 /configure     choose and configure a provider
 /providers     list every provider
 /reasoning     off, low, medium, high, or max
+/imagen        enable image generation, or generate an image
 /mode          chat or create mode
 /attach <path> attach a file
 /panel         toggle the inspector
@@ -206,6 +207,10 @@ Common slash commands:
 /cost          token and cache usage
 /exit          quit
 ```
+
+Image generation is off by default. Use `/imagen` to enable it for the session,
+or `/imagen <prompt>` to generate an image directly. The `imagegen` tool is not
+offered to the model until you opt in.
 
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
@@ -247,7 +252,7 @@ Browser screenshots stay in memory and are not saved in the project.
 - **Searches** — glob, grep, AST symbols, semantic search, and web search/fetch.
 - **Understands code** — language-server definitions, references, diagnostics, completions, rename, and AST-aware code actions.
 - **Sees** — screenshots, images, video, audio, and documents on models that support them.
-- **Creates** — image generation and editing, plus batched browser automation.
+- **Creates** — image generation and editing when enabled with `/imagen`, plus batched browser automation.
 - **Plans** — a persistent task ledger with dependencies, checks, structured reports, and continuous scheduling: a slow step does not hold back ready work, and timed-out or transient steps retry once.
 - **Delegates** — parallel workers in isolated git worktrees, with independent review and three-way merge. A worker that needs a decision returns `needs_input` with questions and can be resumed in the same session and worktree.
 - **Recovers** — retries transient network failures, repairs rejected thinking-mode histories, and keeps long sessions usable.

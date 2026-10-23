@@ -40,6 +40,9 @@ All notable changes to Wombat are recorded here. The format follows
   harness asks "Looks good" / "Needs changes" before another modelling step.
   Approval stops the run; feedback continues it. Headless runs stop after three
   visual passes instead of polishing without a reviewer.
+- **Opt-in image generation**: `imagegen` is hidden from the model by default.
+  `/imagen` enables it for the session and `/imagen <prompt>` generates
+  directly, so the agent cannot start generating images on its own.
 - **Copy support**: `ctrl+y` copies the last reply; `/copy` opens a picker for
   any earlier reply; `/copy all` copies the transcript. A terminal-clipboard
   fallback keeps copy working when the platform helper is unavailable. Mouse
