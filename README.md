@@ -318,6 +318,11 @@ pretty-prints JSON, returns text/XML, and gives a clear note for PDFs and
 binary payloads. It caches responses for repeated reads, retries transient
 connection failures, and uses a 12-second HTTP client.
 
+`imagesearch` returns direct image URLs from Google Images (through Serper),
+Brave Images, DuckDuckGo Images, and Openverse, and can download the selected
+images into the workspace. Set `SERPER_API_KEY` for Google Images or
+`BRAVE_API_KEY` for Brave Images; DuckDuckGo and Openverse work without a key.
+
 ### Common settings
 
 ```sh
