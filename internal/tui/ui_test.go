@@ -404,6 +404,20 @@ func TestEveryThemeWelcomeFits(t *testing.T) {
 	applyTheme(themeDefault)
 }
 
+func TestThemePickerShowsEveryTheme(t *testing.T) {
+	for _, sz := range [][2]int{{120, 34}, {80, 24}, {60, 20}, {44, 20}} {
+		c := testChat(t)
+		c.resize(sz[0], sz[1])
+		c.openThemePicker()
+		card := stripANSI(c.themeCard())
+		for _, th := range themeEntries() {
+			if !strings.Contains(card, th.label) {
+				t.Errorf("%dx%d theme picker is missing %q:\n%s", sz[0], sz[1], th.label, card)
+			}
+		}
+	}
+}
+
 func TestThemePickerScrollsThroughEveryTheme(t *testing.T) {
 	c := testChat(t)
 	c.resize(120, 34)

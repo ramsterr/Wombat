@@ -305,46 +305,62 @@ func (c *chat) helpLines(width int) []string {
 	return out
 }
 
-// themeCard renders the theme picker. On normal terminals it is a two-column
-// grid so every theme is visible at once; very narrow terminals fall back to a
-// scrolling single column.
+// themeCard renders the theme picker as an adaptive grid so every theme is
+// visible even on short or narrow terminals.
 func (c *chat) themeCard() string {
 	mainW := c.mainWidth()
 	cardW := min(max(44, mainW-6), 72)
 	innerW := max(32, cardW-6)
+	themes := themeEntries()
+
+	// Pick the widest column count that still leaves room for all rows.
+	cols := 1
+	for cand := 4; cand >= 1; cand-- {
+		colW := (innerW - (cand-1)*2) / cand
+		if colW < 12 {
+			continue
+		}
+		rows := (len(themes) + cand - 1) / cand
+		if rows+8 <= c.vp.Height || cand == 1 {
+			cols = cand
+			break
+		}
+	}
+	colW := max(12, (innerW-(cols-1)*2)/cols)
+	rows := (len(themes) + cols - 1) / cols
+
 	lines := []string{styleAccent.Bold(true).Render("◈  THEMES") + "  " + styleFaint.Render("ctrl+t cycles")}
-	if c.vp.Height >= 22 {
+	if rows+10 <= c.vp.Height {
 		lines = append(lines, styleDim.Render("select with ↑↓, apply with enter, cancel with esc"))
 	}
 	lines = append(lines, "")
-
-	themes := themeEntries()
-	colW := (innerW - 3) / 2
-	if innerW >= 46 && c.vp.Height >= 15 {
-		rows := (len(themes) + 1) / 2
-		for r := 0; r < rows; r++ {
-			left := themeCell(r, c.themeSel, colW)
-			right := ""
-			if r+rows < len(themes) {
-				right = themeCell(r+rows, c.themeSel, colW)
+	if rows+8 > c.vp.Height {
+		// Too small for a grid: wrap the names so every theme is still listed.
+		var parts []string
+		for i, t := range themes {
+			marker := "  "
+			if i == c.themeSel {
+				marker = "▸ "
 			}
-			lines = append(lines, " "+padRight(left, colW)+"  "+right)
+			parts = append(parts, marker+t.label)
+		}
+		for _, ln := range wrap(strings.Join(parts, "   "), max(10, innerW-2)) {
+			lines = append(lines, " "+ln)
 		}
 	} else {
-		maxRows := max(3, min(len(themes), c.vp.Height-10))
-		start := 0
-		if c.themeSel >= maxRows {
-			start = c.themeSel - maxRows + 1
-		}
-		end := min(len(themes), start+maxRows)
-		for i := start; i < end; i++ {
-			lines = append(lines, " "+themeCell(i, c.themeSel, innerW-1))
-		}
-		if end < len(themes) {
-			lines = append(lines, styleFaint.Render(fmt.Sprintf("  … %d more below", len(themes)-end)))
+		for r := 0; r < rows; r++ {
+			var cells []string
+			for col := 0; col < cols; col++ {
+				i := r*cols + col
+				if i >= len(themes) {
+					break
+				}
+				cells = append(cells, padRight(themeCell(i, c.themeSel, colW), colW))
+			}
+			lines = append(lines, " "+strings.Join(cells, "  "))
 		}
 	}
-	if c.vp.Height >= 22 {
+	if rows+11 <= c.vp.Height {
 		sel := themes[c.themeSel]
 		lines = append(lines, "", " "+styleAccent.Render(sel.label)+"  "+styleDim.Render(clip(sel.blurb, innerW-4)))
 	}
@@ -355,13 +371,20 @@ func (c *chat) themeCard() string {
 	return styleModal.Width(innerW + 4).Render(strings.Join(lines, "\n"))
 }
 
-// themeCell is one row in the theme grid.
+// themeCell is one cell in the theme grid.
 func themeCell(i, sel, width int) string {
 	t := themeEntries()[i]
-	name := padRight(t.label, 14)
-	row := "  " + styleDim.Render(name) + " " + swatches(t)
+	nameW := min(14, max(6, width-1))
+	name := padRight(t.label, nameW)
+	row := "  " + styleDim.Render(name)
+	if width >= nameW+8 {
+		row += " " + swatches(t)
+	}
 	if i == sel {
-		row = " > " + name + " " + swatches(t)
+		row = " > " + name
+		if width >= nameW+8 {
+			row += " " + swatches(t)
+		}
 		return styleSelected.Render(pad(clip(row, width), max(8, width)))
 	}
 	return clipANSI(row, width)
