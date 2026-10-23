@@ -244,19 +244,51 @@ looks right. For a new site, the agent builds the complete first version, checks
 one desktop and one mobile view, then waits for your feedback before iterating.
 Browser screenshots stay in memory and are not saved in the project.
 
-## What it does
+## See other features
 
-- **Reads and writes code** — read, write, edit, multi-edit, atomic multi-file patches, and regex or literal replacement across files.
-- **Runs commands** — shell, managed background jobs, tests, builds, and project verification.
-- **Checks sites** — `verify_site` runs the project check and audits pages for console errors, failed requests, broken links and anchors, missing assets, syntax errors, and overflow; unchanged pages are cached.
-- **Searches** — glob, grep, AST symbols, semantic search, and web search/fetch.
-- **Understands code** — language-server definitions, references, diagnostics, completions, rename, and AST-aware code actions.
-- **Sees** — screenshots, images, video, audio, and documents on models that support them.
-- **Creates** — image generation and editing when enabled with `/imagen`, plus batched browser automation.
-- **Plans** — a persistent task ledger with dependencies, checks, structured reports, and continuous scheduling: a slow step does not hold back ready work, and timed-out or transient steps retry once.
-- **Delegates** — parallel workers in isolated git worktrees, with independent review and three-way merge. A worker that needs a decision returns `needs_input` with questions and can be resumed in the same session and worktree.
-- **Recovers** — retries transient network failures, repairs rejected thinking-mode histories, and keeps long sessions usable.
-- **Caches** — context pruning and summarization, checkpoints, and resumable sessions.
+The features you expect from a serious coding agent, and the parts that make
+Wombat different.
+
+### Standard
+
+| Feature | What it does |
+|---|---|
+| Code editing | Read, write, edit, multi-edit, atomic multi-file patches, and literal/regex replacement. |
+| Shell and jobs | Run commands, manage background jobs, run tests and builds. |
+| Verification | `verify`, `verify_site`, browser assertions, and project checks. |
+| Code intelligence | Language-server definitions, references, diagnostics, completions, rename, and refactor. |
+| Search | Glob, grep, AST symbols, and semantic search. |
+| Web | Search and fetch with caching, retries, and readable-text extraction. |
+| Browser | Local and web automation, screenshots, clicks, typing, scrolling, and JS evaluation. |
+| Media | Read images, video, audio, and documents; edit and generate images when enabled. |
+| Sessions | Resumable sessions, browsing, continuation, and JSONL transcripts. |
+| Context | Automatic pruning, summarization, compaction, and token accounting. |
+| Checkpoints | Shadow-git snapshots with list and restore. |
+| Permissions | Per-class gates for bash, writes, edits, network, and sensitive reads. |
+| Providers | OpenAI-compatible APIs, Anthropic, OpenCode, and local model servers. |
+| TUI basics | Command palette, file picker, history, copy, themes, and scrollback. |
+
+### Unique
+
+| Feature | What it does |
+|---|---|
+| Parallel fleet | Lead plus scouts and writers in isolated git worktrees; changes are reviewed and three-way merged. |
+| Continuous plan scheduler | A dependency DAG where free slots start newly-ready work, slow steps do not block independent work, and interrupted steps resume. |
+| Resumable workers | A worker that needs a decision returns `needs_input` and can be resumed in the same session and worktree. |
+| Visual hand-off gate | After the first complete visual artifact, Wombat asks `Looks good` / `Needs changes` before another pass; headless runs stop after three visual passes. |
+| Multi-preview system | Detects local servers, HTML, PDFs, images, and video; de-duplicates by origin or path; keeps an ordered left rail and a `/previews` picker. |
+| Source browser | `/sources` browses every site and file the session used, with counts and open/attach actions. |
+| Project references | `ctrl+r` / `/reference` keeps files, folders, and URLs in a per-project inspector list under `~/.wombat/references/`. |
+| Inspector | Live session facts, context gauge, previews, sources, recent tools, references, and a pinned WOMBAT mark. |
+| Search ranking | Merges Brave, Serper, Exa, Tavily, Bing RSS, and DuckDuckGo; boosts trusted docs and cross-engine hits; filters adult/SEO spam; caps domains. |
+| Image search | Finds direct image URLs via Google Images (Serper), Brave, DuckDuckGo, and Openverse, and downloads them into the workspace. |
+| Opt-in image generation | `imagegen` is hidden until `/imagen`; then `/imagen <prompt>` generates directly. |
+| Provider setup | `/configure` opens a base URL/API-key form; unconfigured models stay selectable but show `no key` and are blocked from chat. |
+| Reasoning picker | After selecting a reasoning model, choose `off`, `low`, `medium`, `high`, or `max`; `/reasoning` reopens it. |
+| Themes | Fifteen palettes, a two-column picker, `ctrl+t` cycling, and a reclaimed terminal background on exit. |
+| Copy | `ctrl+y` for the last reply and `/copy` for any user, agent, or tool output, with an OSC 52 fallback. |
+| File picker | `@` path completion with directory navigation and quoted paths for spaces. |
+| Built to be driven | Headless `wombat run`, scriptable sessions, and a TUI designed around the inspector, preview rail, and keyboard flow. |
 
 ## Coming next
 
