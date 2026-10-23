@@ -420,6 +420,54 @@ func TestProvidersScreenListsProviders(t *testing.T) {
 	}
 }
 
+func TestUnconfiguredModelIsShownButChatIsBlocked(t *testing.T) {
+	for _, key := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY"} {
+		t.Setenv(key, "")
+	}
+	c := testChat(t)
+	c.cfg.Provider = "openai"
+	c.cfg.Model = "gpt-5.6sol"
+	if pc := c.cfg.Providers["openai"]; pc != nil {
+		pc.APIKey = ""
+	}
+	if err := c.rebuild(true); err != nil {
+		t.Fatal(err)
+	}
+	if c.modelName != "gpt-5.6sol" {
+		t.Errorf("model = %q", c.modelName)
+	}
+	if c.missingKey != "openai" {
+		t.Errorf("missingKey = %q", c.missingKey)
+	}
+	if c.ag != nil {
+		t.Error("an agent should not be created without a key")
+	}
+	if cmd := c.submit("hello"); cmd != nil {
+		t.Fatal("chat should be blocked without a key")
+	}
+	found := false
+	for _, e := range c.entries {
+		if e.kind == entryNote && strings.Contains(e.text, "no API key") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the block message did not name the missing API key")
+	}
+}
+
+func TestLocalProviderNeedsNoKey(t *testing.T) {
+	c := testChat(t)
+	c.cfg.Provider = "ollama"
+	c.cfg.Model = "llama3"
+	if err := c.rebuild(true); err != nil {
+		t.Fatal(err)
+	}
+	if c.missingKey != "" {
+		t.Errorf("local provider reported missing key %q", c.missingKey)
+	}
+}
+
 func TestImageGenIsOptIn(t *testing.T) {
 	c := testChat(t)
 	if c.imageGen {

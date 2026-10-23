@@ -199,6 +199,9 @@ func (c *chat) panelView() string {
 		model = "not configured"
 	}
 	add(styleFaint.Render("model ") + styleDim.Render(clip(model, contentW-6)))
+	if c.missingKey != "" {
+		add(styleWarn.Render("no API key · /configure " + c.missingKey))
+	}
 	if c.branch != "" {
 		add(styleFaint.Render("branch ") + styleAccent2.Render(clip(c.branch, contentW-7)))
 	}

@@ -43,6 +43,15 @@ All notable changes to Wombat are recorded here. The format follows
 - **Opt-in image generation**: `imagegen` is hidden from the model by default.
   `/imagen` enables it for the session and `/imagen <prompt>` generates
   directly, so the agent cannot start generating images on its own.
+- **Provider configuration**: selecting a provider opens a Configure form for
+  its base URL and API key. `/configure` is the primary command, with
+  `/provider` and `/providers` as aliases. Provider tabs switch with ←/→.
+- **Unconfigured models stay selectable**: Wombat shows the chosen model with
+  `no key` in the header, keeps it blocked from chat, and tells you to run
+  `/configure <provider>`. Providers no longer inherit an unrelated
+  `OPENAI_API_KEY`.
+- **Reasoning picker**: after selecting a reasoning model, choose off/low/
+  medium/high/max; `/reasoning` reopens it.
 - **Copy support**: `ctrl+y` copies the last reply; `/copy` opens a picker for
   any earlier reply; `/copy all` copies the transcript. A terminal-clipboard
   fallback keeps copy working when the platform helper is unavailable. Mouse

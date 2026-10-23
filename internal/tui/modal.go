@@ -320,7 +320,7 @@ func (c *chat) themeCard() string {
 	cols := 1
 	for cand := 4; cand >= 1; cand-- {
 		colW := (innerW - (cand-1)*2) / cand
-		if colW < 12 {
+		if colW < 24 {
 			continue
 		}
 		rows := (len(themes) + cand - 1) / cand

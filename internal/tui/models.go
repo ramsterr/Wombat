@@ -100,6 +100,15 @@ func newModelsFor(opt Options, provider string) modelsModel {
 	return m
 }
 
+func (m modelsModel) missingKey() string {
+	name := m.provider()
+	pc := m.providerConfig(name)
+	if m.opt.Cfg.APIKey(name, pc) == "" && !providerIsLocal(name, pc) {
+		return name
+	}
+	return ""
+}
+
 func (m modelsModel) provider() string {
 	if len(m.providers) == 0 {
 		return m.opt.Cfg.Provider
@@ -272,6 +281,10 @@ func (m modelsModel) view() string {
 		tabs = append(tabs, styleDim.Render("…"))
 	}
 	tabLine := " " + strings.Join(tabs, " ")
+	keyNote := ""
+	if name := m.missingKey(); name != "" {
+		keyNote = "\n  " + styleWarn.Render("no API key for "+name+" — press c to configure; you can still pick a model, but chat will be blocked")
+	}
 
 	var body string
 	switch {
@@ -283,5 +296,5 @@ func (m modelsModel) view() string {
 	default:
 		body = "\n" + m.list.View()
 	}
-	return header + "\n" + tabLine + "\n" + body
+	return header + "\n" + tabLine + keyNote + "\n" + body
 }

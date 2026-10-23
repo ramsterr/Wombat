@@ -274,8 +274,10 @@ func (c *Config) APIKey(name string, p *Provider) string {
 	switch p.Kind {
 	case "anthropic":
 		return os.Getenv("ANTHROPIC_API_KEY")
-	default:
+	case "openai":
 		return os.Getenv("OPENAI_API_KEY")
+	default:
+		return ""
 	}
 }
 

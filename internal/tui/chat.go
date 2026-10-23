@@ -180,6 +180,9 @@ type chat struct {
 	// imageGen is opt-in per session. Without it the imagegen tool is not
 	// even offered to the model.
 	imageGen bool
+	// missingKey names the provider whose API key is absent. It is shown in
+	// the header and blocks chat with a configuration hint.
+	missingKey string
 
 	// cmdList is the palette of matching commands or options. cmdSel is the
 	// highlighted entry and cmdTop is the first visible one.
@@ -309,6 +312,7 @@ func newChat(opt Options) (*chat, error) {
 	c.modelName = c.cfg.ActiveModel()
 	c.branch = gitBranch(c.opt.Cwd)
 	c.refs = loadReferences(c.opt.Cwd)
+	c.missingKey = c.missingProviderKey()
 
 	var err error
 	if opt.SessionID != "" {
@@ -475,6 +479,7 @@ func (c *chat) rebuild(reset bool) error {
 	}
 	if c.sess == nil {
 		c.window = tokens.WindowFor(c.provName, c.modelName)
+		c.missingKey = c.missingProviderKey()
 		return nil
 	}
 	if c.provName == "" {
@@ -493,7 +498,28 @@ func (c *chat) rebuild(reset bool) error {
 	if c.modelName == "" {
 		return fmt.Errorf("no model selected — pick one with /model")
 	}
-	prov, err := llm.New(c.provName, pc, c.cfg.APIKey(c.provName, pc))
+	c.showThinking = c.cfg.ShowThinking
+	if c.mode == "" {
+		if m, err := mode.Parse(c.cfg.Mode); err == nil {
+			c.mode = m
+		} else {
+			c.mode = mode.Create
+		}
+	}
+	c.updatePlaceholder()
+	key := c.cfg.APIKey(c.provName, pc)
+	if key == "" && !providerIsLocal(c.provName, pc) {
+		c.missingKey = c.provName
+		c.closeAgent()
+		c.window = tokens.WindowFor(c.provName, c.modelName)
+		c.history = 0
+		c.sess.Meta.Provider = c.provName
+		c.sess.Meta.Model = c.modelName
+		_ = c.sess.Flush()
+		return nil
+	}
+	c.missingKey = ""
+	prov, err := llm.New(c.provName, pc, key)
 	if err != nil {
 		return err
 	}
@@ -504,15 +530,6 @@ func (c *chat) rebuild(reset bool) error {
 	if cwd == "" {
 		cwd = c.opt.Cwd
 	}
-	c.showThinking = c.cfg.ShowThinking
-	if c.mode == "" {
-		if m, err := mode.Parse(c.cfg.Mode); err == nil {
-			c.mode = m
-		} else {
-			c.mode = mode.Create
-		}
-	}
-	c.updatePlaceholder()
 	env := &tools.Env{
 		Dir:           cwd,
 		Permit:        c.permit,
@@ -530,16 +547,7 @@ func (c *chat) rebuild(reset bool) error {
 		}
 		env.Checkpoint = cp
 	}
-	if c.ag != nil {
-		if c.ag.Trace != nil {
-			_ = c.ag.Trace.Close()
-		}
-		if c.ag.Env != nil {
-			c.ag.Env.JobManager().Close()
-			c.ag.Env.CloseLSP()
-			c.ag.Env.CloseBrowser()
-		}
-	}
+	c.closeAgent()
 	c.ag = &agent.Agent{
 		Provider:      prov,
 		Model:         c.modelName,
@@ -1197,6 +1205,51 @@ func (c *chat) refresh() {
 	}
 }
 
+// providerIsLocal reports whether a provider is expected to work without a
+// cloud API key.
+func providerIsLocal(name string, pc *config.Provider) bool {
+	if preset, ok := config.PresetByName(name); ok && preset.Local {
+		return true
+	}
+	if pc == nil {
+		return false
+	}
+	base := strings.ToLower(pc.BaseURL)
+	return strings.Contains(base, "localhost") || strings.Contains(base, "127.0.0.1") ||
+		strings.Contains(base, "0.0.0.0") || strings.Contains(base, "[::1]")
+}
+
+// missingProviderKey returns the active provider when it has no API key.
+func (c *chat) missingProviderKey() string {
+	if c.cfg == nil || c.provName == "" {
+		return ""
+	}
+	pc := c.cfg.Providers[c.provName]
+	if pc == nil {
+		return c.provName
+	}
+	if c.cfg.APIKey(c.provName, pc) == "" && !providerIsLocal(c.provName, pc) {
+		return c.provName
+	}
+	return ""
+}
+
+// closeAgent releases the tool processes held by the current agent.
+func (c *chat) closeAgent() {
+	if c.ag == nil {
+		return
+	}
+	if c.ag.Trace != nil {
+		_ = c.ag.Trace.Close()
+	}
+	if c.ag.Env != nil {
+		c.ag.Env.JobManager().Close()
+		c.ag.Env.CloseLSP()
+		c.ag.Env.CloseBrowser()
+	}
+	c.ag = nil
+}
+
 // availableTools excludes image generation unless the user opted in.
 func availableTools(allowImage bool) []tools.Tool {
 	all := tools.RegistryWithQuestion()
@@ -1300,8 +1353,20 @@ func (c *chat) submit(text string) tea.Cmd {
 		c.note("error: "+err.Error(), true)
 		return nil
 	}
+	if name := c.missingProviderKey(); name != "" {
+		c.missingKey = name
+		c.note("no API key configured for "+name+" — run /configure "+name, true)
+		return nil
+	}
+	c.missingKey = ""
+	if c.ag == nil && c.modelName != "" {
+		if err := c.rebuild(false); err != nil {
+			c.note("error: "+err.Error(), true)
+			return nil
+		}
+	}
 	if c.ag == nil {
-		c.note("no model configured — run `wombat setup`", true)
+		c.note("no model configured — run `configure` or `wombat setup`", true)
 		return nil
 	}
 	if c.sess.Meta.Title == "" {
@@ -2207,6 +2272,9 @@ func (c *chat) header() string {
 	model := c.provName + "/" + c.modelName
 	mode := modeBadge(c.modeLabel())
 	right := styleDim.Render(clip(model, 28))
+	if c.missingKey != "" {
+		right += "  " + styleWarn.Render("no key")
+	}
 	if c.auto {
 		right += "  " + styleWarn.Render("yolo")
 	}

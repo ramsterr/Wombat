@@ -45,6 +45,20 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestAPIKeyDoesNotCrossProviders(t *testing.T) {
+	t.Setenv("OPENCODE_API_KEY", "")
+	t.Setenv("OPENCODE_GO_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "sk-openai")
+	cfg := Defaults()
+	pc := cfg.Providers["opencode-go"]
+	if got := cfg.APIKey("opencode-go", pc); got != "" {
+		t.Fatalf("opencode-go must not inherit OPENAI_API_KEY: %q", got)
+	}
+	if got := cfg.APIKey("openai", cfg.Providers["openai"]); got != "sk-openai" {
+		t.Fatalf("openai key = %q", got)
+	}
+}
+
 func TestOldConfigTurnsOffMouse(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WOMBAT_HOME", home)
