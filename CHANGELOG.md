@@ -65,6 +65,10 @@ All notable changes to Wombat are recorded here. The format follows
 - A checkpoint restore now aborts when git reports a real error instead of
   silently reporting success. A scoped path that did not exist at snapshot time
   is still skipped.
+- Transient network errors no longer stop a turn after streaming has begun:
+  retries reset the partial stream, retry with backoff, and the agent adds an
+  explicit "Retry the last request" message if provider retries are exhausted.
+  The TUI shows the retry status instead of silently stopping.
 
 ## [0.2.6] — 2026-10-22
 

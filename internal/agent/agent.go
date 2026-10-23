@@ -25,6 +25,8 @@ type Hooks struct {
 	OnToolResult func(name, result string, dur time.Duration)
 	OnUsage      func(u llm.Usage, historyTokens int)
 	OnCompact    func(kind string, before, after int)
+	OnReset      func()
+	OnRetry      func(attempt int, err error, delay time.Duration)
 }
 
 type Agent struct {
@@ -121,6 +123,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	// Repeating the same call with the same arguments means the model is
 	// stuck; stop it before it burns the budget.
 	calls := map[string]int{}
+	turnRetries := 0
 	system := buildSystem(a.Env.Dir)
 	if note := strings.TrimSpace(a.ModeNote); note != "" {
 		system += "\n\n" + note
@@ -179,8 +182,33 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}
 		}
 		if err != nil {
+			if llm.Retryable(err) && turnRetries < maxTurnRetries && ctx.Err() == nil {
+				turnRetries++
+				delay := time.Duration(turnRetries) * time.Second
+				if a.Hooks.OnReset != nil {
+					a.Hooks.OnReset()
+				}
+				if a.Hooks.OnRetry != nil {
+					a.Hooks.OnRetry(turnRetries, err, delay)
+				}
+				a.Trace.Emit("turn_retry", map[string]any{
+					"attempt": turnRetries, "delay_ms": delay.Milliseconds(), "error": err.Error(),
+				})
+				_ = a.Sess.Append(llm.Message{
+					Role: "user",
+					Content: fmt.Sprintf("The previous request was interrupted by a network error: %v. "+
+						"Retry the last request and continue from where you left off.", err),
+				})
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(delay):
+				}
+				continue
+			}
 			return err
 		}
+		turnRetries = 0
 		if err := a.Sess.Append(llm.Message{
 			Role:           "assistant",
 			Content:        res.Content,
@@ -258,6 +286,11 @@ const parallelToolLimit = 6
 // maxRepeatedToolCall is how many times the same call may repeat in a turn
 // before the agent is told to stop.
 const maxRepeatedToolCall = 3
+
+// maxTurnRetries is how many extra model turns are allowed after a retryable
+// network error. The provider already retries with backoff; this is the outer
+// safety net that explicitly tells the model to retry.
+const maxTurnRetries = 2
 
 type toolResult struct {
 	content  string
@@ -411,6 +444,8 @@ func (a *Agent) request(system string, tools []llm.Tool) llm.Request {
 		Reasoning:   a.Reasoning,
 		SessionID:   a.Sess.ID(),
 		OnReasoning: a.Hooks.OnReasoning,
+		OnReset:     a.Hooks.OnReset,
+		OnRetry:     a.Hooks.OnRetry,
 	}
 }
 

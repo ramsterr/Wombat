@@ -415,6 +415,13 @@ Run `wombat setup`, then `wombat doctor`.
 Commit or stash tracked changes first. Workers use git worktrees and need a
 clean tracked tree.
 
+**Connection reset by peer**
+
+Wombat retries transient connection errors automatically, including after part
+of a response has streamed. It clears the partial output, retries with backoff,
+and asks the model to continue if the provider retries are exhausted. If it
+still fails, check your network, proxy, or VPN and retry.
+
 **No preview bar appears**
 
 The banner only appears after a tool reports a local URL such as

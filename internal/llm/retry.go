@@ -71,14 +71,22 @@ func (p *retryProvider) Chat(ctx context.Context, req Request, onDelta func(stri
 			return res, nil
 		}
 		last = err
-		if emitted || !retryable(err) || ctx.Err() != nil || attempt == p.policy.MaxAttempts {
+		if !retryable(err) || ctx.Err() != nil || attempt == p.policy.MaxAttempts {
 			return nil, err
 		}
 		delay := p.delay(attempt, err)
 		if p.policy.MaxElapsed > 0 && time.Since(start)+delay > p.policy.MaxElapsed {
 			return nil, err
 		}
-		if p.policy.OnRetry != nil {
+		if emitted {
+			if req.OnReset != nil {
+				req.OnReset()
+			}
+			emitted = false
+		}
+		if req.OnRetry != nil {
+			req.OnRetry(attempt, err, delay)
+		} else if p.policy.OnRetry != nil {
 			p.policy.OnRetry(attempt, err, delay)
 		}
 		timer := time.NewTimer(delay)
@@ -104,6 +112,9 @@ func (p *retryProvider) delay(attempt int, err error) time.Duration {
 	jitter := time.Duration(rand.Int64N(int64(delay/2) + 1))
 	return delay/2 + jitter
 }
+
+// Retryable reports whether an error is worth another attempt.
+func Retryable(err error) bool { return retryable(err) }
 
 func retryable(err error) bool {
 	if err == nil {

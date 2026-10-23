@@ -50,25 +50,32 @@ func TestFallbackDoesNotRetryInvalidRequest(t *testing.T) {
 	}
 }
 
-func TestFallbackStopsAfterStreaming(t *testing.T) {
-	base := &streamErrorProvider{}
+func TestFallbackResetsAfterStreaming(t *testing.T) {
+	base := &streamThenOKProvider{}
 	p := WithFallback(base, []string{"backup"}, nil)
-	if _, err := p.Chat(context.Background(), Request{Model: "primary"}, func(string) {}); err == nil {
-		t.Fatal("expected error")
-	}
-	if base.calls != 1 {
-		t.Fatalf("calls = %d", base.calls)
+	var got string
+	resets := 0
+	req := Request{Model: "primary", OnReset: func() { got = ""; resets++ }}
+	res, err := p.Chat(context.Background(), req, func(s string) { got += s })
+	if err != nil || res.Content != "ok" || base.calls != 2 || got != "final" || resets != 1 {
+		t.Fatalf("err=%v res=%+v calls=%d got=%q resets=%d", err, res, base.calls, got, resets)
 	}
 }
 
-type streamErrorProvider struct{ calls int }
+type streamThenOKProvider struct{ calls int }
 
-func (s *streamErrorProvider) Name() string                                 { return "stream" }
-func (s *streamErrorProvider) ListModels(context.Context) ([]string, error) { return nil, nil }
-func (s *streamErrorProvider) Chat(_ context.Context, _ Request, on func(string)) (*Result, error) {
+func (s *streamThenOKProvider) Name() string                                 { return "stream" }
+func (s *streamThenOKProvider) ListModels(context.Context) ([]string, error) { return nil, nil }
+func (s *streamThenOKProvider) Chat(_ context.Context, _ Request, on func(string)) (*Result, error) {
 	s.calls++
-	if on != nil {
-		on("partial")
+	if s.calls == 1 {
+		if on != nil {
+			on("partial")
+		}
+		return nil, &HTTPError{StatusCode: 503}
 	}
-	return nil, &HTTPError{StatusCode: 503}
+	if on != nil {
+		on("final")
+	}
+	return &Result{Content: "ok"}, nil
 }

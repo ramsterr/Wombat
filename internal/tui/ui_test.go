@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -466,6 +467,19 @@ func TestLocalProviderNeedsNoKey(t *testing.T) {
 	}
 	if c.missingKey != "" {
 		t.Errorf("local provider reported missing key %q", c.missingKey)
+	}
+}
+
+func TestRetryResetClearsPartialStream(t *testing.T) {
+	c := testChat(t)
+	c.entries = []*chatEntry{{kind: entryAssistant, streaming: true, text: "partial", reasoning: "thinking"}}
+	c.update(resetStreamMsg{})
+	if c.entries[0].text != "" || c.entries[0].reasoning != "" {
+		t.Fatalf("partial stream was not cleared: %+v", c.entries[0])
+	}
+	c.update(retryMsg{attempt: 1, delay: time.Second})
+	if !strings.Contains(c.retryNotice, "retrying") {
+		t.Fatalf("retry notice = %q", c.retryNotice)
 	}
 }
 

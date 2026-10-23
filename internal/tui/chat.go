@@ -81,6 +81,14 @@ const (
 type textMsg string
 type reasoningMsg string
 
+type resetStreamMsg struct{}
+
+type retryMsg struct {
+	attempt int
+	err     error
+	delay   time.Duration
+}
+
 type toolStartMsg struct {
 	name   string
 	detail string
@@ -204,6 +212,7 @@ type chat struct {
 
 	streaming    bool
 	interrupting bool
+	retryNotice  string
 	cancel       context.CancelFunc
 	follow       bool
 	perm         *permAskMsg
@@ -468,6 +477,10 @@ func (c *chat) hooks() agent.Hooks {
 		},
 		OnCompact: func(kind string, before, after int) {
 			c.emit(compactMsg{kind: kind, before: before, after: after})
+		},
+		OnReset: func() { c.emit(resetStreamMsg{}) },
+		OnRetry: func(attempt int, err error, delay time.Duration) {
+			c.emit(retryMsg{attempt: attempt, err: err, delay: delay})
 		},
 	}
 }
@@ -1268,6 +1281,27 @@ func availableTools(allowImage bool) []tools.Tool {
 	return out
 }
 
+// clearStreamingAssistant removes partial text before a provider retry so the
+// replacement stream does not duplicate it.
+func (c *chat) clearStreamingAssistant() {
+	if n := len(c.entries); n > 0 {
+		if e := c.entries[n-1]; e.kind == entryAssistant && e.streaming {
+			e.text = ""
+			e.reasoning = ""
+		}
+	}
+}
+
+func retryDelayLabel(d time.Duration) string {
+	if d <= 0 {
+		return "a moment"
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -1824,7 +1858,7 @@ func (c *chat) answerPerm(d tools.Decision) {
 
 func (c *chat) updateAsync(msg tea.Msg) tea.Cmd {
 	switch msg.(type) {
-	case textMsg, reasoningMsg, toolStartMsg, toolDoneMsg, usageMsg, compactMsg, compactDoneMsg, noteMsg, runDoneMsg:
+	case textMsg, reasoningMsg, toolStartMsg, toolDoneMsg, usageMsg, compactMsg, compactDoneMsg, noteMsg, runDoneMsg, resetStreamMsg, retryMsg:
 		return c.update(msg)
 	case spinner.TickMsg:
 		if c.streaming {
@@ -1844,14 +1878,25 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 		c.sp, cmd = c.sp.Update(msg)
 		return cmd
 	case textMsg:
+		c.retryNotice = ""
 		c.currentAssistant().text += sanitizeTerminalText(string(msg))
 		c.refresh()
 		return nil
 	case reasoningMsg:
+		c.retryNotice = ""
 		c.currentAssistant().reasoning += sanitizeTerminalText(string(msg))
 		c.refresh()
 		return nil
+	case resetStreamMsg:
+		c.clearStreamingAssistant()
+		c.refresh()
+		return nil
+	case retryMsg:
+		c.retryNotice = "network error — retrying in " + retryDelayLabel(msg.delay)
+		c.refresh()
+		return nil
 	case toolStartMsg:
+		c.retryNotice = ""
 		c.finishAssistant()
 		c.runTools++
 		c.detectPreviewFromDetail(msg.name, msg.detail)
@@ -1925,6 +1970,7 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 	case runDoneMsg:
 		c.streaming = false
 		c.interrupting = false
+		c.retryNotice = ""
 		c.cancel = nil
 		c.runStart = time.Time{}
 		c.runTools = 0
@@ -2307,9 +2353,13 @@ func (c *chat) hint() string {
 	case c.interrupting:
 		left = styleWarn.Render("interrupting…")
 	case c.streaming:
-		left = c.sp.View() + " " + styleWarn.Render("working "+elapsedLabel(c.runDuration()))
-		if c.runTools > 0 {
-			left += styleFaint.Render(fmt.Sprintf(" · %d tools", c.runTools))
+		if c.retryNotice != "" {
+			left = c.sp.View() + " " + styleWarn.Render(c.retryNotice)
+		} else {
+			left = c.sp.View() + " " + styleWarn.Render("working "+elapsedLabel(c.runDuration()))
+			if c.runTools > 0 {
+				left += styleFaint.Render(fmt.Sprintf(" · %d tools", c.runTools))
+			}
 		}
 		left += "   " + keyHint("esc", "interrupt")
 	default:

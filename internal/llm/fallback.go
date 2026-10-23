@@ -7,8 +7,8 @@ import (
 
 // fallbackProvider retries a request on another model when the first one is
 // unavailable, rate-limited, or returns a server error. It never changes the
-// protocol or the provider, and it never replays a request after output has
-// already been streamed to the user.
+// protocol or the provider. Partial output is cleared through Request.OnReset
+// before it tries the next model.
 type fallbackProvider struct {
 	primary Provider
 	models  []string
@@ -73,8 +73,14 @@ func (f *fallbackProvider) Chat(ctx context.Context, req Request, onDelta func(s
 		}
 	}
 	res, err := f.primary.Chat(ctx, req, wrapped)
-	if err == nil || emitted || ctx.Err() != nil || !retryable(err) {
+	if err == nil || ctx.Err() != nil || !retryable(err) {
 		return res, err
+	}
+	if emitted {
+		if req.OnReset != nil {
+			req.OnReset()
+		}
+		emitted = false
 	}
 	from := req.Model
 	last := err
@@ -92,8 +98,14 @@ func (f *fallbackProvider) Chat(ctx context.Context, req Request, onDelta func(s
 			return res, nil
 		}
 		last = err
-		if emitted || ctx.Err() != nil || !retryable(err) {
+		if ctx.Err() != nil || !retryable(err) {
 			return nil, err
+		}
+		if emitted {
+			if req.OnReset != nil {
+				req.OnReset()
+			}
+			emitted = false
 		}
 		from = model
 	}

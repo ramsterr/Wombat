@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/ramsterr/Wombat/internal/config"
 )
@@ -53,6 +54,10 @@ type Request struct {
 	Reasoning   string
 	SessionID   string
 	OnReasoning func(string)
+	// OnReset clears any partial streamed output before a retry.
+	OnReset func()
+	// OnRetry reports a retry attempt and its backoff delay.
+	OnRetry func(attempt int, err error, delay time.Duration)
 }
 
 type Result struct {

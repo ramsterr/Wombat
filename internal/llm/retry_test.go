@@ -37,18 +37,29 @@ func TestRetryTransientHTTPError(t *testing.T) {
 	}
 }
 
-func TestRetryStopsAfterStreaming(t *testing.T) {
+func TestRetryResetsAfterStreaming(t *testing.T) {
 	f := &retryFake{fn: func(call int, onDelta func(string)) (*Result, error) {
-		if onDelta != nil {
-			onDelta("partial")
+		if call == 1 {
+			if onDelta != nil {
+				onDelta("partial")
+			}
+			return nil, &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}
 		}
-		return nil, &HTTPError{Provider: "x", StatusCode: 503, Body: "down"}
+		if onDelta != nil {
+			onDelta("final")
+		}
+		return &Result{Content: "final"}, nil
 	}}
 	p := WithRetry(f, RetryPolicy{MaxAttempts: 4, BaseDelay: time.Millisecond, MaxDelay: 5 * time.Millisecond})
 	var got string
-	_, err := p.Chat(context.Background(), Request{}, func(s string) { got += s })
-	if err == nil || f.calls != 1 || got != "partial" {
-		t.Fatalf("err=%v calls=%d got=%q", err, f.calls, got)
+	resets, retries := 0, 0
+	req := Request{
+		OnReset: func() { got = ""; resets++ },
+		OnRetry: func(int, error, time.Duration) { retries++ },
+	}
+	res, err := p.Chat(context.Background(), req, func(s string) { got += s })
+	if err != nil || res.Content != "final" || f.calls != 2 || got != "final" || resets != 1 || retries != 1 {
+		t.Fatalf("err=%v res=%+v calls=%d got=%q resets=%d retries=%d", err, res, f.calls, got, resets, retries)
 	}
 }
 
