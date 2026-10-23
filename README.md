@@ -295,10 +295,14 @@ wombat config
 
 ### Web search and fetch
 
-`websearch` starts Exa and Tavily keyless searches, caches results for ten
-minutes, and falls back to Bing RSS and DuckDuckGo HTML if those are slow or
-empty. Set `EXA_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, or
-`SERPER_API_KEY` before starting Wombat to use your own search account:
+`websearch` runs the available backends in parallel — Brave, Serper, Exa, and
+Tavily when configured, plus Bing RSS and DuckDuckGo HTML — then merges,
+cross-checks, and ranks their results. Official docs, GitHub, and trusted
+domains are boosted; tracking parameters are removed; adult and SEO-spam hits
+are filtered; and a domain can contribute at most two results. Scraped backends
+use strict safe search. Results are cached for ten minutes. Set
+`EXA_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, or `SERPER_API_KEY` before
+starting Wombat to use your own search account:
 
 ```sh
 export EXA_API_KEY=...
@@ -307,9 +311,10 @@ export BRAVE_API_KEY=...
 export SERPER_API_KEY=...
 ```
 
-`webfetch`
-extracts the main article text when possible, caches responses for repeated
-reads, retries transient connection failures, and uses a 12-second HTTP client.
+`webfetch` extracts the main article text with its title and description,
+pretty-prints JSON, returns text/XML, and gives a clear note for PDFs and
+binary payloads. It caches responses for repeated reads, retries transient
+connection failures, and uses a 12-second HTTP client.
 
 ### Common settings
 

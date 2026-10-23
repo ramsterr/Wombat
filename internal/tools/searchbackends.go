@@ -32,10 +32,11 @@ type searchEngine struct {
 var webHTTP = &http.Client{Timeout: 12 * time.Second}
 
 const (
-	searchTimeout   = 10 * time.Second
-	searchEngineTTL = 8 * time.Second
-	searchCacheTTL  = 10 * time.Minute
-	searchCacheMax  = 256
+	searchCollectTimeout = 2200 * time.Millisecond
+	searchGrace          = 900 * time.Millisecond
+	searchEngineTTL      = 2 * time.Second
+	searchCacheTTL       = 10 * time.Minute
+	searchCacheMax       = 256
 )
 
 type searchCacheEntry struct {
@@ -57,125 +58,109 @@ var (
 	serperAPIURL = "https://google.serper.dev/search"
 )
 
-// searchWeb hedges the search providers: Exa and Tavily start immediately,
-// Bing RSS and DuckDuckGo start after a short grace period, and the first
-// provider with results wins. Slow or failing providers are cancelled.
+// searchWeb runs the providers in parallel, merges and ranks their results,
+// and drops poisoned/unsafe hits. A short grace window keeps latency low
+// without accepting the first (often weakest) backend.
 func searchWeb(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
 	if limit <= 0 {
 		limit = 8
 	}
 	if limit > 20 {
 		limit = 20
 	}
-	key := strings.ToLower(strings.TrimSpace(query)) + "|" + fmt.Sprint(limit)
+	key := strings.ToLower(query) + "|" + fmt.Sprint(limit)
 	if cached := cachedSearch(key); cached != nil {
 		return cached, nil
 	}
 
-	searchCtx, cancel := context.WithTimeout(ctx, searchTimeout)
-	defer cancel()
-
-	var primary, fallback []searchEngine
-	if exaMCPURL != "" {
-		primary = append(primary, searchEngine{name: "exa", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
-			return searchExa(ctx, os.Getenv("EXA_API_KEY"), q, n)
-		}})
-	}
-	if tavilyAPIURL != "" {
-		primary = append(primary, searchEngine{name: "tavily", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
-			return searchTavily(ctx, os.Getenv("TAVILY_API_KEY"), q, n)
-		}})
-	}
+	engines := []searchEngine{}
 	if key := strings.TrimSpace(os.Getenv("BRAVE_API_KEY")); key != "" {
-		primary = append(primary, searchEngine{name: "brave", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+		engines = append(engines, searchEngine{name: "brave", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
 			return searchBrave(ctx, key, q, n)
 		}})
 	}
 	if key := strings.TrimSpace(os.Getenv("SERPER_API_KEY")); key != "" {
-		primary = append(primary, searchEngine{name: "serper", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+		engines = append(engines, searchEngine{name: "serper", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
 			return searchSerper(ctx, key, q, n)
 		}})
 	}
-	fallback = append(fallback, searchEngine{name: "bing", query: searchBingRSS})
-	fallback = append(fallback, searchEngine{name: "duckduckgo", query: searchDuckDuckGo})
-
-	type outcome struct {
-		results []SearchResult
-		err     error
+	if tavilyAPIURL != "" {
+		engines = append(engines, searchEngine{name: "tavily", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+			return searchTavily(ctx, os.Getenv("TAVILY_API_KEY"), q, n)
+		}})
 	}
-	engines := append(append([]searchEngine{}, primary...), fallback...)
-	ch := make(chan outcome, len(engines))
-	var wg sync.WaitGroup
-	launch := func(engine searchEngine) {
-		wg.Add(1)
+	if exaMCPURL != "" {
+		engines = append(engines, searchEngine{name: "exa", query: func(ctx context.Context, q string, n int) ([]SearchResult, error) {
+			return searchExa(ctx, os.Getenv("EXA_API_KEY"), q, n)
+		}})
+	}
+	engines = append(engines,
+		searchEngine{name: "bing", query: searchBingRSS},
+		searchEngine{name: "duckduckgo", query: searchDuckDuckGo},
+	)
+
+	searchCtx, cancel := context.WithTimeout(ctx, searchCollectTimeout)
+	defer cancel()
+	ch := make(chan searchBatch, len(engines))
+	for _, engine := range engines {
+		engine := engine
 		go func() {
-			defer wg.Done()
 			engineCtx, engineCancel := context.WithTimeout(searchCtx, searchEngineTTL)
 			defer engineCancel()
 			results, err := engine.query(engineCtx, query, limit)
-			ch <- outcome{results: results, err: err}
+			ch <- searchBatch{engine: engine.name, results: results, err: err}
 		}()
 	}
-	for _, engine := range primary {
-		launch(engine)
-	}
-	// If there is no API-backed provider, start the scraped fallbacks now.
-	startedFallback := len(primary) == 0
-	if startedFallback {
-		for _, engine := range fallback {
-			launch(engine)
-		}
-	}
-	remaining := len(primary)
-	if startedFallback {
-		remaining = len(fallback)
-	}
-	var timerC <-chan time.Time
-	if !startedFallback {
-		timer := time.NewTimer(1200 * time.Millisecond)
-		defer timer.Stop()
-		timerC = timer.C
-	}
+
+	var batches []searchBatch
 	var lastErr error
+	remaining := len(engines)
+	var graceC <-chan time.Time
+	var graceTimer *time.Timer
+	deadline := time.NewTimer(searchCollectTimeout)
+	defer deadline.Stop()
 	for remaining > 0 {
 		select {
-		case result := <-ch:
+		case batch := <-ch:
 			remaining--
-			if result.err != nil {
-				lastErr = result.err
-				break
+			if batch.err != nil {
+				lastErr = batch.err
 			}
-			if len(result.results) > 0 {
-				cancel()
-				return cacheSearch(key, cleanResults(result.results, limit)), nil
+			if len(batch.results) == 0 {
+				continue
 			}
-		case <-timerC:
-			timerC = nil
-			startedFallback = true
-			for _, engine := range fallback {
-				launch(engine)
+			batches = append(batches, batch)
+			if graceC == nil {
+				graceTimer = time.NewTimer(searchGrace)
+				graceC = graceTimer.C
 			}
-			remaining += len(fallback)
-		case <-searchCtx.Done():
-			if lastErr != nil {
-				return nil, fmt.Errorf("search failed: %w", lastErr)
-			}
-			return nil, searchCtx.Err()
-		}
-		if remaining == 0 && !startedFallback {
-			startedFallback = true
-			timerC = nil
-			for _, engine := range fallback {
-				launch(engine)
-			}
-			remaining = len(fallback)
+		case <-graceC:
+			remaining = 0
+		case <-deadline.C:
+			remaining = 0
+		case <-ctx.Done():
+			remaining = 0
 		}
 	}
-	wg.Wait()
-	if lastErr != nil {
-		return nil, fmt.Errorf("search failed: %w", lastErr)
+	if graceTimer != nil {
+		graceTimer.Stop()
 	}
-	return nil, nil
+	cancel()
+	if len(batches) == 0 {
+		if lastErr != nil {
+			return nil, fmt.Errorf("search failed: %w", lastErr)
+		}
+		return nil, nil
+	}
+	ranked := rankSearchResults(query, batches, limit)
+	if len(ranked) == 0 {
+		return nil, nil
+	}
+	return cacheSearch(key, ranked), nil
 }
 
 func cachedSearch(key string) []SearchResult {
@@ -217,26 +202,6 @@ func clearSearchCache() {
 	searchCache.Lock()
 	searchCache.entries = map[string]searchCacheEntry{}
 	searchCache.Unlock()
-}
-
-// cleanResults removes duplicates and tracking parameters, preserving order.
-func cleanResults(results []SearchResult, limit int) []SearchResult {
-	seen := map[string]bool{}
-	out := make([]SearchResult, 0, len(results))
-	for _, r := range results {
-		r.URL = canonicalResultURL(r.URL)
-		r.Title = strings.TrimSpace(r.Title)
-		r.Snippet = strings.TrimSpace(r.Snippet)
-		if r.URL == "" || seen[r.URL] {
-			continue
-		}
-		seen[r.URL] = true
-		out = append(out, r)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
 }
 
 func canonicalResultURL(raw string) string {
@@ -325,7 +290,7 @@ func searchDuckDuckGo(ctx context.Context, query string, limit int) ([]SearchRes
 }
 
 func searchBrave(ctx context.Context, key, query string, limit int) ([]SearchResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, braveAPIURL+url.QueryEscape(query)+"&count="+fmt.Sprint(limit), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, braveAPIURL+url.QueryEscape(query)+"&count="+fmt.Sprint(limit)+"&safesearch=strict", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -511,7 +476,7 @@ func isExaField(line string) bool {
 }
 
 func searchSerper(ctx context.Context, key, query string, limit int) ([]SearchResult, error) {
-	payload, _ := json.Marshal(map[string]any{"q": query, "num": limit})
+	payload, _ := json.Marshal(map[string]any{"q": query, "num": limit, "safe": "active"})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, serperAPIURL, strings.NewReader(string(payload)))
 	if err != nil {
 		return nil, err

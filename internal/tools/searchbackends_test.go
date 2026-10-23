@@ -122,3 +122,56 @@ func TestSearchExaParse(t *testing.T) {
 		t.Fatalf("results = %+v", results)
 	}
 }
+
+func TestRankSearchFiltersPoisonedResults(t *testing.T) {
+	batches := []searchBatch{{engine: "test", results: []SearchResult{
+		{Title: "scikit-learn: machine learning in Python", URL: "https://scikit-learn.org/stable/", Snippet: "Official scikit-learn documentation and GSoC information."},
+		{Title: "Hot porn videos", URL: "https://pornhub.com/view", Snippet: "unrelated adult spam"},
+		{Title: "Best essay writing service 2026", URL: "https://essay-spam.example/order", Snippet: "buy an assignment"},
+		{Title: "A random blog", URL: "https://random.example/post", Snippet: "some notes"},
+	}}}
+	got := rankSearchResults("scikit-learn GSoC", batches, 8)
+	if len(got) == 0 {
+		t.Fatal("no results")
+	}
+	if got[0].URL != "https://scikit-learn.org/stable/" {
+		t.Fatalf("top result = %+v", got[0])
+	}
+	for _, r := range got {
+		if strings.Contains(r.URL, "pornhub") || strings.Contains(r.URL, "essay-spam") {
+			t.Fatalf("poisoned result survived: %+v", r)
+		}
+	}
+}
+
+func TestRankSearchPrefersTrustedAndCrossEngine(t *testing.T) {
+	good := SearchResult{Title: "GitHub - scikit-learn/scikit-learn", URL: "https://github.com/scikit-learn/scikit-learn", Snippet: "Official repository and GSoC information."}
+	blog := SearchResult{Title: "My notes on scikit-learn", URL: "https://notes.example/scikit", Snippet: "scikit-learn notes"}
+	batches := []searchBatch{
+		{engine: "a", results: []SearchResult{blog, good}},
+		{engine: "b", results: []SearchResult{good}},
+	}
+	got := rankSearchResults("scikit-learn GSoC", batches, 8)
+	if len(got) < 2 {
+		t.Fatalf("results = %+v", got)
+	}
+	if got[0].URL != good.URL {
+		t.Fatalf("trusted/cross-engine result was not first: %+v", got)
+	}
+}
+
+func TestRankSearchKeepsDomainsDiverse(t *testing.T) {
+	var res []SearchResult
+	for i := 0; i < 6; i++ {
+		res = append(res, SearchResult{Title: "go docs", URL: "https://go.dev/doc/" + string(rune('a'+i)), Snippet: "go documentation"})
+	}
+	res = append(res, SearchResult{Title: "Go blog", URL: "https://blog.golang.org/one", Snippet: "go documentation"})
+	got := rankSearchResults("go docs", []searchBatch{{results: res}}, 8)
+	perHost := map[string]int{}
+	for _, r := range got {
+		perHost[hostnameOf(r.URL)]++
+	}
+	if perHost["go.dev"] > 2 {
+		t.Fatalf("too many results from one domain: %+v", perHost)
+	}
+}

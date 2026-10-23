@@ -67,3 +67,53 @@ func TestWebFetchRetriesConnectionReset(t *testing.T) {
 		t.Fatalf("out=%q hits=%d", out, hits.Load())
 	}
 }
+
+func TestWebFetchJSONAndMeta(t *testing.T) {
+	clearWebCache()
+	jsonSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"a":1,"b":[2,3]}`)
+	}))
+	defer jsonSrv.Close()
+	env := &Env{Dir: t.TempDir(), Permit: func(string, string) Decision { return Decision{Allow: true} }}
+	raw, _ := json.Marshal(webFetchArgs{URL: jsonSrv.URL})
+	out, err := (&WebFetch{}).Run(context.Background(), raw, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "\"a\": 1") {
+		t.Fatalf("JSON was not pretty-printed: %q", out)
+	}
+
+	htmlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, `<html><head><title>Real title</title><meta name="description" content="Real description"></head><body><main><p>Body text.</p></main></body></html>`)
+	}))
+	defer htmlSrv.Close()
+	raw, _ = json.Marshal(webFetchArgs{URL: htmlSrv.URL})
+	out, err = (&WebFetch{}).Run(context.Background(), raw, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Title: Real title") || !strings.Contains(out, "Description: Real description") || !strings.Contains(out, "Body text") {
+		t.Fatalf("HTML metadata missing: %q", out)
+	}
+}
+
+func TestWebFetchPDFNote(t *testing.T) {
+	clearWebCache()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		fmt.Fprint(w, "%PDF-1.4 test")
+	}))
+	defer srv.Close()
+	env := &Env{Dir: t.TempDir(), Permit: func(string, string) Decision { return Decision{Allow: true} }}
+	raw, _ := json.Marshal(webFetchArgs{URL: srv.URL})
+	out, err := (&WebFetch{}).Run(context.Background(), raw, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "PDF") {
+		t.Fatalf("PDF note missing: %q", out)
+	}
+}

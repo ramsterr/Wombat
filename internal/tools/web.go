@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/text/encoding/htmlindex"
+	"golang.org/x/text/transform"
 )
 
 // WebFetch fetches a URL and returns readable text.
@@ -26,7 +30,7 @@ type webFetchArgs struct {
 func (t *WebFetch) Name() string  { return "webfetch" }
 func (t *WebFetch) Class() string { return "network" }
 func (t *WebFetch) Description() string {
-	return "Fetch a URL over the network and return readable text, extracted from the main article when possible. Responses are cached for repeated reads. Use known documentation URLs instead of a shell command; set a focused search query when the URL is unknown."
+	return "Fetch a URL over the network and return readable text: HTML is stripped to the main article, JSON is pretty-printed, text/XML is returned, and PDFs/binary files get a clear note. Responses are cached for repeated reads. Use known documentation URLs instead of a shell command; use websearch when the URL is unknown."
 }
 func (t *WebFetch) Schema() map[string]any {
 	return obj(map[string]any{
@@ -56,29 +60,106 @@ func (t *WebFetch) Run(ctx context.Context, raw json.RawMessage, env *Env) (stri
 	if err := env.Check("network", target); err != nil {
 		return "", err
 	}
-	if cached := cacheGet(target); cached != "" {
+	cacheKey := canonicalResultURL(parsed.String())
+	if cached := cacheGet(cacheKey); cached != "" {
 		return cached, nil
 	}
 	body, contentType, err := fetchWebPage(ctx, parsed.String())
 	if err != nil {
 		return "", err
 	}
-	text := string(body)
-	if strings.Contains(contentType, "html") || looksLikeHTML(text) {
-		text = htmlToText(text)
+	mediaType, params, _ := mime.ParseMediaType(contentType)
+	text, note := renderWebBody(body, mediaType, params["charset"])
+	if note != "" {
+		return note, nil
 	}
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return fmt.Sprintf("fetched %s (%d bytes) but it had no readable text; content-type %s", parsed.String(), len(body), contentType), nil
 	}
 	text = Truncate(text, 400, 0.5, 32*1024)
-	cacheSet(target, text)
+	cacheSet(cacheKey, text)
 	return text, nil
 }
 
-var scriptRe = regexp.MustCompile(`(?is)<(script|style|noscript|svg|template)[^>]*>.*?</(script|style|noscript|svg|template)>`)
-var chromeRe = regexp.MustCompile(`(?is)<(nav|header|footer|aside|form)[^>]*>.*?</(nav|header|footer|aside|form)>`)
+// renderWebBody chooses the right extraction path for the response. It keeps
+// JSON as JSON, refuses binary/PDF payloads with a useful note, and decodes the
+// declared charset before running the HTML extractor.
+func renderWebBody(body []byte, mediaType, charset string) (string, string) {
+	if len(body) == 0 {
+		return "", "the response was empty"
+	}
+	switch {
+	case strings.Contains(mediaType, "json") || looksLikeJSON(body):
+		var v any
+		if json.Unmarshal(body, &v) == nil {
+			if pretty, err := json.MarshalIndent(v, "", "  "); err == nil {
+				return string(pretty), ""
+			}
+		}
+		return string(body), ""
+	case strings.Contains(mediaType, "pdf"):
+		return "", fmt.Sprintf("this is a PDF (%d bytes); open it with the browser tool or download it for a PDF reader", len(body))
+	case strings.Contains(mediaType, "html") || looksLikeHTML(string(body)):
+		return htmlToText(decodeBody(body, charset)), ""
+	case strings.HasPrefix(mediaType, "text/") || strings.Contains(mediaType, "xml"):
+		return decodeBody(body, charset), ""
+	}
+	text := string(body)
+	if looksLikeHTML(text) {
+		return htmlToText(decodeBody(body, charset)), ""
+	}
+	if isBinary(body) {
+		return "", fmt.Sprintf("binary response (%d bytes, content-type %q); use the browser tool if you need to view it", len(body), mediaType)
+	}
+	return decodeBody(body, charset), ""
+}
+
+func looksLikeJSON(body []byte) bool {
+	t := strings.TrimSpace(string(body))
+	return strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[")
+}
+
+func isBinary(body []byte) bool {
+	check := body
+	if len(check) > 4096 {
+		check = check[:4096]
+	}
+	bad := 0
+	for _, b := range check {
+		if b == 0 {
+			return true
+		}
+		if b < 0x09 || (b > 0x0d && b < 0x20) {
+			bad++
+		}
+	}
+	return bad > len(check)/20
+}
+
+func decodeBody(body []byte, charset string) string {
+	charset = strings.TrimSpace(strings.Trim(charset, `"'`))
+	if charset == "" || strings.EqualFold(charset, "utf-8") || strings.EqualFold(charset, "utf8") {
+		return strings.TrimPrefix(string(body), "\ufeff")
+	}
+	enc, err := htmlindex.Get(charset)
+	if err != nil {
+		return string(body)
+	}
+	out, _, err := transform.Bytes(enc.NewDecoder(), body)
+	if err != nil {
+		return string(body)
+	}
+	return strings.TrimPrefix(string(out), "\ufeff")
+}
+
+var scriptRe = regexp.MustCompile(`(?is)<(script|style|noscript|svg|template|iframe|canvas|form|nav|header|footer|aside|button|input|select|textarea)[^>]*>.*?</(script|style|noscript|svg|template|iframe|canvas|form|nav|header|footer|aside|button|input|select|textarea)>`)
+var commentRe = regexp.MustCompile(`(?s)<!--.*?-->`)
+var headRe = regexp.MustCompile(`(?is)<head[^>]*>.*?</head>`)
 var mainRe = regexp.MustCompile(`(?is)<article[^>]*>(.*?)</article>|<main[^>]*>(.*?)</main>`)
+var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+var metaDescRe = regexp.MustCompile(`(?is)<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']*)["']`)
+var metaDescRe2 = regexp.MustCompile(`(?is)<meta[^>]+content=["']([^"']*)["'][^>]+(?:name|property)=["'](?:description|og:description)["']`)
 var tagRe = regexp.MustCompile(`(?s)<[^>]+>`)
 var spaceRe = regexp.MustCompile(`[ \t]+`)
 var blankLinesRe = regexp.MustCompile(`\n{3,}`)
@@ -95,25 +176,32 @@ func looksLikeHTML(s string) bool {
 // unescapeEntities turns HTML entities into plain text.
 func unescapeEntities(s string) string { return html.UnescapeString(s) }
 
-// htmlToText turns an HTML page into readable text.
+// htmlToText turns an HTML page into readable text, dropping chrome and
+// keeping the title/description as a short source header.
 func htmlToText(s string) string {
+	title := stripTags(firstMatch(titleRe, s))
+	desc := stripTags(firstMatch(metaDescRe, s))
+	if desc == "" {
+		desc = stripTags(firstMatch(metaDescRe2, s))
+	}
+	s = commentRe.ReplaceAllString(s, " ")
 	s = scriptRe.ReplaceAllString(s, " ")
-	s = chromeRe.ReplaceAllString(s, " ")
+	s = headRe.ReplaceAllString(s, " ")
 	if m := mainRe.FindStringSubmatch(s); m != nil {
 		for _, candidate := range m[1:] {
-			if strings.TrimSpace(candidate) != "" {
+			if len(strings.TrimSpace(candidate)) > 200 {
 				s = candidate
 				break
 			}
 		}
 	}
-	s = strings.ReplaceAll(s, "</p>", "\n")
-	s = strings.ReplaceAll(s, "<br>", "\n")
-	s = strings.ReplaceAll(s, "</li>", "\n")
-	s = strings.ReplaceAll(s, "</h1>", "\n")
-	s = strings.ReplaceAll(s, "</h2>", "\n")
-	s = strings.ReplaceAll(s, "</h3>", "\n")
-	s = strings.ReplaceAll(s, "</tr>", "\n")
+	for _, tag := range []string{
+		"</p>", "</div>", "</section>", "</article>", "</li>", "</h1>",
+		"</h2>", "</h3>", "</h4>", "</h5>", "</h6>", "</tr>", "</blockquote>",
+		"<br>", "<br/>", "<br />",
+	} {
+		s = strings.ReplaceAll(s, tag, "\n")
+	}
 	s = strings.ReplaceAll(s, "</td>", "\t")
 	s = tagRe.ReplaceAllString(s, " ")
 	s = html.UnescapeString(s)
@@ -123,7 +211,26 @@ func htmlToText(s string) string {
 	}
 	s = strings.Join(lines, "\n")
 	s = blankLinesRe.ReplaceAllString(s, "\n\n")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	var header []string
+	if title != "" {
+		header = append(header, "Title: "+title)
+	}
+	if desc != "" {
+		header = append(header, "Description: "+desc)
+	}
+	if len(header) > 0 {
+		return strings.Join(header, "\n") + "\n\n" + s
+	}
+	return s
+}
+
+func firstMatch(re *regexp.Regexp, s string) string {
+	m := re.FindStringSubmatch(s)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
 }
 
 type webCacheEntry struct {
