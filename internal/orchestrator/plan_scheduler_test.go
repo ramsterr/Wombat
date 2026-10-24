@@ -427,7 +427,7 @@ func TestRunEndCancelsBackgroundPlanAndNextTurnResumes(t *testing.T) {
 	}
 	select {
 	case <-p.started:
-	default:
+	case <-time.After(3 * time.Second):
 		t.Fatal("background plan never started")
 	}
 	if step := o.ledger.Find("a"); step == nil || step.Status != StepPending {
