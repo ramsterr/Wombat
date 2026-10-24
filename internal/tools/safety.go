@@ -120,6 +120,8 @@ var redactPatterns = []struct {
 	{regexp.MustCompile(`(?i)\b(authorization\s*:\s*(?:bearer|basic)\s+)[^\s"']+`), "$1[redacted]"},
 	// Credentials embedded in a URL.
 	{regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@`), "$1[redacted]@"},
+	// Secret-looking command-line flags, such as --token=... or --api-key ...
+	{regexp.MustCompile(`(?i)(--?(?:api[-_]?key|token|secret|password|passwd|client[-_]?secret)(?:=|\s+))[^\s"']+`), "$1[redacted]"},
 }
 
 // RedactSecrets removes credentials from tool output before the model sees

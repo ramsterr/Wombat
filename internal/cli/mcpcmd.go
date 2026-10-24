@@ -29,6 +29,10 @@ func cmdMCP(args []string) error {
 		return mcpRemove(args[1:])
 	case "enable", "disable":
 		return mcpToggle(args[0], args[1:])
+	case "login", "auth":
+		return mcpLogin(args[1:])
+	case "logout":
+		return mcpLogout(args[1:])
 	case "test", "tools":
 		return mcpTest(args[1:])
 	case "import":
@@ -46,7 +50,10 @@ func mcpUsage() error {
   wombat mcp add <name> [--env KEY=VALUE] [--header KEY=VALUE] [--cwd DIR]
                             [--timeout SECONDS] [--class CLASS] [--workers] -- <command> [args...]
   wombat mcp add <name> --url <url> [--header KEY=VALUE] [--type http|sse]
-                            [--timeout SECONDS] [--class CLASS]
+                            [--timeout SECONDS] [--class CLASS] [--no-oauth]
+                            [--oauth-scope SCOPE] [--oauth-redirect URL]
+  wombat mcp login <name>
+  wombat mcp logout <name>
   wombat mcp remove <name>
   wombat mcp enable <name>
   wombat mcp disable <name>
@@ -56,6 +63,8 @@ func mcpUsage() error {
 examples:
   wombat mcp add everything -- npx -y @modelcontextprotocol/server-everything
   wombat mcp add context7 --url https://mcp.context7.com/mcp
+  wombat mcp add notion --url https://mcp.notion.com/mcp
+  wombat mcp login notion
   wombat mcp add github --url https://api.githubcopilot.com/mcp/ \
     --header 'Authorization=Bearer ${GITHUB_TOKEN}'`)
 	return nil
@@ -76,7 +85,15 @@ func mcpList(args []string) error {
 		if !server.EffectiveEnabled() {
 			state = dim("disabled")
 		}
-		fmt.Printf("  %-18s %-7s %-8s %s\n", bold(name), server.Transport(), state, dim(tools.RedactSecrets(mcpServerSummary(server))))
+		auth := ""
+		if mcp.OAuthEnabled(server) {
+			if mcp.HasAuth(name, mcp.ConfiguredEndpoint(server)) {
+				auth = green(" · logged in")
+			} else if server.OAuth != nil && *server.OAuth {
+				auth = yellow(" · login needed")
+			}
+		}
+		fmt.Printf("  %-18s %-7s %-8s %s%s\n", bold(name), server.Transport(), state, dim(tools.RedactSecrets(mcpServerSummary(server))), auth)
 	}
 	return nil
 }
@@ -97,6 +114,9 @@ func mcpAdd(args []string) error {
 	action := "added"
 	if _, exists := cfg.MCPServers[name]; exists {
 		action = "updated"
+		if err := mcp.Logout(name); err != nil {
+			fmt.Fprintln(os.Stderr, yellow("warning: could not delete the previous OAuth login: "+err.Error()))
+		}
 	}
 	cfg.MCPServers[name] = server
 	if err := cfg.Save(); err != nil {
@@ -116,6 +136,9 @@ func mcpRemove(args []string) error {
 		return fmt.Errorf("MCP server %q is not configured", args[0])
 	}
 	delete(cfg.MCPServers, args[0])
+	if err := mcp.Logout(args[0]); err != nil {
+		fmt.Fprintln(os.Stderr, yellow("warning: could not delete saved OAuth login: "+err.Error()))
+	}
 	if err := cfg.Save(); err != nil {
 		return err
 	}
@@ -139,6 +162,72 @@ func mcpToggle(action string, args []string) error {
 		return err
 	}
 	fmt.Println(green(action+"d: ") + bold(args[0]))
+	return nil
+}
+
+func mcpLogin(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: wombat mcp login <name>")
+	}
+	name := args[0]
+	cfg := mustConfig()
+	server, ok := cfg.MCPServers[name]
+	if !ok || server == nil {
+		return fmt.Errorf("MCP server %q is not configured", name)
+	}
+	if server.Transport() != "http" {
+		return fmt.Errorf("MCP server %q is not a remote HTTP server; no login is needed", name)
+	}
+	if !mcp.OAuthEnabled(server) {
+		return fmt.Errorf("%q does not use interactive OAuth; it already has a token header or OAuth is disabled", name)
+	}
+	if !server.EffectiveEnabled() {
+		return fmt.Errorf("MCP server %q is disabled; run `wombat mcp enable %s` first", name, name)
+	}
+	cwd, _ := os.Getwd()
+	selected := map[string]*config.MCPServer{name: server}
+
+	// If a saved login already works, do not start a callback listener or open
+	// a browser just to prove it.
+	existing := mcp.Connect(context.Background(), selected, cwd, Version)
+	if len(existing.Servers()) == 1 && existing.Servers()[0].Err() == nil {
+		connected := existing.Servers()[0]
+		existing.Close()
+		status := "already logged in to"
+		if !mcp.HasAuth(name, mcp.ConfiguredEndpoint(server)) {
+			status = "connected to"
+		}
+		fmt.Printf("%s %s %s %s\n", green("✓"), status, bold(name), dim(fmt.Sprintf("%d tools", len(connected.Tools()))))
+		return nil
+	}
+	existing.Close()
+
+	manager := mcp.ConnectWithOptions(context.Background(), selected, cwd, Version, mcp.Options{
+		InteractiveAuth: true,
+		Notify: func(message string) {
+			fmt.Fprintln(os.Stderr, dim(message))
+		},
+	})
+	defer manager.Close()
+	if len(manager.Servers()) != 1 {
+		return fmt.Errorf("MCP server %q did not start", name)
+	}
+	connected := manager.Servers()[0]
+	if err := connected.Err(); err != nil {
+		return fmt.Errorf("%s", tools.RedactSecrets(err.Error()))
+	}
+	fmt.Printf("%s logged in to %s %s\n", green("✓"), bold(name), dim(fmt.Sprintf("%d tools", len(connected.Tools()))))
+	return nil
+}
+
+func mcpLogout(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: wombat mcp logout <name>")
+	}
+	if err := mcp.Logout(args[0]); err != nil {
+		return err
+	}
+	fmt.Println(green("logged out: ") + bold(args[0]))
 	return nil
 }
 
@@ -221,6 +310,9 @@ func mcpImport(args []string) error {
 			fmt.Fprintln(os.Stderr, yellow("skipped "+name+": "+err.Error()))
 			continue
 		}
+		if _, exists := cfg.MCPServers[name]; exists {
+			_ = mcp.Logout(name)
+		}
 		cfg.MCPServers[name] = server
 		added++
 	}
@@ -241,9 +333,12 @@ func parseMCPAdd(name string, args []string) (*config.MCPServer, error) {
 	var (
 		url, transport, cwd, class string
 		envs, headers              stringList
-		allow, exclude             stringList
+		allow, exclude, scopes     stringList
 		timeout, callTimeout       int
-		workers                    bool
+		workers, noOAuth           bool
+		oauthRedirect              string
+		oauthClientID              string
+		oauthClientSecret          string
 	)
 	fs.StringVar(&url, "url", "", "remote MCP endpoint")
 	fs.StringVar(&transport, "type", "", "stdio, http, or sse")
@@ -257,6 +352,11 @@ func parseMCPAdd(name string, args []string) (*config.MCPServer, error) {
 	fs.IntVar(&timeout, "timeout", 0, "startup timeout in seconds")
 	fs.IntVar(&callTimeout, "call-timeout", 0, "tool call timeout in seconds")
 	fs.BoolVar(&workers, "workers", false, "allow delegated workers to use this server's tools")
+	fs.BoolVar(&noOAuth, "no-oauth", false, "disable interactive OAuth for a remote server")
+	fs.StringVar(&oauthRedirect, "oauth-redirect", "", "fixed loopback OAuth callback URL")
+	fs.StringVar(&oauthClientID, "oauth-client-id", "", "pre-registered OAuth client ID")
+	fs.StringVar(&oauthClientSecret, "oauth-client-secret", "", "pre-registered OAuth client secret")
+	fs.Var(&scopes, "oauth-scope", "requested OAuth scope (repeatable)")
 	if err := fs.Parse(flags); err != nil {
 		return nil, err
 	}
@@ -264,13 +364,24 @@ func parseMCPAdd(name string, args []string) (*config.MCPServer, error) {
 		return nil, fmt.Errorf("unexpected argument %q; put the server command after --", fs.Arg(0))
 	}
 	server := &config.MCPServer{
-		Type:           transport,
-		URL:            url,
-		Cwd:            cwd,
-		Class:          class,
-		Workers:        workers,
-		TimeoutSeconds: timeout,
-		CallSeconds:    callTimeout,
+		Type:              transport,
+		URL:               url,
+		Cwd:               cwd,
+		Class:             class,
+		Workers:           workers,
+		TimeoutSeconds:    timeout,
+		CallSeconds:       callTimeout,
+		OAuthRedirectURL:  oauthRedirect,
+		OAuthClientID:     oauthClientID,
+		OAuthClientSecret: oauthClientSecret,
+		OAuthScopes:       scopes,
+	}
+	if noOAuth {
+		off := false
+		server.OAuth = &off
+	} else if oauthRedirect != "" || oauthClientID != "" || oauthClientSecret != "" || len(scopes) > 0 {
+		on := true
+		server.OAuth = &on
 	}
 	if len(command) > 0 {
 		server.Command = command[0]

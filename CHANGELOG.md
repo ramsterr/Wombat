@@ -12,7 +12,9 @@ All notable changes to Wombat are recorded here. The format follows
   servers with `wombat mcp add`, check them with `wombat mcp test`, and import
   existing `mcpServers` or OpenCode configs. Their tools appear to the agent as
   `mcp__<server>__<tool>`, with per-server permission gates, tool filters,
-  timeouts, session call counts, and a TUI `/mcp` view.
+  timeouts, session call counts, and a TUI `/mcp` view. Remote OAuth servers
+  use `wombat mcp login`/`logout`, with PKCE, loopback callbacks, automatic
+  refresh, and tokens stored under `~/.wombat/mcp-auth` with `0600` permissions.
 - **A rebuilt terminal interface.** The chat now has a framed inspector with
   session facts, context usage, live preview, attachments, recent tool calls,
   and the key map; a live `ctrl+o` preview opener; prompt history; a searchable

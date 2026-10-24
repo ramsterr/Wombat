@@ -159,6 +159,7 @@ runs.
 | `wombat config` | show config, with keys redacted |
 | `wombat config set <key> <value>` | change one setting |
 | `wombat mcp add/list/test` | add and check MCP servers |
+| `wombat mcp login/logout` | sign in to an OAuth MCP server |
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
 | `wombat upgrade` | install the latest stable release |
@@ -272,7 +273,7 @@ Wombat different.
 | Code intelligence | Language-server definitions, references, diagnostics, completions, rename, and refactor. |
 | Search | Glob, grep, AST symbols, and semantic search. |
 | Web | Search and fetch with caching, retries, readable-text extraction, and page excerpts. |
-| MCP | Add local stdio or remote HTTP/SSE Model Context Protocol servers; their tools appear as `mcp__<server>__<tool>`. |
+| MCP | Add local stdio or remote HTTP/SSE Model Context Protocol servers, with interactive OAuth; their tools appear as `mcp__<server>__<tool>`. |
 | Browser | Local and web automation, screenshots, clicks, typing, scrolling, and JS evaluation. |
 | Media | Read images, video, audio, and documents; edit and generate images when enabled. |
 | Sessions | Resumable sessions, browsing, continuation, and JSONL transcripts. |
@@ -403,6 +404,8 @@ wombat mcp add github --url https://api.githubcopilot.com/mcp/ \
 
 wombat mcp list
 wombat mcp test context7
+wombat mcp login notion     # interactive OAuth in the browser
+wombat mcp logout notion
 wombat mcp disable context7
 wombat mcp remove context7
 ```
@@ -448,11 +451,32 @@ wombat config set permissions.mcp allow
 wombat config set permissions.mcp:github ask
 ```
 
+Remote servers that use OAuth get an explicit browser login:
+
+```sh
+wombat mcp add notion --url https://mcp.notion.com/mcp
+wombat mcp login notion
+wombat mcp test notion
+```
+
+`mcp login` opens the browser, waits on a loopback callback, verifies PKCE and
+state, and stores the access and refresh tokens in
+`~/.wombat/mcp-auth/<server>.json` with `0600` permissions. Tokens refresh
+automatically. Normal agent startup never opens a browser: if there is no saved
+login it reports `run wombat mcp login <server>`. `wombat mcp logout <server>`
+deletes the saved login; updating or removing a server also clears it. Use `"oauth": false` for an API-key server, or
+configure `oauth_client_id`, `oauth_client_secret`, `oauth_scopes`, and
+`oauth_redirect_url` for a pre-registered OAuth client. Remote MCP endpoints
+must use HTTPS unless they are loopback.
+
 Use `--class read` for servers that only read data so delegated scouts can use
 them too. Other servers default to lead-only; `--workers` exposes one to
 delegated workers. A broken server never blocks startup; check it with
-`wombat mcp test`. Remote servers that require interactive OAuth should be
-configured with a static bearer token in `headers` for now.
+`wombat mcp test`.
+
+Best-effort note: some providers restrict OAuth client registration to an
+approved client list. If their registration endpoint rejects Wombat, use a
+server variant that accepts a personal access token or a local server instead.
 
 ### Common settings
 

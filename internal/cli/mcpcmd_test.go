@@ -61,3 +61,25 @@ func TestParseMCPFileFormats(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMCPAddOAuthOptions(t *testing.T) {
+	server, err := parseMCPAdd("api", []string{"--url", "https://example.com/mcp", "--no-oauth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.OAuth == nil || *server.OAuth {
+		t.Fatalf("oauth = %v, want false", server.OAuth)
+	}
+	server, err = parseMCPAdd("oauth", []string{
+		"--url", "https://example.com/mcp",
+		"--oauth-redirect", "http://127.0.0.1:19876/callback",
+		"--oauth-client-id", "cid",
+		"--oauth-client-secret", "secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.OAuth == nil || !*server.OAuth || server.OAuthClientID != "cid" || server.OAuthClientSecret != "secret" {
+		t.Fatalf("server = %+v", server)
+	}
+}

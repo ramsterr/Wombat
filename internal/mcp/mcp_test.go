@@ -101,7 +101,7 @@ func TestConnectStreamableHTTPWithHeader(t *testing.T) {
 	got := connectOne(ctx, "remote", &config.MCPServer{
 		URL:     httpServer.URL,
 		Headers: map[string]string{"Authorization": "Bearer ${MCP_TEST_TOKEN}"},
-	}, t.TempDir(), "test")
+	}, t.TempDir(), "test", Options{})
 	if err := got.Err(); err != nil {
 		t.Fatal(err)
 	}

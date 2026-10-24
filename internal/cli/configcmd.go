@@ -235,6 +235,9 @@ func printConfig(cfg *config.Config) error {
 			if !ok {
 				continue
 			}
+			if secret, ok := sm["oauth_client_secret"].(string); ok && secret != "" {
+				sm["oauth_client_secret"] = "***"
+			}
 			for _, field := range []string{"env", "headers"} {
 				values, ok := sm[field].(map[string]any)
 				if !ok {

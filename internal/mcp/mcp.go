@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -49,9 +50,15 @@ type Manager struct {
 	once    sync.Once
 }
 
-// Connect starts all enabled servers in parallel. A broken server is recorded
-// on its Server rather than failing the whole session.
+// Connect starts all enabled servers in parallel using cached OAuth tokens
+// only. It never opens a browser.
 func Connect(ctx context.Context, servers map[string]*config.MCPServer, cwd, version string) *Manager {
+	return ConnectWithOptions(ctx, servers, cwd, version, Options{})
+}
+
+// ConnectWithOptions starts every enabled server in parallel. A broken server
+// is recorded on its Server rather than failing the whole session.
+func ConnectWithOptions(ctx context.Context, servers map[string]*config.MCPServer, cwd, version string, opts Options) *Manager {
 	m := &Manager{}
 	if len(servers) == 0 {
 		return m
@@ -79,7 +86,7 @@ func Connect(ctx context.Context, servers map[string]*config.MCPServer, cwd, ver
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			m.servers[i] = connectOne(ctx, name, servers[name], cwd, version)
+			m.servers[i] = connectOne(ctx, name, servers[name], cwd, version, opts)
 		}()
 	}
 	wg.Wait()
@@ -171,20 +178,51 @@ func (s *Server) Failures() int64 {
 	return s.failures.Load()
 }
 
-func connectOne(parent context.Context, name string, cfg *config.MCPServer, cwd, version string) *Server {
+func connectOne(parent context.Context, name string, cfg *config.MCPServer, cwd, version string, opts Options) *Server {
 	server := &Server{ID: name, Config: cfg, stderr: &tailBuffer{max: 8 << 10}}
 	if cfg == nil {
 		server.err = errors.New("missing configuration")
 		return server
 	}
-	ctx, cancel := context.WithTimeout(parent, cfg.Timeout())
+	timeout := cfg.Timeout()
+	if oauthEnabled(cfg) {
+		if opts.InteractiveAuth {
+			timeout = oauthLoginTimeout + 30*time.Second
+		} else if HasAuth(name, configuredEndpoint(cfg)) && timeout < 60*time.Second {
+			timeout = 60 * time.Second
+		}
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	transport, err := buildTransport(cfg, cwd, server.stderr)
+	transport, cleanup, err := buildTransport(name, cfg, cwd, server.stderr, version, opts)
 	if err != nil {
 		server.err = err
 		return server
 	}
-	return connectWithTransport(ctx, server, transport, version)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	server = connectWithTransport(ctx, server, transport, version)
+	if server.err != nil && oauthEnabled(cfg) {
+		server.err = redactOAuthError(server.err)
+		if !opts.InteractiveAuth && looksLikeAuthFailure(server.err) {
+			server.err = fmt.Errorf("%w — run `wombat mcp login %s`", server.err, name)
+		}
+	}
+	return server
+}
+
+func looksLikeAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	for _, marker := range []string{"401", "403", "unauthorized", "forbidden"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func connectWithTransport(ctx context.Context, server *Server, transport sdk.Transport, version string) *Server {
@@ -238,11 +276,11 @@ func listAllTools(ctx context.Context, session *sdk.ClientSession) ([]*sdk.Tool,
 	return tools, nil
 }
 
-func buildTransport(cfg *config.MCPServer, cwd string, stderr *tailBuffer) (sdk.Transport, error) {
+func buildTransport(serverName string, cfg *config.MCPServer, cwd string, stderr *tailBuffer, version string, opts Options) (sdk.Transport, func(), error) {
 	switch cfg.Transport() {
 	case "stdio":
 		if strings.TrimSpace(cfg.Command) == "" {
-			return nil, errors.New("stdio server has no command")
+			return nil, nil, errors.New("stdio server has no command")
 		}
 		command := expandEnv(cfg.Command)
 		args := make([]string, 0, len(cfg.Args))
@@ -260,30 +298,71 @@ func buildTransport(cfg *config.MCPServer, cwd string, stderr *tailBuffer) (sdk.
 		cmd.Dir = dir
 		cmd.Env = mergedEnv(cfg.Env)
 		cmd.Stderr = stderr
-		return &sdk.CommandTransport{Command: cmd}, nil
+		return &sdk.CommandTransport{Command: cmd}, nil, nil
 	case "http", "sse":
 		endpoint := expandEnv(cfg.URL)
 		u, err := url.Parse(endpoint)
 		if err != nil || u.Scheme == "" || u.Host == "" {
-			return nil, fmt.Errorf("invalid MCP url %q", cfg.URL)
+			return nil, nil, fmt.Errorf("invalid MCP url %q", cfg.URL)
 		}
 		if u.Scheme != "http" && u.Scheme != "https" {
-			return nil, fmt.Errorf("MCP url must be http or https: %q", cfg.URL)
+			return nil, nil, fmt.Errorf("MCP url must be http or https: %q", cfg.URL)
 		}
-		client := &http.Client{Transport: &headerTransport{
-			base:    http.DefaultTransport,
-			headers: expandMap(cfg.Headers),
-		}}
+		if u.Scheme == "http" && !isLoopbackIP(u.Hostname()) {
+			return nil, nil, fmt.Errorf("remote MCP url must use https (loopback may use http): %q", cfg.URL)
+		}
+		client := &http.Client{
+			Transport: &headerTransport{
+				base:    newHTTPTransport(),
+				headers: expandMap(cfg.Headers),
+				host:    u.Host,
+			},
+			CheckRedirect: safeRedirect,
+		}
 		if cfg.Transport() == "sse" {
-			return &sdk.SSEClientTransport{Endpoint: endpoint, HTTPClient: client}, nil
+			if cfg.OAuth != nil && *cfg.OAuth {
+				return nil, nil, errors.New("OAuth is only supported for streamable HTTP servers")
+			}
+			return &sdk.SSEClientTransport{Endpoint: endpoint, HTTPClient: client}, nil, nil
 		}
-		return &sdk.StreamableClientTransport{
+		transport := &sdk.StreamableClientTransport{
 			Endpoint:   endpoint,
 			HTTPClient: client,
 			MaxRetries: 2,
-		}, nil
+		}
+		if oauthEnabled(cfg) && hasAuthorizationHeader(cfg.Headers) {
+			return nil, nil, errors.New("configure either OAuth or an Authorization header, not both")
+		}
+		var cleanup func()
+		if oauthEnabled(cfg) {
+			if opts.InteractiveAuth {
+				handler, closeHandler, err := newInteractiveOAuthHandler(serverName, cfg, canonicalEndpoint(endpoint), version, opts)
+				if err != nil {
+					return nil, nil, err
+				}
+				transport.OAuthHandler = handler
+				cleanup = closeHandler
+			} else {
+				handler, err := newStoredOAuthHandler(serverName, canonicalEndpoint(endpoint))
+				if err != nil {
+					return nil, nil, err
+				}
+				transport.OAuthHandler = handler
+			}
+		}
+		return transport, cleanup, nil
 	}
-	return nil, fmt.Errorf("unsupported MCP transport %q", cfg.Type)
+	return nil, nil, fmt.Errorf("unsupported MCP transport %q", cfg.Type)
+}
+
+func hasAuthorizationHeader(headers map[string]string) bool {
+	for key := range headers {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "authorization", "proxy-authorization":
+			return true
+		}
+	}
+	return false
 }
 
 func toolAllowed(cfg *config.MCPServer, name string) bool {
@@ -366,13 +445,16 @@ func withStderr(err error, stderr *tailBuffer) error {
 type headerTransport struct {
 	base    http.RoundTripper
 	headers map[string]string
+	host    string
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
 	clone.Header = req.Header.Clone()
-	for key, value := range t.headers {
-		clone.Header.Set(key, value)
+	if t.host == "" || strings.EqualFold(req.URL.Host, t.host) {
+		for key, value := range t.headers {
+			clone.Header.Set(key, value)
+		}
 	}
 	return t.base.RoundTrip(clone)
 }

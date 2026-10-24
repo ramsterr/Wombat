@@ -42,3 +42,22 @@ func TestMCPServerRemoteAndEnabled(t *testing.T) {
 		t.Fatalf("disabled server = %+v", disabled)
 	}
 }
+
+func TestMCPServerOAuthForms(t *testing.T) {
+	var server MCPServer
+	if err := json.Unmarshal([]byte(`{"url":"https://example.com/mcp","oauth":false}`), &server); err != nil {
+		t.Fatal(err)
+	}
+	if server.OAuth == nil || *server.OAuth {
+		t.Fatalf("oauth = %v, want false", server.OAuth)
+	}
+	if err := json.Unmarshal([]byte(`{"url":"https://example.com/mcp","oauth":{"redirectUri":"http://127.0.0.1:19876/callback","clientId":"cid"}}`), &server); err != nil {
+		t.Fatal(err)
+	}
+	if server.OAuth == nil || !*server.OAuth {
+		t.Fatalf("oauth = %v, want true", server.OAuth)
+	}
+	if server.OAuthRedirectURL != "http://127.0.0.1:19876/callback" || server.OAuthClientID != "cid" {
+		t.Fatalf("server = %+v", server)
+	}
+}
