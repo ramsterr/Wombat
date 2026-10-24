@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,11 +61,17 @@ func TestSessionRecoversFromRejectedRequest(t *testing.T) {
 		},
 		Sess: sess,
 	}
-	// put an image in the history, the way a previous turn would have
+	// Put a real image in the history, the way a previous turn would have.
+	// The file must exist: a missing attachment is now dropped before the
+	// request instead of being sent to the provider.
+	img := filepath.Join(t.TempDir(), "p.png")
+	if err := os.WriteFile(img, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := sess.Append(llm.Message{
 		Role:        "user",
 		Content:     "here is the picture",
-		Attachments: []llm.Attachment{{Kind: "image", MIME: "image/png", Name: "p.png", Path: "/tmp/p.png"}},
+		Attachments: []llm.Attachment{{Kind: "image", MIME: "image/png", Name: "p.png", Path: img}},
 	}); err != nil {
 		t.Fatal(err)
 	}
