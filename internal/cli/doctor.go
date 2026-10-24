@@ -66,6 +66,21 @@ func cmdDoctor(_ []string) error {
 	}
 
 	fmt.Println()
+	fmt.Println(bold("mcp"))
+	if len(cfg.MCPServers) == 0 {
+		fmt.Println("  servers   " + dim("none configured"))
+	} else {
+		names := sortedMCPNames(cfg.MCPServers)
+		enabled := 0
+		for _, name := range names {
+			if cfg.MCPServers[name].EffectiveEnabled() {
+				enabled++
+			}
+		}
+		fmt.Printf("  servers   %d configured, %d enabled %s\n", len(names), enabled, dim("— `wombat mcp test` to connect"))
+	}
+
+	fmt.Println()
 	fmt.Println(bold("local servers"))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

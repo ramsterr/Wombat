@@ -16,6 +16,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/embeddings"
 	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/mcp"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
@@ -128,10 +129,21 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		}
 		env.Checkpoint = cp
 	}
+	allTools := tools.RegistryWithQuestion()
+	if len(cfg.MCPServers) > 0 {
+		manager := mcp.Connect(context.Background(), cfg.MCPServers, cwd, Version)
+		env.SetMCPManager(manager)
+		allTools = append(allTools, tools.MCPTools(manager)...)
+		for _, server := range manager.Servers() {
+			if err := server.Err(); err != nil {
+				fmt.Fprintf(os.Stderr, "%s\n", dim("mcp "+server.Name()+": "+tools.RedactSecrets(err.Error())))
+			}
+		}
+	}
 	ag := &agent.Agent{
 		Provider:      prov,
 		Model:         model,
-		Tools:         tools.RegistryWithQuestion(),
+		Tools:         allTools,
 		Env:           env,
 		Sess:          sess,
 		Compact:       true,
@@ -165,6 +177,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			ReviewPolicy:          cfg.ReviewPolicy,
 			FullWorkers:           cfg.FullWorkers(),
 		}); err != nil {
+			env.CloseMCP()
 			return nil, err
 		}
 	}

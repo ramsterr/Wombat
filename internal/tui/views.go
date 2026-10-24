@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
 )
 
@@ -19,10 +20,14 @@ func (c *chat) toolsetView() string {
 		gate := "allowed"
 		gateStyle := styleGood
 		switch t.Class() {
-		case "bash", "write", "edit", "network":
+		case "bash", "write", "edit", "network", "mcp":
 			gate = c.cfg.Permissions[t.Class()]
 			if gate == "" {
-				gate = "allow"
+				if t.Class() == "mcp" {
+					gate = "ask"
+				} else {
+					gate = "allow"
+				}
 			}
 		case "read":
 			gate = "always"
@@ -106,4 +111,35 @@ func (c *chat) historyView() string {
 		return "this session has no messages yet"
 	}
 	return b.String()
+}
+
+// mcpView reports the MCP servers attached to this session and their tools.
+func (c *chat) mcpView() string {
+	if c.ag == nil || c.ag.Env == nil {
+		return "no agent yet"
+	}
+	manager := c.ag.Env.MCPManager()
+	if manager == nil || len(manager.Servers()) == 0 {
+		return "no MCP servers configured\n" + styleDim.Render("add one with: wombat mcp add <name> -- <command>")
+	}
+	var b strings.Builder
+	b.WriteString(styleSection.Render("MCP") + "\n")
+	for _, server := range manager.Servers() {
+		if err := server.Err(); err != nil {
+			fmt.Fprintf(&b, "  %s %-16s %s\n", styleBad.Render("✗"), styleToolName.Render(server.Name()), styleBad.Render(tools.RedactSecrets(err.Error())))
+			continue
+		}
+		usage := fmt.Sprintf("%d tools", len(server.Tools()))
+		if calls := server.Calls(); calls > 0 {
+			usage += fmt.Sprintf(" · %d calls", calls)
+			if failures := server.Failures(); failures > 0 {
+				usage += fmt.Sprintf(", %d failed", failures)
+			}
+		}
+		fmt.Fprintf(&b, "  %s %-16s %s\n", styleGood.Render("✓"), styleToolName.Render(server.Name()), styleDim.Render(usage))
+		for _, tool := range server.Tools() {
+			fmt.Fprintf(&b, "      %s\n", styleDim.Render(tool.Name))
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

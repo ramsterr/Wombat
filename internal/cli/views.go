@@ -27,10 +27,14 @@ func toolsetText(ag *agent.Agent, current mode.Mode, perms map[string]string) st
 	for _, t := range ag.Tools {
 		gate := "allowed"
 		switch t.Class() {
-		case "bash", "write", "edit", "network":
+		case "bash", "write", "edit", "network", "mcp":
 			gate = perms[t.Class()]
 			if gate == "" {
-				gate = "allow"
+				if t.Class() == "mcp" {
+					gate = "ask"
+				} else {
+					gate = "allow"
+				}
 			}
 		case "read":
 			gate = "always"

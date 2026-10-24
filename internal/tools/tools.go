@@ -13,6 +13,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/embeddings"
 	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/lsp"
+	"github.com/ramsterr/Wombat/internal/mcp"
 )
 
 type Checkpointer interface {
@@ -58,6 +59,9 @@ type Env struct {
 
 	// language servers are shared by every semantic tool call in this Env.
 	lsp *lsp.Manager
+
+	// mcp owns the Model Context Protocol sessions added to this session.
+	mcpMgr *mcp.Manager
 
 	// Images is the image generation/editing client, when configured.
 	Images *images.Client
@@ -218,6 +222,34 @@ func (e *Env) LSPManager() *lsp.Manager {
 	return e.lsp
 }
 
+// SetMCPManager attaches connected MCP servers to this environment.
+func (e *Env) SetMCPManager(m *mcp.Manager) {
+	if e == nil {
+		return
+	}
+	e.mcpMgr = m
+}
+
+// MCPManager returns the MCP server manager, if any.
+func (e *Env) MCPManager() *mcp.Manager {
+	if e == nil {
+		return nil
+	}
+	return e.mcpMgr
+}
+
+// CloseMCP shuts down every MCP server this env started.
+func (e *Env) CloseMCP() {
+	if e == nil {
+		return
+	}
+	m := e.mcpMgr
+	e.mcpMgr = nil
+	if m != nil {
+		m.Close()
+	}
+}
+
 // CloseLSP shuts down every language server this Env started.
 func (e *Env) CloseLSP() {
 	if e == nil {
@@ -309,6 +341,16 @@ func Registry() []Tool {
 // lead uses to hand decisions back to the user.
 func RegistryWithQuestion() []Tool {
 	return append(Registry(), &QuestionTool{})
+}
+
+// WorkerEligible reports whether a tool may be handed to a delegated worker.
+// Most tools are; MCP tools opt in per server because their side effects are
+// unknown.
+func WorkerEligible(t Tool) bool {
+	if w, ok := t.(interface{ AllowedInWorkers() bool }); ok {
+		return w.AllowedInWorkers()
+	}
+	return true
 }
 
 func (e *Env) Check(kind, detail string) error {

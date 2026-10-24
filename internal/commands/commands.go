@@ -51,6 +51,7 @@ var List = []Command{
 		{Value: "off", Summary: "hide it and show a one-line summary instead"},
 	}},
 	{Name: "/toolset", Group: "Tools", Summary: "the tools this session can use"},
+	{Name: "/mcp", Group: "Tools", Summary: "MCP servers and their tools"},
 	{Name: "/sources", Group: "Context", Summary: "browse the sites and files used"},
 	{Name: "/reference", Group: "Context", Args: "[add|rm|clear] <path|url>", Summary: "keep project references in the inspector"},
 	{Name: "/usage", Group: "Context", Summary: "activity charts across sessions"},

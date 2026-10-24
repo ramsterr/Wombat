@@ -73,6 +73,8 @@ func Main() {
 		err = cmdDoctor(args)
 	case "config":
 		err = cmdConfig(args)
+	case "mcp":
+		err = cmdMCP(args)
 	case "checkpoint":
 		err = cmdCheckpoint(args)
 	case "upgrade":
@@ -105,6 +107,7 @@ usage:
   wombat sessions            list sessions for this directory
   wombat doctor              check configuration and connectivity
   wombat config              show config (redacted); use ` + "`wombat config set`" + `
+  wombat mcp                 add and test Model Context Protocol servers
   wombat checkpoint list     list session checkpoints
   wombat checkpoint restore  restore a checkpoint (--yes to confirm)
   wombat upgrade             update wombat to the latest release

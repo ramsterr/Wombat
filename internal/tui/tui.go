@@ -173,6 +173,7 @@ func Run(opt Options) (Action, error) {
 		ch.ag.Env.JobManager().Close()
 		ch.ag.Env.CloseLSP()
 		ch.ag.Env.CloseBrowser()
+		ch.ag.Env.CloseMCP()
 	}
 	if err != nil {
 		return Action{}, err

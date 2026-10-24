@@ -20,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, check_policy, review_policy, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, check_policy, review_policy, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read|mcp|mcp:server>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -145,6 +145,20 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg.KeepWorktrees = v
+	case strings.HasPrefix(key, "permissions."):
+		name := strings.TrimPrefix(key, "permissions.")
+		if name == "" {
+			return fmt.Errorf("permission name is required")
+		}
+		switch strings.ToLower(val) {
+		case "allow", "ask", "deny":
+			if cfg.Permissions == nil {
+				cfg.Permissions = map[string]string{}
+			}
+			cfg.Permissions[name] = strings.ToLower(val)
+		default:
+			return fmt.Errorf("permission must be allow, ask, or deny")
+		}
 	case key == "max_parallel_scouts", key == "max_parallel_writers",
 		key == "worker_max_steps", key == "worker_token_budget", key == "turn_worker_token_budget",
 		key == "writer_max_steps", key == "writer_token_budget", key == "turn_writer_token_budget":
@@ -215,10 +229,36 @@ func printConfig(cfg *config.Config) error {
 			}
 		}
 	}
+	if servers, ok := m["mcp_servers"].(map[string]any); ok {
+		for _, rawServer := range servers {
+			sm, ok := rawServer.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, field := range []string{"env", "headers"} {
+				values, ok := sm[field].(map[string]any)
+				if !ok {
+					continue
+				}
+				for key, value := range values {
+					if text, ok := value.(string); ok && text != "" {
+						values[key] = redactMCPValue(text)
+					}
+				}
+			}
+		}
+	}
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
 	fmt.Println(string(out))
 	return nil
+}
+
+func redactMCPValue(value string) string {
+	if strings.HasPrefix(value, "${") || strings.HasPrefix(value, "{env:") {
+		return value
+	}
+	return "***"
 }

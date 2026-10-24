@@ -13,6 +13,9 @@ func toolGlyph(name string) (string, lipgloss.Style) {
 	if i := strings.LastIndex(base, ":"); i >= 0 {
 		base = base[i+1:]
 	}
+	if strings.HasPrefix(base, "mcp__") {
+		return "◇", styleSandbox
+	}
 	switch base {
 	case "bash", "shell", "run", "job":
 		return "❯", styleGood

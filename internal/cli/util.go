@@ -134,7 +134,7 @@ func (p *Prompter) PermitPreview(kind, detail, preview string) tools.Decision {
 }
 
 func (p *Prompter) permit(kind, detail, preview string) tools.Decision {
-	if v, ok := p.perms[kind]; ok {
+	if v, ok := tools.PermissionValue(p.perms, kind); ok {
 		switch v {
 		case "allow":
 			return tools.Decision{Allow: true}
@@ -210,6 +210,8 @@ func lookFor(kind tools.PermKind) permLook {
 		return permLook{symbol: "▲", color: red, title: "credentials file"}
 	case tools.PermOutside:
 		return permLook{symbol: "?", color: blue, title: "outside the workspace"}
+	case tools.PermMCP:
+		return permLook{symbol: "◇", color: cyan, title: "MCP tool"}
 	}
 	return permLook{symbol: "?", color: yellow, title: "allow"}
 }

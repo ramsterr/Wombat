@@ -1,5 +1,7 @@
 package tools
 
+import "strings"
+
 // PermKind identifies why the user is being asked for permission. Each kind
 // gets its own colour and wording in the interface so it is obvious whether
 // the model is asking for ordinary tool access or for something outside the
@@ -23,6 +25,8 @@ const (
 	PermDangerous PermKind = "dangerous"
 	// PermSensitive is a read of a credentials file.
 	PermSensitive PermKind = "sensitive-read"
+	// PermMCP is a call to a Model Context Protocol tool.
+	PermMCP PermKind = "mcp"
 )
 
 // Label is the short name shown in a prompt.
@@ -44,6 +48,8 @@ func (k PermKind) Label() string {
 		return "a dangerous command"
 	case PermSensitive:
 		return "a credentials file read"
+	case PermMCP:
+		return "an MCP tool"
 	}
 	return string(k)
 }
@@ -52,7 +58,7 @@ func (k PermKind) Label() string {
 // interface can mark it differently from ordinary tool permission.
 func (k PermKind) Outside() bool {
 	switch k {
-	case PermNetwork, PermSandboxWrite, PermDangerous, PermOutside, PermSensitive:
+	case PermNetwork, PermSandboxWrite, PermDangerous, PermOutside, PermSensitive, PermMCP:
 		return true
 	}
 	return false
@@ -60,6 +66,9 @@ func (k PermKind) Outside() bool {
 
 // PermKindFor maps a tool permission class to its kind.
 func PermKindFor(class string) PermKind {
+	if strings.HasPrefix(class, "mcp:") || class == "mcp" {
+		return PermMCP
+	}
 	switch PermKind(class) {
 	case PermWrite:
 		return PermWrite
@@ -77,4 +86,17 @@ func PermKindFor(class string) PermKind {
 		return PermBash
 	}
 	return PermBash
+}
+
+// PermissionValue looks up a permission, falling back from a per-server MCP
+// key such as "mcp:github" to the shared "mcp" setting.
+func PermissionValue(perms map[string]string, kind string) (string, bool) {
+	if v, ok := perms[kind]; ok {
+		return v, true
+	}
+	if strings.HasPrefix(kind, "mcp:") {
+		v, ok := perms["mcp"]
+		return v, ok
+	}
+	return "", false
 }

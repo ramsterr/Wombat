@@ -261,7 +261,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 	for _, t := range ag.Tools {
 		// The workers read, search, reach the web, and run bash commands that
 		// do not change anything.
-		if t.Class() == "read" || t.Class() == "network" || t.Class() == "bash" {
+		if tools.WorkerEligible(t) && (t.Class() == "read" || t.Class() == "network" || t.Class() == "bash") {
 			o.workerTools = append(o.workerTools, t)
 		}
 	}
@@ -272,6 +272,9 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		switch t.Name() {
 		case "update_plan", "run_plan", "delegate", "delegate_many", "run_checks", "delegate_write", "question":
 			// Workers and writers have nobody to ask.
+			continue
+		}
+		if !tools.WorkerEligible(t) {
 			continue
 		}
 		o.writerTools = append(o.writerTools, t)

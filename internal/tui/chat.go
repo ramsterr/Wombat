@@ -31,6 +31,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/embeddings"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/mcp"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
@@ -149,6 +150,8 @@ func permColor(kind tools.PermKind) lipgloss.TerminalColor {
 		return cSandbox
 	case tools.PermOutside:
 		return cOutside
+	case tools.PermMCP:
+		return cSandbox
 	case tools.PermDangerous, tools.PermSensitive:
 		return cRed
 	}
@@ -166,6 +169,8 @@ func permTitle(kind tools.PermKind) string {
 		return "credentials file"
 	case tools.PermOutside:
 		return "outside workspace"
+	case tools.PermMCP:
+		return "MCP tool"
 	}
 	return "permission"
 }
@@ -561,10 +566,16 @@ func (c *chat) rebuild(reset bool) error {
 		env.Checkpoint = cp
 	}
 	c.closeAgent()
+	allTools := availableTools(c.imageGen)
+	if len(c.cfg.MCPServers) > 0 {
+		manager := mcp.Connect(context.Background(), c.cfg.MCPServers, cwd, c.opt.Version)
+		env.SetMCPManager(manager)
+		allTools = append(allTools, tools.MCPTools(manager)...)
+	}
 	c.ag = &agent.Agent{
 		Provider:      prov,
 		Model:         c.modelName,
-		Tools:         availableTools(c.imageGen),
+		Tools:         allTools,
 		Env:           env,
 		Sess:          c.sess,
 		Compact:       true,
@@ -595,6 +606,7 @@ func (c *chat) rebuild(reset bool) error {
 			ReviewModel:           c.cfg.ReviewModel,
 			FullWorkers:           c.cfg.FullWorkers(),
 		}); err != nil {
+			env.CloseMCP()
 			return err
 		}
 	}
@@ -656,7 +668,7 @@ func (c *chat) permit(kind, detail string) tools.Decision {
 func (c *chat) permitPreview(kind, detail, preview string) tools.Decision {
 	c.permMu.Lock()
 	defer c.permMu.Unlock()
-	if v, ok := c.cfg.Permissions[kind]; ok {
+	if v, ok := tools.PermissionValue(c.cfg.Permissions, kind); ok {
 		switch v {
 		case "allow":
 			return tools.Decision{Allow: true}
@@ -1262,6 +1274,7 @@ func (c *chat) closeAgent() {
 		c.ag.Env.JobManager().Close()
 		c.ag.Env.CloseLSP()
 		c.ag.Env.CloseBrowser()
+		c.ag.Env.CloseMCP()
 	}
 	c.ag = nil
 }
@@ -1811,6 +1824,8 @@ func (c *chat) command(line string) tea.Cmd {
 		c.note(msg, false)
 	case "/toolset":
 		c.notePre(c.toolsetView())
+	case "/mcp":
+		c.notePre(c.mcpView())
 	case "/sources":
 		return c.openSources()
 	case "/reference", "/ref":

@@ -30,44 +30,45 @@ const (
 )
 
 type Config struct {
-	Version               int                  `json:"version"`
-	Provider              string               `json:"provider"`
-	Model                 string               `json:"model"`
-	ImageProvider         string               `json:"image_provider,omitempty"`
-	ImageModel            string               `json:"image_model,omitempty"`
-	EmbeddingProvider     string               `json:"embedding_provider,omitempty"`
-	EmbeddingModel        string               `json:"embedding_model,omitempty"`
-	ReviewWriters         *bool                `json:"review_writers,omitempty"`
-	ReviewModel           string               `json:"review_model,omitempty"`
-	CheckPolicy           string               `json:"check_policy,omitempty"`
-	ReviewPolicy          string               `json:"review_policy,omitempty"`
-	WorkerFullAccess      *bool                `json:"worker_full_access,omitempty"`
-	Providers             map[string]*Provider `json:"providers"`
-	Permissions           map[string]string    `json:"permissions,omitempty"`
-	Orchestrator          bool                 `json:"orchestrator"`
-	MaxParallelScouts     int                  `json:"max_parallel_scouts"`
-	MaxParallelWriters    int                  `json:"max_parallel_writers"`
-	WorkerMaxSteps        int                  `json:"worker_max_steps,omitempty"`
-	WorkerTokenBudget     int                  `json:"worker_token_budget,omitempty"`
-	TurnWorkerTokenBudget int                  `json:"turn_worker_token_budget,omitempty"`
-	WriterMaxSteps        int                  `json:"writer_max_steps,omitempty"`
-	WriterTokenBudget     int                  `json:"writer_token_budget,omitempty"`
-	TurnWriterTokenBudget int                  `json:"turn_writer_token_budget,omitempty"`
-	Mode                  string               `json:"mode"`
-	Reasoning             string               `json:"reasoning,omitempty"`
-	ShowThinking          bool                 `json:"show_thinking"`
-	TrimReasoning         bool                 `json:"trim_reasoning,omitempty"`
-	ParallelAgents        bool                 `json:"parallel_agents"`
-	ScoutModel            string               `json:"scout_model,omitempty"`
-	FallbackModels        []string             `json:"fallback_models,omitempty"`
-	Checkpoints           bool                 `json:"checkpoints"`
-	RequireVerification   bool                 `json:"require_verification"`
-	Writers               bool                 `json:"writers"`
-	KeepWorktrees         bool                 `json:"keep_worktrees,omitempty"`
-	Mouse                 bool                 `json:"mouse,omitempty"`
-	Theme                 string               `json:"theme,omitempty"`
-	Panel                 bool                 `json:"panel,omitempty"`
-	PaintBackground       bool                 `json:"paint_background,omitempty"`
+	Version               int                   `json:"version"`
+	Provider              string                `json:"provider"`
+	Model                 string                `json:"model"`
+	ImageProvider         string                `json:"image_provider,omitempty"`
+	ImageModel            string                `json:"image_model,omitempty"`
+	EmbeddingProvider     string                `json:"embedding_provider,omitempty"`
+	EmbeddingModel        string                `json:"embedding_model,omitempty"`
+	ReviewWriters         *bool                 `json:"review_writers,omitempty"`
+	ReviewModel           string                `json:"review_model,omitempty"`
+	CheckPolicy           string                `json:"check_policy,omitempty"`
+	ReviewPolicy          string                `json:"review_policy,omitempty"`
+	WorkerFullAccess      *bool                 `json:"worker_full_access,omitempty"`
+	Providers             map[string]*Provider  `json:"providers"`
+	MCPServers            map[string]*MCPServer `json:"mcp_servers,omitempty"`
+	Permissions           map[string]string     `json:"permissions,omitempty"`
+	Orchestrator          bool                  `json:"orchestrator"`
+	MaxParallelScouts     int                   `json:"max_parallel_scouts"`
+	MaxParallelWriters    int                   `json:"max_parallel_writers"`
+	WorkerMaxSteps        int                   `json:"worker_max_steps,omitempty"`
+	WorkerTokenBudget     int                   `json:"worker_token_budget,omitempty"`
+	TurnWorkerTokenBudget int                   `json:"turn_worker_token_budget,omitempty"`
+	WriterMaxSteps        int                   `json:"writer_max_steps,omitempty"`
+	WriterTokenBudget     int                   `json:"writer_token_budget,omitempty"`
+	TurnWriterTokenBudget int                   `json:"turn_writer_token_budget,omitempty"`
+	Mode                  string                `json:"mode"`
+	Reasoning             string                `json:"reasoning,omitempty"`
+	ShowThinking          bool                  `json:"show_thinking"`
+	TrimReasoning         bool                  `json:"trim_reasoning,omitempty"`
+	ParallelAgents        bool                  `json:"parallel_agents"`
+	ScoutModel            string                `json:"scout_model,omitempty"`
+	FallbackModels        []string              `json:"fallback_models,omitempty"`
+	Checkpoints           bool                  `json:"checkpoints"`
+	RequireVerification   bool                  `json:"require_verification"`
+	Writers               bool                  `json:"writers"`
+	KeepWorktrees         bool                  `json:"keep_worktrees,omitempty"`
+	Mouse                 bool                  `json:"mouse,omitempty"`
+	Theme                 string                `json:"theme,omitempty"`
+	Panel                 bool                  `json:"panel,omitempty"`
+	PaintBackground       bool                  `json:"paint_background,omitempty"`
 }
 
 type Preset struct {
@@ -146,9 +147,11 @@ func Defaults() *Config {
 			"write":          "allow",
 			"edit":           "allow",
 			"network":        "allow",
+			"mcp":            "ask",
 			"dangerous":      "ask",
 			"sensitive-read": "ask",
 		},
+		MCPServers:          map[string]*MCPServer{},
 		Orchestrator:        true,
 		MaxParallelScouts:   DefaultMaxParallelScouts,
 		MaxParallelWriters:  DefaultMaxParallelWriters,
@@ -197,6 +200,9 @@ func Load() (*Config, error) {
 	}
 	if c.Providers == nil {
 		c.Providers = map[string]*Provider{}
+	}
+	if c.MCPServers == nil {
+		c.MCPServers = map[string]*MCPServer{}
 	}
 	for _, p := range Presets {
 		if _, ok := c.Providers[p.Name]; !ok {

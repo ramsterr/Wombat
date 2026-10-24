@@ -158,6 +158,7 @@ runs.
 | `wombat doctor` | diagnose config and connectivity |
 | `wombat config` | show config, with keys redacted |
 | `wombat config set <key> <value>` | change one setting |
+| `wombat mcp add/list/test` | add and check MCP servers |
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
 | `wombat upgrade` | install the latest stable release |
@@ -270,13 +271,14 @@ Wombat different.
 | Verification | `verify`, `verify_site`, browser assertions, and project checks. |
 | Code intelligence | Language-server definitions, references, diagnostics, completions, rename, and refactor. |
 | Search | Glob, grep, AST symbols, and semantic search. |
-| Web | Search and fetch with caching, retries, and readable-text extraction. |
+| Web | Search and fetch with caching, retries, readable-text extraction, and page excerpts. |
+| MCP | Add local stdio or remote HTTP/SSE Model Context Protocol servers; their tools appear as `mcp__<server>__<tool>`. |
 | Browser | Local and web automation, screenshots, clicks, typing, scrolling, and JS evaluation. |
 | Media | Read images, video, audio, and documents; edit and generate images when enabled. |
 | Sessions | Resumable sessions, browsing, continuation, and JSONL transcripts. |
 | Context | Automatic pruning, summarization, compaction, and token accounting. |
 | Checkpoints | Shadow-git snapshots with list and restore. |
-| Permissions | Per-class gates for bash, writes, edits, network, and sensitive reads. |
+| Permissions | Per-class gates for bash, writes, edits, network, sensitive reads, and each MCP server. |
 | Providers | OpenAI-compatible APIs, Anthropic, OpenCode, and local model servers. |
 | TUI basics | Command palette, file picker, history, copy, themes, and scrollback. |
 
@@ -292,7 +294,7 @@ Wombat different.
 | Source browser | `/sources` browses every site and file the session used, with counts and open/attach actions. |
 | Project references | `ctrl+r` / `/reference` keeps files, folders, and URLs in a per-project inspector list under `~/.wombat/references/`. |
 | Inspector | Live session facts, context gauge, previews, sources, recent tools, references, and a pinned WOMBAT mark. |
-| Search ranking | Merges Brave, Serper, Exa, Tavily, Bing RSS, and DuckDuckGo; boosts trusted docs and cross-engine hits; filters adult/SEO spam; caps domains. |
+| Search ranking | Merges Brave, Serper, Exa, Tavily, Bing RSS, DuckDuckGo, and Mojeek; boosts trusted docs, engine position, and cross-engine hits; filters adult/SEO spam; caps domains. |
 | Image search | Finds direct image URLs via Google Images (Serper), Brave, DuckDuckGo, and Openverse, and downloads them into the workspace. |
 | Opt-in image generation | `imagegen` is hidden until `/imagen`; then `/imagen <prompt>` generates directly. |
 | Provider setup | `/configure` opens a base URL/API-key form; unconfigured models stay selectable but show `no key` and are blocked from chat. |
@@ -378,6 +380,79 @@ connection failures, and shares a 15-second HTTP client with search.
 Brave Images, DuckDuckGo Images, and Openverse, and can download the selected
 images into the workspace. Set `SERPER_API_KEY` for Google Images or
 `BRAVE_API_KEY` for Brave Images; DuckDuckGo and Openverse work without a key.
+
+### MCP servers
+
+Wombat is an MCP client: add any Model Context Protocol server, local or
+remote, and its tools appear to the agent automatically as
+`mcp__<server>__<tool>`. Local servers use stdio; remote servers use
+Streamable HTTP or SSE.
+
+```sh
+# local stdio server
+wombat mcp add playwright -- npx -y @playwright/mcp@latest
+
+# pass environment variables
+wombat mcp add github --env GITHUB_TOKEN=... -- \
+  npx -y @modelcontextprotocol/server-github
+
+# remote HTTP server with a static token
+wombat mcp add context7 --url https://mcp.context7.com/mcp
+wombat mcp add github --url https://api.githubcopilot.com/mcp/ \
+  --header 'Authorization=Bearer ${GITHUB_TOKEN}'
+
+wombat mcp list
+wombat mcp test context7
+wombat mcp disable context7
+wombat mcp remove context7
+```
+
+In the chat UI, `/mcp` shows each attached server, its tools, and this
+session's call counts. `wombat mcp test` connects, lists the server's tools, and
+reports the error and server stderr when it cannot start. Startup defaults to 15 seconds; pass
+`--timeout 60` for a slow first `npx` download or `--call-timeout 600` for slow
+tools. `wombat mcp import .mcp.json` imports the
+common `mcpServers` format used by Claude Code and Cursor, and the
+`mcp.servers` format used by OpenCode.
+
+Config lives under `mcp_servers` in `~/.wombat/config.json`:
+
+```json
+{
+  "mcp_servers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "env": {"LOG_LEVEL": "info"},
+      "class": "read"
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {"Authorization": "Bearer ${CONTEXT7_API_KEY}"},
+      "allow_tools": ["resolve-library-id", "query-docs"]
+    }
+  }
+}
+```
+
+Local servers run as your user with your environment, so only add servers you
+trust. `${VAR}`, `${VAR:-default}`, and `{env:VAR}` are expanded when the server
+starts, so secrets can stay in the environment. MCP tools are gated by a
+per-server permission (`mcp:<server>`), falling back to `mcp`, which defaults
+to `ask`:
+
+```sh
+wombat config set permissions.mcp allow
+wombat config set permissions.mcp:github ask
+```
+
+Use `--class read` for servers that only read data so delegated scouts can use
+them too. Other servers default to lead-only; `--workers` exposes one to
+delegated workers. A broken server never blocks startup; check it with
+`wombat mcp test`. Remote servers that require interactive OAuth should be
+configured with a static bearer token in `headers` for now.
 
 ### Common settings
 
