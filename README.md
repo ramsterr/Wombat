@@ -1,6 +1,6 @@
-  # Wombat General Agent
-  
-  <img width="1734" height="907" alt="image" src="https://github.com/user-attachments/assets/04a6f7c5-e22a-4a50-8fd0-552c2e01962b" />
+
+  <img width="2456" height="1192" alt="image" src="https://github.com/user-attachments/assets/3af03a01-9cce-4fe6-b60e-9105f41f4796" />
+
 
 
 
