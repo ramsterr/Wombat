@@ -76,6 +76,11 @@ All notable changes to Wombat are recorded here. The format follows
   retries reset the partial stream, retry with backoff, and the agent adds an
   explicit "Retry the last request" message if provider retries are exhausted.
   The TUI shows the retry status instead of silently stopping.
+- Images a tool reads are copied into the session attachment store, so
+  deleting the original afterwards no longer breaks the session. Attachments
+  whose file is already gone are dropped with a note before the request is
+  built, and filesystem errors are no longer misclassified as retryable
+  network errors.
 
 ## [0.2.6] — 2026-10-22
 

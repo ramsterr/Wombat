@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"math/rand/v2"
 	"net"
+	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -126,6 +128,14 @@ func retryable(err error) bool {
 	var httpErr *HTTPError
 	if errors.As(err, &httpErr) {
 		return httpErr.Retryable()
+	}
+	// Filesystem errors implement net.Error through Timeout and Temporary,
+	// so they must be excluded before the interface check. Retrying cannot
+	// bring back a deleted or unreadable file.
+	var pathErr *fs.PathError
+	var linkErr *os.LinkError
+	if errors.As(err, &pathErr) || errors.As(err, &linkErr) {
+		return false
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) {

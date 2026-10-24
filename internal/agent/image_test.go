@@ -68,9 +68,13 @@ func TestImageReachesTheModel(t *testing.T) {
 	found := false
 	for _, m := range prov.seen {
 		for _, at := range m.Attachments {
-			if at.Kind == "image" && at.Path == img {
-				found = true
+			if at.Kind != "image" || at.Name != "cat.png" {
+				continue
 			}
+			if _, err := llm.LoadAttachment(at); err != nil {
+				t.Fatalf("attachment cannot be loaded: %v", err)
+			}
+			found = true
 		}
 	}
 	if !found {

@@ -318,3 +318,62 @@ func TestStepLimitEndsWithText(t *testing.T) {
 		t.Fatalf("provider calls = %d, want 3", prov.calls)
 	}
 }
+
+func TestAgentDropsMissingAttachmentsBeforeRequest(t *testing.T) {
+	a, fake, workdir, _, _ := newTestAgent(t, true)
+	missing := filepath.Join(workdir, "gone.png")
+	err := a.RunWithAttachments(context.Background(), "write hello", []llm.Attachment{{
+		Kind: "image", MIME: "image/png", Name: "gone.png", Path: missing,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.reqs) == 0 {
+		t.Fatal("provider was never called")
+	}
+	for _, m := range fake.reqs[0].Messages {
+		if len(m.Attachments) > 0 {
+			t.Fatalf("request still carries a missing attachment: %+v", m.Attachments)
+		}
+	}
+	found := false
+	for _, m := range a.Sess.Messages {
+		if strings.Contains(m.Content, "[attachment unavailable: gone.png]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("missing attachment note not persisted in the session")
+	}
+}
+
+func TestAppendMediaStoresAttachmentCopy(t *testing.T) {
+	a, _, workdir, _, _ := newTestAgent(t, true)
+	a.Model = "gpt-4.1"
+	src := filepath.Join(workdir, "shot.png")
+	if err := os.WriteFile(src, []byte("png-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.appendMedia([]tools.Media{{Path: src, MIME: "image/png", Name: "shot.png"}}); err != nil {
+		t.Fatal(err)
+	}
+	var att llm.Attachment
+	for _, m := range a.Sess.Messages {
+		if len(m.Attachments) > 0 {
+			att = m.Attachments[0]
+		}
+	}
+	if att.Path == "" || att.Path == src {
+		t.Fatalf("attachment was not copied into the session store: %+v", att)
+	}
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+	data, err := llm.LoadAttachment(att)
+	if err != nil {
+		t.Fatalf("stored attachment is unusable after the original is deleted: %v", err)
+	}
+	if string(data) != "png-bytes" {
+		t.Fatalf("stored bytes = %q", data)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -160,6 +161,79 @@ func TestStoreAttachment(t *testing.T) {
 	}
 	if b.Path != a.Path {
 		t.Fatalf("not deduplicated: %s vs %s", a.Path, b.Path)
+	}
+}
+
+func TestPruneUnavailableAttachments(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	dir := t.TempDir()
+	s, err := Create(dir, "p", "m", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := filepath.Join(dir, "keep.png")
+	if err := os.WriteFile(good, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "gone.png")
+	if err := s.Append(llm.Message{
+		Role:    "user",
+		Content: "look at these",
+		Attachments: []llm.Attachment{
+			{Kind: "image", MIME: "image/png", Name: "keep.png", Path: good},
+			{Kind: "image", MIME: "image/png", Name: "gone.png", Path: missing},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.PruneUnavailableAttachments()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("dropped = %d, want 1", n)
+	}
+	msg := s.Messages[0]
+	if len(msg.Attachments) != 1 || msg.Attachments[0].Path != good {
+		t.Fatalf("attachments = %+v", msg.Attachments)
+	}
+	if !strings.Contains(msg.Content, "[attachment unavailable: gone.png]") {
+		t.Fatalf("content = %q", msg.Content)
+	}
+
+	reopened, err := Open(s.ID(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reopened.Messages[0].Attachments) != 1 {
+		t.Fatalf("prune was not persisted: %+v", reopened.Messages[0].Attachments)
+	}
+}
+
+func TestOpenDropsDeletedAttachments(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	dir := t.TempDir()
+	s, err := Create(dir, "p", "m", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "gone.png")
+	if err := s.Append(llm.Message{
+		Role:        "user",
+		Content:     "look",
+		Attachments: []llm.Attachment{{Kind: "image", MIME: "image/png", Name: "gone.png", Path: path}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.ID(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reopened.Messages[0].Attachments) != 0 {
+		t.Fatalf("attachments = %+v", reopened.Messages[0].Attachments)
+	}
+	if !strings.Contains(reopened.Messages[0].Content, "attachment unavailable") {
+		t.Fatalf("content = %q", reopened.Messages[0].Content)
 	}
 }
 

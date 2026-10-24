@@ -163,23 +163,81 @@ func List(cwd string) ([]Meta, error) {
 }
 
 // pruneEphemeralAttachments drops images that lived only in memory when the
-// session was live, such as browser screenshots. They have no file to reload.
+// session was live, such as browser screenshots, and attachments whose file
+// has since been moved or deleted. Neither can be loaded again.
 func pruneEphemeralAttachments(m llm.Message) llm.Message {
+	return pruneUnavailableAttachments(m)
+}
+
+// pruneUnavailableAttachments removes attachments that no longer have bytes
+// to send: in-memory media that was never stored, and path-backed files that
+// were deleted or moved. A note is left in the message so the model knows
+// something was dropped.
+func pruneUnavailableAttachments(m llm.Message) llm.Message {
 	if len(m.Attachments) == 0 {
 		return m
 	}
 	keep := m.Attachments[:0]
+	var missing []string
 	for _, a := range m.Attachments {
-		if a.Path != "" || len(a.Data) > 0 {
+		if len(a.Data) > 0 {
 			keep = append(keep, a)
+			continue
 		}
+		if a.Path == "" {
+			continue
+		}
+		if _, err := os.Stat(a.Path); err != nil {
+			missing = append(missing, attachmentName(a))
+			continue
+		}
+		keep = append(keep, a)
 	}
 	if len(keep) == 0 {
 		m.Attachments = nil
 	} else {
 		m.Attachments = keep
 	}
+	for _, name := range missing {
+		note := "[attachment unavailable: " + name + "]"
+		if !strings.Contains(m.Content, note) {
+			m.Content = strings.TrimSpace(m.Content + "\n\n" + note)
+		}
+	}
 	return m
+}
+
+func attachmentName(a llm.Attachment) string {
+	if a.Name != "" {
+		return a.Name
+	}
+	if a.Path != "" {
+		return filepath.Base(a.Path)
+	}
+	return "file"
+}
+
+// PruneUnavailableAttachments removes attachments whose files are gone and
+// persists the cleaned history. A session can otherwise fail every request
+// after an image it read is deleted, because the provider rebuilds the
+// attachment from its path on each turn.
+func (s *Session) PruneUnavailableAttachments() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dropped := 0
+	for i := range s.Messages {
+		before := len(s.Messages[i].Attachments)
+		content := s.Messages[i].Content
+		s.Messages[i] = pruneUnavailableAttachments(s.Messages[i])
+		dropped += before - len(s.Messages[i].Attachments)
+		if s.Messages[i].Content != content {
+			s.Meta.Updated = time.Now()
+		}
+	}
+	if dropped == 0 {
+		return 0, nil
+	}
+	return dropped, s.flushLocked()
 }
 
 func (s *Session) ID() string {

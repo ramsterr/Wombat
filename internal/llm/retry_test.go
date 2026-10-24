@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -60,6 +62,21 @@ func TestRetryResetsAfterStreaming(t *testing.T) {
 	res, err := p.Chat(context.Background(), req, func(s string) { got += s })
 	if err != nil || res.Content != "final" || f.calls != 2 || got != "final" || resets != 1 || retries != 1 {
 		t.Fatalf("err=%v res=%+v calls=%d got=%q resets=%d retries=%d", err, res, f.calls, got, resets, retries)
+	}
+}
+
+func TestRetryDoesNotRetryFileErrors(t *testing.T) {
+	_, err := os.ReadFile(filepath.Join(t.TempDir(), "missing.png"))
+	if err == nil {
+		t.Fatal("expected a read error")
+	}
+	if Retryable(err) {
+		t.Fatalf("file error should not be retryable: %v", err)
+	}
+	f := &retryFake{fn: func(int, func(string)) (*Result, error) { return nil, err }}
+	p := WithRetry(f, RetryPolicy{MaxAttempts: 4, BaseDelay: time.Millisecond})
+	if _, got := p.Chat(context.Background(), Request{}, nil); got == nil || f.calls != 1 {
+		t.Fatalf("err=%v calls=%d", got, f.calls)
 	}
 }
 

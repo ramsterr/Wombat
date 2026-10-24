@@ -110,6 +110,14 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 	}
+	// A session can outlive the files it references: an image the agent read
+	// may be moved or deleted before the next turn. Drop those attachments
+	// instead of failing every provider request while rebuilding them.
+	if dropped, err := a.Sess.PruneUnavailableAttachments(); err != nil {
+		return err
+	} else if dropped > 0 {
+		a.Trace.Emit("attachments_dropped", map[string]any{"count": dropped})
+	}
 	// No step limit: the agent works until it is done or the doom-loop
 	// guard stops it.
 	maxSteps := a.MaxSteps
@@ -651,15 +659,43 @@ func (a *Agent) appendMedia(media []tools.Media) error {
 		return a.Sess.Append(llm.Message{Role: "user", Content: content})
 	}
 	names := make([]string, 0, len(media))
+	missing := make([]string, 0, len(media))
 	attachments := make([]llm.Attachment, 0, len(media))
 	for _, m := range media {
-		names = append(names, m.Name)
-		attachments = append(attachments, llm.Attachment{
+		att := llm.Attachment{
 			Kind: "image", MIME: m.MIME, Name: m.Name, Path: m.Path,
 			Size: mediaSize(m), Data: m.Data,
-		})
+		}
+		if len(att.Data) == 0 && att.Path != "" {
+			// Keep a copy in the session store. The original is often a
+			// temporary screenshot or generated file that the agent deletes
+			// as cleanup; history must not depend on it still existing.
+			stored, err := a.Sess.StoreAttachment(att.Path)
+			if err != nil {
+				missing = append(missing, att.Name)
+				continue
+			}
+			if att.MIME != "" {
+				stored.MIME = att.MIME
+			}
+			if att.Name != "" {
+				stored.Name = att.Name
+			}
+			if stored.Size == 0 {
+				stored.Size = att.Size
+			}
+			att = stored
+		}
+		names = append(names, att.Name)
+		attachments = append(attachments, att)
 	}
-	content := "I read " + strings.Join(names, ", ") + ". Look at the attached image and continue."
+	content := "I could not attach the image I read."
+	if len(names) > 0 {
+		content = "I read " + strings.Join(names, ", ") + ". Look at the attached image and continue."
+	}
+	if len(missing) > 0 {
+		content += " " + strings.Join(missing, ", ") + " could not be attached because the file was already gone."
+	}
 	return a.Sess.Append(llm.Message{Role: "user", Content: content, Attachments: attachments})
 }
 
