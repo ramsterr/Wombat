@@ -383,6 +383,9 @@ images into the workspace. Set `SERPER_API_KEY` for Google Images or
 `BRAVE_API_KEY` for Brave Images; DuckDuckGo and Openverse work without a key.
 
 ### MCP servers
+example:
+<img width="2276" height="788" alt="image" src="https://github.com/user-attachments/assets/7142dd92-eaf4-4668-a4a3-cb3ae5d5b21f" />
+
 
 Wombat is an MCP client. Add local stdio servers or remote Streamable HTTP/SSE
 servers; their tools appear to the agent as `mcp__<server>__<tool>`.
