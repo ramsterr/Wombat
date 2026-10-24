@@ -384,41 +384,66 @@ images into the workspace. Set `SERPER_API_KEY` for Google Images or
 
 ### MCP servers
 
-Wombat is an MCP client: add any Model Context Protocol server, local or
-remote, and its tools appear to the agent automatically as
-`mcp__<server>__<tool>`. Local servers use stdio; remote servers use
-Streamable HTTP or SSE.
+Wombat is an MCP client. Add local stdio servers or remote Streamable HTTP/SSE
+servers; their tools appear to the agent as `mcp__<server>__<tool>`.
+
+**Commands**
 
 ```sh
-# local stdio server
+# local stdio
 wombat mcp add playwright -- npx -y @playwright/mcp@latest
-
-# pass environment variables
 wombat mcp add github --env GITHUB_TOKEN=... -- \
   npx -y @modelcontextprotocol/server-github
 
-# remote HTTP server with a static token
+# remote HTTP with a static token
 wombat mcp add context7 --url https://mcp.context7.com/mcp
 wombat mcp add github --url https://api.githubcopilot.com/mcp/ \
   --header 'Authorization=Bearer ${GITHUB_TOKEN}'
 
+# manage and inspect
 wombat mcp list
-wombat mcp test context7
-wombat mcp login notion     # interactive OAuth in the browser
-wombat mcp logout notion
-wombat mcp disable context7
-wombat mcp remove context7
+wombat mcp test [name...]
+wombat mcp enable <name>
+wombat mcp disable <name>
+wombat mcp remove <name>
+wombat mcp import .mcp.json
 ```
 
-In the chat UI, `/mcp` shows each attached server, its tools, and this
-session's call counts. `wombat mcp test` connects, lists the server's tools, and
-reports the error and server stderr when it cannot start. Startup defaults to 15 seconds; pass
-`--timeout 60` for a slow first `npx` download or `--call-timeout 600` for slow
-tools. `wombat mcp import .mcp.json` imports the
-common `mcpServers` format used by Claude Code and Cursor, and the
-`mcp.servers` format used by OpenCode.
+`wombat mcp test` connects, lists the server's tools, and shows errors and
+server stderr. Startup defaults to 15 seconds; use `--timeout 60` for a slow
+first `npx` download and `--call-timeout 600` for slow tools. `import` accepts
+the Claude Code/Cursor `mcpServers` format and the OpenCode `mcp.servers` format.
 
-Config lives under `mcp_servers` in `~/.wombat/config.json`:
+**Interactive OAuth**
+
+```sh
+wombat mcp add notion --url https://mcp.notion.com/mcp
+wombat mcp login notion
+wombat mcp test notion
+wombat mcp logout notion
+```
+
+`mcp login` opens the browser, completes a loopback OAuth callback with PKCE
+and state checks, and stores access and refresh tokens in
+`~/.wombat/mcp-auth/` with `0600` permissions. Tokens refresh automatically.
+Agent startup uses cached tokens only and reports
+`run wombat mcp login <server>` when a login is missing. `logout`, updating, or
+removing a server clears the saved login.
+
+Use `"oauth": false` for API-key servers, or set `oauth_client_id`,
+`oauth_client_secret`, `oauth_scopes`, and `oauth_redirect_url` for a
+pre-registered client. Remote MCP endpoints must use HTTPS unless they are
+loopback. Some providers restrict OAuth registration to approved clients; use a
+PAT-based or local server variant instead.
+
+**In chat**
+
+`/mcp` shows each attached server, its tools, status, and this session's call
+counts.
+
+**Config and permissions**
+
+Servers live under `mcp_servers` in `~/.wombat/config.json`:
 
 ```json
 {
@@ -427,56 +452,29 @@ Config lives under `mcp_servers` in `~/.wombat/config.json`:
       "type": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-      "env": {"LOG_LEVEL": "info"},
       "class": "read"
     },
     "context7": {
       "type": "http",
       "url": "https://mcp.context7.com/mcp",
-      "headers": {"Authorization": "Bearer ${CONTEXT7_API_KEY}"},
-      "allow_tools": ["resolve-library-id", "query-docs"]
+      "headers": {"Authorization": "Bearer ${CONTEXT7_API_KEY}"}
     }
   }
 }
 ```
 
-Local servers run as your user with your environment, so only add servers you
-trust. `${VAR}`, `${VAR:-default}`, and `{env:VAR}` are expanded when the server
-starts, so secrets can stay in the environment. MCP tools are gated by a
-per-server permission (`mcp:<server>`), falling back to `mcp`, which defaults
-to `ask`:
+`${VAR}`, `${VAR:-default}`, and `{env:VAR}` expand when the server starts, so
+secrets can stay in the environment. MCP calls are gated by
+`mcp:<server>`, falling back to `mcp`, which defaults to `ask`:
 
 ```sh
 wombat config set permissions.mcp allow
 wombat config set permissions.mcp:github ask
 ```
 
-Remote servers that use OAuth get an explicit browser login:
-
-```sh
-wombat mcp add notion --url https://mcp.notion.com/mcp
-wombat mcp login notion
-wombat mcp test notion
-```
-
-`mcp login` opens the browser, waits on a loopback callback, verifies PKCE and
-state, and stores the access and refresh tokens in
-`~/.wombat/mcp-auth/<server>.json` with `0600` permissions. Tokens refresh
-automatically. Normal agent startup never opens a browser: if there is no saved
-login it reports `run wombat mcp login <server>`. `wombat mcp logout <server>`
-deletes the saved login; updating or removing a server also clears it. Use `"oauth": false` for an API-key server, or
-configure `oauth_client_id`, `oauth_client_secret`, `oauth_scopes`, and
-`oauth_redirect_url` for a pre-registered OAuth client. Remote MCP endpoints
-must use HTTPS unless they are loopback.
-
-Use `--class read` for servers that only read data so delegated scouts can use
-them too. Other servers default to lead-only; `--workers` exposes one to
-delegated workers. A broken server never blocks startup; check it with
-`wombat mcp test`.
-
-Best-effort note: some providers restrict OAuth client registration to an
-approved client list. If their registration endpoint rejects Wombat, use a
-server variant that accepts a personal access token or a local server instead.
+Use `--class read` to let delegated scouts use a read-only server; other servers
+stay lead-only unless you pass `--workers`. Local servers run as your user with
+your environment, so only add servers you trust.
 
 ### Common settings
 
