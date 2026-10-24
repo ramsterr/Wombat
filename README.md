@@ -167,7 +167,8 @@ runs.
 | `wombat version` | print the version |
 
 ## Inside the chat
-<img width="3360" height="2100" alt="image" src="https://github.com/user-attachments/assets/3d7f5750-5b49-4b45-9e0b-879473ab4f20" />
+<img width="3350" height="1928" alt="image" src="https://github.com/user-attachments/assets/2c543b66-a075-4bcf-9857-a83c95b1326d" />
+
 
 Type a request and press Enter. Useful shortcuts:
 
