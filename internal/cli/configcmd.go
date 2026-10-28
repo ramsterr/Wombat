@@ -20,7 +20,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, check_policy, review_policy, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read|mcp|mcp:server>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, check_policy, review_policy, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_agents, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read|mcp|mcp:server>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -159,7 +159,7 @@ func cmdConfig(args []string) error {
 		default:
 			return fmt.Errorf("permission must be allow, ask, or deny")
 		}
-	case key == "max_parallel_scouts", key == "max_parallel_writers",
+	case key == "max_parallel_scouts", key == "max_parallel_writers", key == "max_parallel_agents",
 		key == "worker_max_steps", key == "worker_token_budget", key == "turn_worker_token_budget",
 		key == "writer_max_steps", key == "writer_token_budget", key == "turn_writer_token_budget":
 		n, err := strconv.Atoi(val)
@@ -172,6 +172,11 @@ func cmdConfig(args []string) error {
 				return fmt.Errorf("max_parallel_scouts must be positive")
 			}
 			cfg.MaxParallelScouts = n
+		case "max_parallel_agents":
+			if n < 1 {
+				return fmt.Errorf("max_parallel_agents must be positive")
+			}
+			cfg.MaxParallelAgents = n
 		case "max_parallel_writers":
 			if n < 1 {
 				return fmt.Errorf("max_parallel_writers must be positive")

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/worktree"
@@ -17,6 +18,7 @@ import (
 const (
 	DefaultMaxDelegations        = config.DefaultMaxDelegations
 	DefaultMaxParallelScouts     = config.DefaultMaxParallelScouts
+	DefaultMaxParallelAgents     = config.DefaultMaxParallelAgents
 	DefaultWorkerMaxSteps        = config.DefaultWorkerMaxSteps
 	DefaultWorkerTokenBudget     = config.DefaultWorkerTokenBudget
 	DefaultTurnWorkerTokenBudget = config.DefaultTurnWorkerTokenBudget
@@ -34,6 +36,7 @@ const (
 type Config struct {
 	MaxDelegations        int
 	MaxParallelScouts     int
+	MaxParallelAgents     int
 	WorkerMaxSteps        int
 	WorkerTokenBudget     int
 	TurnWorkerTokenBudget int
@@ -71,11 +74,17 @@ type Config struct {
 	// orchestration tools in an isolated worktree. It is on by default in
 	// the app; direct Config users opt in.
 	FullWorkers bool
+	// Team is the set of custom agents the user selected for this session.
+	// The planner can assign ledger steps to them by member id.
+	Team []*agents.Member
 }
 
 func (c Config) withDefaults() Config {
 	if c.MaxParallelScouts <= 0 {
 		c.MaxParallelScouts = DefaultMaxParallelScouts
+	}
+	if c.MaxParallelAgents <= 0 {
+		c.MaxParallelAgents = DefaultMaxParallelAgents
 	}
 	if c.WorkerMaxSteps <= 0 {
 		c.WorkerMaxSteps = DefaultWorkerMaxSteps
@@ -154,6 +163,7 @@ func (c Config) reviewerModel(lead string) string {
 type Orchestrator struct {
 	lead        *agent.Agent
 	cfg         Config
+	team        []*agents.Member
 	workerTools []tools.Tool
 	writerTools []tools.Tool
 	worktrees   *worktree.Manager
@@ -169,6 +179,7 @@ type Orchestrator struct {
 	totalDelegations int
 	workerTokens     int
 	activeWriters    int
+	activeAgents     int
 	writerTokens     int
 	writerBase       string
 	planRun          *planSession
@@ -245,6 +256,17 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		}
 	}
 	cfg = cfg.withDefaults()
+	seenTeam := map[string]bool{}
+	for _, member := range cfg.Team {
+		if member == nil || strings.TrimSpace(member.ID) == "" {
+			return nil, errors.New("orchestrator: custom agent has no id")
+		}
+		key := strings.ToLower(member.ID)
+		if seenTeam[key] {
+			return nil, fmt.Errorf("orchestrator: duplicate custom agent %q", member.ID)
+		}
+		seenTeam[key] = true
+	}
 	path := LedgerPath(ag.Sess.Path())
 	ledger, warning, err := LoadLedger(path)
 	if err != nil && warning == "" {
@@ -253,6 +275,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 	o := &Orchestrator{
 		lead:        ag,
 		cfg:         cfg,
+		team:        cfg.Team,
 		ledger:      ledger,
 		ledgerPath:  path,
 		loadWarning: warning,
@@ -335,6 +358,7 @@ func (o *Orchestrator) beginTurn() {
 	o.delegations = 0
 	o.workerTokens = 0
 	o.writerTokens = 0
+	o.activeAgents = 0
 	o.writerBase = ""
 	o.mu.Unlock()
 }
@@ -383,6 +407,10 @@ func (o *Orchestrator) systemPrompt() string {
 		b.WriteString("After update_plan, call run_plan: ready steps run in parallel, a slow step does not stall other ready work, and timed-out steps retry once. Writers are isolated, reviewed, and merged only when checks pass. Do not add a review step or mark a failed write completed by hand.\n\n")
 	} else {
 		b.WriteString("After update_plan, call run_plan: ready scouts run in parallel, slow steps don't stall independent work, and timeouts retry once. Failed steps block only dependents.\n\n")
+	}
+	if team := o.teamPromptSection(); team != "" {
+		b.WriteString(team)
+		b.WriteString("\n\n")
 	}
 	b.WriteString("### Delegation\n")
 	if o.cfg.ParallelAgents {
@@ -470,6 +498,7 @@ func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (st
 		steps[i].Objective = strings.TrimSpace(steps[i].Objective)
 		steps[i].Role = strings.TrimSpace(steps[i].Role)
 		steps[i].Kind = strings.TrimSpace(steps[i].Kind)
+		steps[i].Agent = strings.TrimSpace(steps[i].Agent)
 		steps[i].Deliverable = strings.TrimSpace(steps[i].Deliverable)
 		steps[i].Status = StepStatus(strings.ToLower(strings.TrimSpace(string(steps[i].Status))))
 		if steps[i].Status == "" {
@@ -516,6 +545,9 @@ func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (st
 		facts[i] = oneLine(facts[i], 500)
 	}
 	next := &Ledger{Goal: oneLine(goal, 1000), Facts: facts, Steps: steps, Updated: now}
+	if err := o.validateStepAgents(steps); err != nil {
+		return "", err
+	}
 	if err := next.Validate(); err != nil {
 		return "", err
 	}
@@ -529,6 +561,37 @@ func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (st
 		return o.planSummary(false, err), nil
 	}
 	return o.planSummary(true, nil), nil
+}
+
+// validateStepAgents checks that every assigned step names a selected custom
+// agent. The caller holds o.mu. "lead"/"default"/"me"/"self" clear the
+// assignment so the lead keeps the step.
+func (o *Orchestrator) validateStepAgents(steps []Step) error {
+	for i := range steps {
+		id := strings.TrimSpace(steps[i].Agent)
+		if id == "" {
+			continue
+		}
+		switch strings.ToLower(id) {
+		case "lead", "default", "me", "self":
+			steps[i].Agent = ""
+			continue
+		}
+		member := o.teamMemberLocked(id)
+		if member == nil {
+			known := "none selected"
+			if len(o.team) > 0 {
+				ids := make([]string, 0, len(o.team))
+				for _, member := range o.team {
+					ids = append(ids, member.ID)
+				}
+				known = strings.Join(ids, ", ")
+			}
+			return fmt.Errorf("step %q: unknown agent %q (known agents: %s)", steps[i].ID, id, known)
+		}
+		steps[i].Agent = member.ID
+	}
+	return nil
 }
 
 func (o *Orchestrator) planSummary(saved bool, saveErr error) string {

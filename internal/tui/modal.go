@@ -84,6 +84,15 @@ func (c *chat) restoreAndClose() {
 
 // modalKey handles keys for the help and theme overlays.
 func (c *chat) modalKey(msg tea.KeyMsg) tea.Cmd {
+	if c.modal == modalAgents {
+		return c.agentsKey(msg)
+	}
+	if c.modal == modalAgentForm {
+		return c.agentFormKey(msg)
+	}
+	if c.modal == modalSkills {
+		return c.skillsKey(msg)
+	}
 	if c.modal == modalReasoning {
 		return c.reasoningKey(msg)
 	}
@@ -267,7 +276,7 @@ func (c *chat) helpLines(width int) []string {
 		"",
 		sectionLabel("commands"),
 	)
-	order := []string{"Session", "Models", "Context", "Tools", "Files", "Appearance", "Safety", "Help", "System"}
+	order := []string{"Session", "Models", "Context", "Tools", "Skills", "Files", "Appearance", "Safety", "Help", "System"}
 	groups := map[string][]commands.Command{}
 	for _, cmd := range commands.List {
 		g := cmd.Group
@@ -411,6 +420,12 @@ func (c *chat) modalView() string {
 		card = c.copyCard()
 	case modalReasoning:
 		card = c.reasoningCard()
+	case modalAgents:
+		card = c.agentsCard()
+	case modalAgentForm:
+		card = c.agentFormCard()
+	case modalSkills:
+		card = c.skillsCard()
 	default:
 		return ""
 	}

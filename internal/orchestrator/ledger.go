@@ -76,11 +76,14 @@ func normalizeStepKind(kind string) string {
 }
 
 type Step struct {
-	ID          string        `json:"id"`
-	Title       string        `json:"title"`
-	Objective   string        `json:"objective,omitempty"`
-	Role        string        `json:"role,omitempty"`
-	Kind        string        `json:"kind,omitempty"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Objective string `json:"objective,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	// Agent names a custom agent selected for this session. Empty means the
+	// lead runs the step with its normal scouts or writers.
+	Agent       string        `json:"agent,omitempty"`
 	Files       []string      `json:"files,omitempty"`
 	Deliverable string        `json:"deliverable,omitempty"`
 	Status      StepStatus    `json:"status"`
@@ -252,6 +255,9 @@ func (l *Ledger) Validate() error {
 		if len(s.Deliverable) > 4000 {
 			return fmt.Errorf("step %q: deliverable is too long (max 4000 chars)", s.ID)
 		}
+		if len(s.Agent) > 64 {
+			return fmt.Errorf("step %q: agent id is too long (max 64 chars)", s.ID)
+		}
 		for _, f := range s.Files {
 			if _, err := cleanOwnedPath(f); err != nil {
 				return fmt.Errorf("step %q: %w", s.ID, err)
@@ -357,6 +363,9 @@ func (l *Ledger) PromptView() string {
 		if s.Objective != "" && s.Objective != s.Title {
 			fmt.Fprintf(&b, ": %s", oneLine(s.Objective, 300))
 		}
+		if s.Agent != "" {
+			fmt.Fprintf(&b, " (agent: %s)", s.Agent)
+		}
 		if len(s.DependsOn) > 0 {
 			fmt.Fprintf(&b, " (depends on: %s)", strings.Join(s.DependsOn, ", "))
 		}
@@ -384,6 +393,7 @@ func (l *Ledger) View() LedgerView {
 			ID:        s.ID,
 			Title:     s.Title,
 			Kind:      normalizeStepKind(s.Kind),
+			Agent:     s.Agent,
 			Files:     append([]string(nil), s.Files...),
 			Status:    s.Status,
 			DependsOn: append([]string(nil), s.DependsOn...),
@@ -413,6 +423,7 @@ type StepView struct {
 	ID            string      `json:"id"`
 	Title         string      `json:"title"`
 	Kind          string      `json:"kind,omitempty"`
+	Agent         string      `json:"agent,omitempty"`
 	Files         []string    `json:"files,omitempty"`
 	Status        StepStatus  `json:"status"`
 	DependsOn     []string    `json:"depends_on,omitempty"`

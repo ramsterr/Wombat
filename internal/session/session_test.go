@@ -72,6 +72,27 @@ func TestSessionRoundtrip(t *testing.T) {
 	}
 }
 
+func TestSessionAgentsRoundtrip(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	cwd := t.TempDir()
+
+	s, err := Create(cwd, "openai", "gpt-5", "team task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Meta.Agents = []string{"math-research", "design"}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(s.ID(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(reopened.Meta.Agents, ","); got != "math-research,design" {
+		t.Fatalf("agents = %q", got)
+	}
+}
+
 func TestEphemeralAttachmentsAreNotReloaded(t *testing.T) {
 	t.Setenv("WOMBAT_HOME", t.TempDir())
 	cwd := t.TempDir()

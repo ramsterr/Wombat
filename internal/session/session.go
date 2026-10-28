@@ -29,6 +29,9 @@ type Meta struct {
 	Model    string    `json:"model"`
 	Title    string    `json:"title,omitempty"`
 	Turns    int       `json:"turns,omitempty"`
+	// Agents lists the custom agents selected for this session, so resuming
+	// restores the same team.
+	Agents []string `json:"agents,omitempty"`
 }
 
 type record struct {

@@ -55,6 +55,15 @@ func MCPTools(manager *wombatmcp.Manager) []Tool {
 func (t *MCPTool) Name() string  { return t.name }
 func (t *MCPTool) Class() string { return t.class }
 
+// ServerName is the MCP server this tool belongs to. It lets a custom agent
+// restrict its toolset to specific servers.
+func (t *MCPTool) ServerName() string {
+	if t == nil || t.server == nil {
+		return ""
+	}
+	return t.server.Name()
+}
+
 // AllowedInWorkers reports whether delegated workers may call this tool.
 // Read-only servers are safe by default; others opt in with --workers.
 func (t *MCPTool) AllowedInWorkers() bool { return t.workers || t.class == "read" }

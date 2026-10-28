@@ -8,6 +8,23 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Custom agents.** Define specialists with their own system prompt, skills,
+  tool allowlist, permissions, MCP servers, and provider/model. Definitions
+  live in `agents` in `config.json`, `~/.wombat/agents/<name>.json|.md`, or
+  `.wombat/agents/<name>.json|.md` (project wins); `wombat agent new <name>`
+  scaffolds one and `wombat agent list` shows what Wombat sees. Select any
+  number for a session with the `/agents` picker (which also creates agents),
+  `/agents a,b`, or `wombat run --agents a,b`. The in-TUI builder has sections
+  for the system prompt, tools, MCP servers, permissions, skills, and options.
+  The planner assigns ledger steps to agents, runs independent steps in
+  parallel, and passes upstream reports to dependents. `readonly` definitions
+  cannot write, chat mode forces read-only, and `max_parallel_agents`
+  (default 5) caps concurrency. Selections persist with the session and
+  return on resume.
+- **A skills browser.** `/skill` lists installed skills, shows where each one
+  lives and which agents enable it, and expands the instructions in place
+  (`/skill <name>` prints them). Skills are markdown in `~/.wombat/skills` or
+  `.wombat/skills`, and the agent builder has a multi-select Skills section.
 - **Model Context Protocol servers.** Add local stdio or remote HTTP/SSE
   servers with `wombat mcp add`, check them with `wombat mcp test`, and import
   existing `mcpServers` or OpenCode configs. Their tools appear to the agent as

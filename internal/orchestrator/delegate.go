@@ -107,6 +107,22 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs, allowFleetDeps bo
 		if err := validateDelegationArgs(args[i]); err != nil {
 			return nil, fmt.Errorf("task %d: %w", i+1, err)
 		}
+		if id := strings.TrimSpace(args[i].Agent); id != "" {
+			switch strings.ToLower(id) {
+			case "lead", "default", "me", "self":
+				args[i].Agent = ""
+				continue
+			}
+			member := o.teamMember(id)
+			if member == nil {
+				known := "none selected"
+				if names := o.teamIDs(); len(names) > 0 {
+					known = strings.Join(names, ", ")
+				}
+				return nil, fmt.Errorf("task %d: unknown agent %q (known agents: %s)", i+1, id, known)
+			}
+			args[i].Agent = member.ID
+		}
 	}
 
 	o.mu.Lock()
@@ -380,6 +396,23 @@ func (o *Orchestrator) runOneDelegation(ctx context.Context, d delegation, goal 
 	var workerSession string
 	var merged bool
 	var err error
+	if member := o.teamMember(d.args.Agent); member != nil {
+		report, usage, workerSession, err = o.runTeamWorker(ctx, d.args, member, d.step, goal, facts, d.maxSteps, d.tokenBudget)
+		if report == nil {
+			report = &WorkerReport{Status: "failed", Summary: "agent returned no report"}
+		}
+		if err != nil && report.Summary == "" {
+			report.Status = "failed"
+			report.Summary = err.Error()
+		}
+		return delegationOutcome{
+			args:          d.args,
+			report:        report,
+			usage:         usage,
+			workerSession: workerSession,
+			err:           err,
+		}
+	}
 	if o.cfg.FullWorkers && o.worktrees != nil {
 		report, usage, workerSession, merged, err = o.runFullWorker(ctx, d.args, d.step, goal, facts, d.maxSteps, d.tokenBudget)
 	} else {
@@ -585,7 +618,13 @@ func (b *workerTokenBudget) add(u llm.Usage) bool {
 }
 
 func workerHooks(parent agent.Hooks, title string, mu *sync.Mutex) agent.Hooks {
-	tag := "worker:" + oneLine(title, 40) + ":"
+	return workerHooksKind("worker", parent, title, mu)
+}
+
+// workerHooksKind tags worker events with the kind of worker that emitted
+// them ("worker", "agent:<id>", …) and serialises the stream.
+func workerHooksKind(kind string, parent agent.Hooks, title string, mu *sync.Mutex) agent.Hooks {
+	tag := kind + ":" + oneLine(title, 40) + ":"
 	lock := func() {
 		if mu != nil {
 			mu.Lock()

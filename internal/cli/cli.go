@@ -75,6 +75,8 @@ func Main() {
 		err = cmdConfig(args)
 	case "mcp":
 		err = cmdMCP(args)
+	case "agent", "agents":
+		err = cmdAgent(args)
 	case "checkpoint":
 		err = cmdCheckpoint(args)
 	case "upgrade":
@@ -108,6 +110,8 @@ usage:
   wombat doctor              check configuration and connectivity
   wombat config              show config (redacted); use ` + "`wombat config set`" + `
   wombat mcp                 add and test Model Context Protocol servers
+  wombat agent new <name>    create a custom agent definition
+  wombat agent list          list custom agents
   wombat checkpoint list     list session checkpoints
   wombat checkpoint restore  restore a checkpoint (--yes to confirm)
   wombat upgrade             update wombat to the latest release
@@ -116,6 +120,7 @@ usage:
 flags for run/resume:
   -m <model>       override model
   -p <provider>    override provider
+  -a, --agents     custom agents to work with (comma-separated, repeatable)
   --yolo           auto-approve all tool permissions
   -c               continue: resume the latest session (run/resume)
   --quiet          only print assistant text (run)

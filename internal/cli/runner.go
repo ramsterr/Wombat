@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/checkpoint"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/embeddings"
@@ -28,8 +29,10 @@ import (
 type runOpts struct {
 	model    string
 	provider string
-	yolo     bool
-	quiet    bool
+	// agents lists the custom agents selected for this run.
+	agents []string
+	yolo   bool
+	quiet  bool
 
 	// mode overrides the configured mode for this session when modeSet is
 	// true (the /mode command).
@@ -140,6 +143,22 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			}
 		}
 	}
+	selectedAgents := splitAgentFlags(opts.agents)
+	if len(selectedAgents) == 0 && sess != nil {
+		selectedAgents = append([]string(nil), sess.Meta.Agents...)
+	}
+	team, agentProblems, err := prepareTeam(cfg, cwd, prov, model, allTools, selectedAgents, !sessionMode.AllowsWrite())
+	if err != nil {
+		env.CloseMCP()
+		return nil, err
+	}
+	for _, problem := range agentProblems {
+		fmt.Fprintf(os.Stderr, "%s\n", dim("agent: "+problem.String()))
+	}
+	if len(opts.agents) > 0 && sess != nil {
+		sess.Meta.Agents = selectedAgents
+		_ = sess.Flush()
+	}
 	ag := &agent.Agent{
 		Provider:      prov,
 		Model:         model,
@@ -159,6 +178,8 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	if cfg.Orchestrator {
 		if _, err := orchestrator.Attach(ag, orchestrator.Config{
 			MaxParallelScouts:     cfg.MaxParallelScouts,
+			MaxParallelAgents:     cfg.MaxParallelAgents,
+			Team:                  team,
 			ScoutModel:            cfg.ScoutModel,
 			ParallelAgents:        cfg.ParallelAgents,
 			MaxParallelWriters:    cfg.MaxParallelWriters,
@@ -182,6 +203,72 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		}
 	}
 	return ag, nil
+}
+
+// splitAgentFlags splits repeatable --agents values into individual names.
+func splitAgentFlags(values []string) []string {
+	var out []string
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
+// prepareTeam resolves the selected custom agents for a headless run. A
+// selected agent that cannot be prepared is a hard error: the user asked for
+// it explicitly, so silently running without it would be misleading.
+func prepareTeam(cfg *config.Config, cwd string, prov llm.Provider, model string, allTools []tools.Tool, selected []string, forceReadOnly bool) ([]*agents.Member, []agents.Problem, error) {
+	if len(selected) == 0 {
+		return nil, nil, nil
+	}
+	home := config.Home()
+	defs := agents.Load(cfg, home, cwd)
+	members, problems := agents.Prepare(agents.PrepareOptions{
+		Cfg:           cfg,
+		Cwd:           cwd,
+		Home:          home,
+		BaseProvider:  prov,
+		BaseModel:     model,
+		AllTools:      allTools,
+		Defs:          defs,
+		Selected:      selected,
+		ForceReadOnly: forceReadOnly,
+	})
+	want := map[string]bool{}
+	for _, name := range selected {
+		for _, part := range strings.Split(name, ",") {
+			name := config.NormalizeAgentName(part)
+			if name != "" {
+				want[name] = true
+			}
+		}
+	}
+	got := map[string]bool{}
+	for _, member := range members {
+		got[strings.ToLower(member.ID)] = true
+	}
+	var missing []string
+	for name := range want {
+		if !got[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		details := make([]string, 0, len(problems))
+		for _, problem := range problems {
+			details = append(details, problem.String())
+		}
+		if len(details) == 0 {
+			details = append(details, "define it with `wombat agent new "+missing[0]+"`")
+		}
+		return nil, nil, fmt.Errorf("could not prepare custom agent(s) %s: %s",
+			strings.Join(missing, ", "), strings.Join(details, "; "))
+	}
+	return members, problems, nil
 }
 
 func imageClient(cfg *config.Config) *images.Client {

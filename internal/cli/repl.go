@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/commands"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -151,6 +152,9 @@ func cmdRepl(args []string, resume bool) error {
 	yolo := fs.Bool("yolo", false, "auto-approve tool permissions")
 	cont := fs.Bool("c", false, "continue latest session")
 	quiet := fs.Bool("quiet", false, "suppress tool output")
+	var agentFlags stringList
+	fs.Var(&agentFlags, "agents", "custom agents to work with (comma-separated, repeatable)")
+	fs.Var(&agentFlags, "a", "custom agents to work with (comma-separated, repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -185,7 +189,7 @@ func cmdRepl(args []string, resume bool) error {
 
 	p := newPrompter(isTTY(os.Stdin), *yolo, cfg)
 	r := &renderer{cfg: cfg, sess: sess, quiet: *quiet}
-	opts := runOpts{model: *model, provider: *prov, yolo: *yolo}
+	opts := runOpts{model: *model, provider: *prov, yolo: *yolo, agents: splitAgentFlags(agentFlags)}
 
 	ag, err := buildAgent(cfg, opts, sess, p)
 	if err != nil {
@@ -438,6 +442,48 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 			return false, nil, nil, err
 		}
 		return false, na, sess, nil
+	case "/agents", "/agent", "/team":
+		na, err := replAgentsCommand(arg, cfg, sess, p, r, opts)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		if na == nil {
+			return false, nil, nil, nil
+		}
+		return false, na, sess, nil
+	case "/skill", "/skills":
+		skills, problems := agents.LoadSkills(config.Home(), sess.Meta.Cwd)
+		arg = strings.TrimSpace(arg)
+		if arg == "" || strings.EqualFold(arg, "list") || strings.EqualFold(arg, "ls") {
+			if len(skills) == 0 {
+				fmt.Println(dim("no skills installed — add ~/.wombat/skills/<name>.md or .wombat/skills/<name>.md"))
+			}
+			for _, skill := range skills {
+				line := "  " + skill.Name
+				if skill.Description != "" {
+					line += " — " + skill.Description
+				}
+				fmt.Println(line)
+				fmt.Println(dim("      " + skill.Source))
+			}
+			for _, problem := range problems {
+				fmt.Println(red("  ! " + problem.String()))
+			}
+			return false, nil, nil, nil
+		}
+		key := config.NormalizeAgentName(arg)
+		for _, skill := range skills {
+			if strings.EqualFold(skill.Name, key) {
+				fmt.Println(bold(skill.Name))
+				if skill.Description != "" {
+					fmt.Println(skill.Description)
+				}
+				fmt.Println(dim("source: " + skill.Source))
+				fmt.Println("\n" + strings.TrimSpace(skill.Prompt))
+				return false, nil, nil, nil
+			}
+		}
+		return false, nil, nil, fmt.Errorf("unknown skill %s — /skill list", arg)
 	case "/status":
 		current := mode.Create
 		if ag.Env != nil && ag.Env.Mode != "" {
@@ -445,12 +491,96 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 				current = m
 			}
 		}
-		fmt.Printf("provider=%s model=%s session=%s\ncwd=%s\nmode=%s\n",
-			ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd, current.Label())
+		selected := "none (default agent only)"
+		if len(opts.agents) > 0 {
+			selected = strings.Join(opts.agents, ", ")
+		}
+		fmt.Printf("provider=%s model=%s session=%s\ncwd=%s\nmode=%s\nagents=%s\n",
+			ag.Provider.Name(), ag.Model, sess.ID(), sess.Meta.Cwd, current.Label(), selected)
 	default:
 		return false, nil, nil, fmt.Errorf("unknown command %s — /help", cmd)
 	}
 	return false, nil, nil, nil
+}
+
+// replAgentsCommand handles /agents in line mode: list, clear, all, or an
+// explicit comma-separated selection. A nil agent means "nothing to
+// rebuild".
+func replAgentsCommand(arg string, cfg *config.Config, sess *session.Session, p *Prompter, r *renderer, opts *runOpts) (*agent.Agent, error) {
+	defs := agents.Load(cfg, config.Home(), sess.Meta.Cwd)
+	usable := agents.Usable(defs)
+	arg = strings.TrimSpace(arg)
+	switch strings.ToLower(arg) {
+	case "", "list", "ls":
+		if len(usable) == 0 {
+			fmt.Println(dim("no custom agents yet — create one with: wombat agent new <name>"))
+			return nil, nil
+		}
+		selected := map[string]bool{}
+		for _, name := range opts.agents {
+			selected[name] = true
+		}
+		fmt.Println("custom agents")
+		for _, def := range usable {
+			mark := "[ ]"
+			if selected[def.Name] {
+				mark = "[x]"
+			}
+			line := fmt.Sprintf("  %s %s", mark, def.Name)
+			if def.Description != "" {
+				line += " — " + def.Description
+			}
+			fmt.Println(line)
+		}
+		for _, loaded := range defs {
+			if loaded.Def != nil && loaded.Err == nil {
+				continue
+			}
+			fmt.Println(red("  ! " + loaded.Name() + ": " + loaded.Err.Error()))
+		}
+		return nil, nil
+	}
+
+	var names []string
+	switch strings.ToLower(arg) {
+	case "clear", "none", "off":
+		names = nil
+	case "all":
+		for _, def := range usable {
+			names = append(names, def.Name)
+		}
+	default:
+		available := map[string]bool{}
+		for _, def := range usable {
+			available[def.Name] = true
+		}
+		var unknown []string
+		for _, name := range splitAgentFlags([]string{arg}) {
+			name = config.NormalizeAgentName(name)
+			if !available[name] {
+				unknown = append(unknown, name)
+				continue
+			}
+			names = append(names, name)
+		}
+		if len(unknown) > 0 {
+			return nil, fmt.Errorf("unknown agent(s): %s — /agents list", strings.Join(unknown, ", "))
+		}
+	}
+	opts.agents = names
+	if len(names) == 0 {
+		sess.Meta.Agents = nil
+	} else {
+		sess.Meta.Agents = append([]string(nil), names...)
+	}
+	_ = sess.Flush()
+	if len(names) == 0 {
+		fmt.Println(dim("custom agents: none (the default agent plans and works alone)"))
+	} else {
+		fmt.Println(dim("custom agents: " + strings.Join(names, ", ")))
+	}
+	na, _, _, err := rebuild(cfg, *opts, sess, p, r)
+	return na, err
 }
 
 func rebuild(cfg *config.Config, opts runOpts, sess *session.Session, p *Prompter, r *renderer) (*agent.Agent, string, string, error) {

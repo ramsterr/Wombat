@@ -26,6 +26,9 @@ func cmdRun(args []string) error {
 	fs.Var(&files, "file", "attach a file (repeatable)")
 	fs.Var(&videos, "video", "attach a video (repeatable)")
 	fs.Var(&audios, "audio", "attach audio (repeatable)")
+	var agentFlags stringList
+	fs.Var(&agentFlags, "agents", "custom agents to work with (comma-separated, repeatable)")
+	fs.Var(&agentFlags, "a", "custom agents to work with (comma-separated, repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -75,7 +78,10 @@ func cmdRun(args []string) error {
 
 	p := newPrompter(isTTY(os.Stdin), *yolo, cfg)
 	r := &renderer{cfg: cfg, sess: sess, quiet: *quiet}
-	ag, err := buildAgent(cfg, runOpts{model: *model, provider: *prov, yolo: *yolo, quiet: *quiet}, sess, p)
+	ag, err := buildAgent(cfg, runOpts{
+		model: *model, provider: *prov, yolo: *yolo, quiet: *quiet,
+		agents: splitAgentFlags(agentFlags),
+	}, sess, p)
 	if err != nil {
 		return err
 	}

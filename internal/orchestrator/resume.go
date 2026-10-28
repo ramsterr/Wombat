@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
@@ -36,6 +37,8 @@ type resumableWorker struct {
 	Worktree *worktree.Worktree
 	Run      *writerRun
 	Full     bool
+	// Member is set when the worker was a selected custom agent.
+	Member *agents.Member
 }
 
 type resumeWorkerTool struct{ o *Orchestrator }
@@ -164,6 +167,9 @@ func (o *Orchestrator) resumeWorker(ctx context.Context, a resumeWorkerArgs) (st
 	rec := o.findResumable(key)
 	if rec == nil {
 		return "", fmt.Errorf("no resumable worker for %q; it may have finished or been evicted", key)
+	}
+	if rec.Member != nil {
+		return o.resumeCustomAgent(ctx, rec, a.Answer)
 	}
 	if rec.Kind == "writer" || rec.Kind == "worker" {
 		return o.resumeWriter(ctx, rec, a.Answer)

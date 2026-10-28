@@ -20,6 +20,7 @@ type Provider struct {
 const (
 	DefaultMaxDelegations        = 0
 	DefaultMaxParallelScouts     = 5
+	DefaultMaxParallelAgents     = 5
 	DefaultWorkerMaxSteps        = 16
 	DefaultWorkerTokenBudget     = 0
 	DefaultTurnWorkerTokenBudget = 0
@@ -44,9 +45,11 @@ type Config struct {
 	WorkerFullAccess      *bool                 `json:"worker_full_access,omitempty"`
 	Providers             map[string]*Provider  `json:"providers"`
 	MCPServers            map[string]*MCPServer `json:"mcp_servers,omitempty"`
+	Agents                map[string]*AgentDef  `json:"agents,omitempty"`
 	Permissions           map[string]string     `json:"permissions,omitempty"`
 	Orchestrator          bool                  `json:"orchestrator"`
 	MaxParallelScouts     int                   `json:"max_parallel_scouts"`
+	MaxParallelAgents     int                   `json:"max_parallel_agents,omitempty"`
 	MaxParallelWriters    int                   `json:"max_parallel_writers"`
 	WorkerMaxSteps        int                   `json:"worker_max_steps,omitempty"`
 	WorkerTokenBudget     int                   `json:"worker_token_budget,omitempty"`
@@ -154,6 +157,7 @@ func Defaults() *Config {
 		MCPServers:          map[string]*MCPServer{},
 		Orchestrator:        true,
 		MaxParallelScouts:   DefaultMaxParallelScouts,
+		MaxParallelAgents:   DefaultMaxParallelAgents,
 		MaxParallelWriters:  DefaultMaxParallelWriters,
 		Mode:                "create",
 		ParallelAgents:      true,
@@ -214,6 +218,9 @@ func Load() (*Config, error) {
 	}
 	if c.MaxParallelWriters <= 0 {
 		c.MaxParallelWriters = DefaultMaxParallelWriters
+	}
+	if c.MaxParallelAgents <= 0 {
+		c.MaxParallelAgents = DefaultMaxParallelAgents
 	}
 	if strings.TrimSpace(c.Mode) == "" {
 		c.Mode = "create"

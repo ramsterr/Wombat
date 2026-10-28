@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
 
@@ -342,9 +343,21 @@ type planScheduler struct {
 type planTaskRun struct {
 	step         *Step
 	kind         string
+	member       *agents.Member
 	scoutTokens  int
 	writerTokens int
+	teamTokens   int
 	contextPack  string
+}
+
+// teamKind marks a step assigned to a selected custom agent.
+const teamKind = "team"
+
+// planCandidate is one ready step classified by who runs it.
+type planCandidate struct {
+	step   *Step
+	kind   string
+	member *agents.Member
 }
 
 type planTaskResult struct {
@@ -379,55 +392,93 @@ func (s *planScheduler) launchReady() {
 	ready := readySteps(s.o.ledger, s.targets, s.executed)
 	s.o.mu.Unlock()
 
-	var candidates []*Step
+	candidates := make([]planCandidate, 0, len(ready))
 	for _, step := range ready {
-		if !s.running[step.ID] {
-			candidates = append(candidates, step)
+		if s.running[step.ID] {
+			continue
 		}
+		candidate := planCandidate{step: step, kind: normalizeStepKind(step.Kind)}
+		if id := strings.TrimSpace(step.Agent); id != "" {
+			member := s.o.teamMember(id)
+			if member == nil {
+				s.fail(step, fmt.Sprintf("unknown custom agent %q (known: %s)", id, strings.Join(s.o.teamIDs(), ", ")), s.nextWave())
+				continue
+			}
+			candidate.kind = teamKind
+			candidate.member = member
+		}
+		candidates = append(candidates, candidate)
 	}
 	slots := s.parallel - len(s.running)
 	if slots <= 0 || len(candidates) == 0 {
 		return
 	}
-	candidates = s.pickByKind(candidates, slots)
-	if len(candidates) == 0 {
+	selected := s.pickCandidates(candidates, slots)
+	if len(selected) == 0 {
 		return
 	}
 	wave := s.nextWave()
 
-	var scouts, writers []*Step
-	for _, step := range candidates {
-		kind := normalizeStepKind(step.Kind)
-		if kind != StepWrite {
-			scouts = append(scouts, step)
-			continue
-		}
-		switch {
-		case len(step.Files) == 0:
-			s.fail(step, "write step has no owned files", wave)
-		case s.cfg.RequireVerification && len(step.Checks) == 0:
-			s.fail(step, "write step has no checks", wave)
-		case s.o.worktrees == nil:
-			msg := s.o.writerWarn
-			if msg == "" {
-				msg = "writers are not enabled"
+	// claimed tracks files the wave already owns so two custom agents never
+	// write the same file at the same time. A conflicting custom-agent step
+	// stays pending and starts in a later wave.
+	claimed := map[string]bool{}
+	overlaps := func(files []string) bool {
+		for _, file := range files {
+			if claimed[file] {
+				return true
 			}
-			s.fail(step, msg, wave)
-		case s.writerConflict(step):
-			s.fail(step, "file ownership overlaps a running writer", wave)
+		}
+		return false
+	}
+
+	var scouts, teams, writers []planCandidate
+	for _, candidate := range selected {
+		switch candidate.kind {
+		case StepWrite:
+			step := candidate.step
+			switch {
+			case len(step.Files) == 0:
+				s.fail(step, "write step has no owned files", wave)
+			case s.cfg.RequireVerification && len(step.Checks) == 0:
+				s.fail(step, "write step has no checks", wave)
+			case s.o.worktrees == nil:
+				msg := s.o.writerWarn
+				if msg == "" {
+					msg = "writers are not enabled"
+				}
+				s.fail(step, msg, wave)
+			case s.writerConflict(step):
+				s.fail(step, "file ownership overlaps a running writer", wave)
+			default:
+				writers = append(writers, candidate)
+				for _, file := range step.Files {
+					claimed[file] = true
+				}
+			}
+		case teamKind:
+			step := candidate.step
+			if len(step.Files) > 0 && (s.writerConflict(step) || overlaps(step.Files)) {
+				// Deferred, not failed: the owning step finishes first.
+				continue
+			}
+			for _, file := range step.Files {
+				claimed[file] = true
+			}
+			teams = append(teams, candidate)
 		default:
-			writers = append(writers, step)
+			scouts = append(scouts, candidate)
 		}
 	}
 
 	if len(writers) > 0 {
 		tasks := make([]writerTask, 0, len(writers))
-		for _, step := range writers {
-			tasks = append(tasks, writerTask{StepID: step.ID, Title: step.Title, Objective: stepObjective(step), Files: step.Files})
+		for _, candidate := range writers {
+			tasks = append(tasks, writerTask{StepID: candidate.step.ID, Title: candidate.step.Title, Objective: stepObjective(candidate.step), Files: candidate.step.Files})
 		}
 		if err := validateWriters(tasks); err != nil {
-			for _, step := range writers {
-				s.fail(step, err.Error(), wave)
+			for _, candidate := range writers {
+				s.fail(candidate.step, err.Error(), wave)
 			}
 			writers = nil
 		}
@@ -437,20 +488,32 @@ func (s *planScheduler) launchReady() {
 	if len(scouts) > 0 {
 		tokens, err := s.o.reserveScoutBudget(len(scouts))
 		if err != nil {
-			for _, step := range scouts {
-				s.block(step, err.Error(), wave)
+			for _, candidate := range scouts {
+				s.block(candidate.step, err.Error(), wave)
 			}
 			scouts = nil
 		} else {
 			scoutTokens = tokens
 		}
 	}
+	teamTokens := 0
+	if len(teams) > 0 {
+		tokens, err := s.o.reserveTeamBudget(len(teams))
+		if err != nil {
+			for _, candidate := range teams {
+				s.block(candidate.step, err.Error(), wave)
+			}
+			teams = nil
+		} else {
+			teamTokens = tokens
+		}
+	}
 	writerTokens := 0
 	if len(writers) > 0 {
 		tokens, err := s.o.reserveWriterBudget(len(writers))
 		if err != nil {
-			for _, step := range writers {
-				s.block(step, err.Error(), wave)
+			for _, candidate := range writers {
+				s.block(candidate.step, err.Error(), wave)
 			}
 			writers = nil
 		} else {
@@ -461,87 +524,110 @@ func (s *planScheduler) launchReady() {
 	contextPack := ""
 	if len(writers) > 0 {
 		var files, objectives []string
-		for _, step := range writers {
-			files = append(files, step.Files...)
-			objectives = append(objectives, stepObjective(step))
+		for _, candidate := range writers {
+			files = append(files, candidate.step.Files...)
+			objectives = append(objectives, stepObjective(candidate.step))
 		}
 		contextPack = buildContextPack(s.o.worktrees.Repo, files, strings.Join(objectives, " "))
 	}
-	for _, step := range scouts {
-		s.start(step, StepScout, scoutTokens, 0, "", wave)
+	for _, candidate := range scouts {
+		s.start(candidate, scoutTokens, 0, 0, "", wave)
 	}
-	for _, step := range writers {
-		s.start(step, StepWrite, 0, writerTokens, contextPack, wave)
+	for _, candidate := range teams {
+		s.start(candidate, 0, 0, teamTokens, "", wave)
+	}
+	for _, candidate := range writers {
+		s.start(candidate, 0, writerTokens, 0, contextPack, wave)
 	}
 }
 
-// pickByKind prevents one kind of work from monopolising every slot. Ready
-// steps with the longest chain of dependents go first, so the critical path
-// is never stuck behind cheap independent work. Writers win ties and both
-// kinds stay under their configured concurrency limits.
-func (s *planScheduler) pickByKind(ready []*Step, slots int) []*Step {
-	activeScouts, activeWriters := 0, 0
+// pickCandidates prevents one kind of work from monopolising every slot.
+// Ready steps with the longest chain of dependents go first, so the critical
+// path is never stuck behind cheap independent work. Writers, then custom
+// agents, then scouts win ties, and every kind stays under its configured
+// concurrency limit.
+func (s *planScheduler) pickCandidates(ready []planCandidate, slots int) []planCandidate {
+	active := map[string]int{}
 	for id := range s.running {
-		switch s.kinds[id] {
-		case StepWrite:
-			activeWriters++
-		default:
-			activeScouts++
-		}
+		active[s.kinds[id]]++
 	}
 	writerRoom := s.o.freeWriterSlots()
-	scoutRoom := s.cfg.MaxParallelScouts - activeScouts
+	teamRoom := s.o.freeTeamSlots()
+	scoutRoom := s.cfg.MaxParallelScouts - active[StepScout]
 	if writerRoom < 0 {
 		writerRoom = 0
+	}
+	if teamRoom < 0 {
+		teamRoom = 0
 	}
 	if scoutRoom < 0 {
 		scoutRoom = 0
 	}
-	// When both kinds are ready, do not let writers consume every slot.
-	// At least one scout can make progress alongside a slow writer batch.
-	if len(ready) > 0 && writerRoom >= slots && slots > 1 {
+	// When several kinds are ready, do not let one consume every slot: an
+	// independent scout can still make progress alongside a slow batch.
+	if slots > 1 {
 		hasScout := false
-		for _, step := range ready {
-			if normalizeStepKind(step.Kind) != StepWrite {
+		for _, candidate := range ready {
+			if candidate.kind == StepScout {
 				hasScout = true
 				break
 			}
 		}
-		if hasScout && writerRoom > 0 {
-			writerRoom = slots - 1
+		if hasScout {
+			if writerRoom >= slots {
+				writerRoom = slots - 1
+			}
+			if teamRoom >= slots {
+				teamRoom = slots - 1
+			}
 		}
 	}
 	deps := s.targetDeps()
 	memo := make(map[string]int, len(ready))
 	sort.SliceStable(ready, func(i, j int) bool {
-		di := s.chainDepth(ready[i].ID, deps, memo, map[string]bool{})
-		dj := s.chainDepth(ready[j].ID, deps, memo, map[string]bool{})
+		di := s.chainDepth(ready[i].step.ID, deps, memo, map[string]bool{})
+		dj := s.chainDepth(ready[j].step.ID, deps, memo, map[string]bool{})
 		if di != dj {
 			return di > dj
 		}
-		wi := normalizeStepKind(ready[i].Kind) == StepWrite
-		wj := normalizeStepKind(ready[j].Kind) == StepWrite
-		if wi != wj {
-			return wi
+		priority := func(kind string) int {
+			switch kind {
+			case StepWrite:
+				return 0
+			case teamKind:
+				return 1
+			default:
+				return 2
+			}
 		}
-		return ready[i].ID < ready[j].ID
+		pi, pj := priority(ready[i].kind), priority(ready[j].kind)
+		if pi != pj {
+			return pi < pj
+		}
+		return ready[i].step.ID < ready[j].step.ID
 	})
-	selected := make([]*Step, 0, slots)
-	writers, scouts := 0, 0
-	for _, step := range ready {
+	selected := make([]planCandidate, 0, slots)
+	writers, teams, scouts := 0, 0, 0
+	for _, candidate := range ready {
 		if len(selected) >= slots {
 			break
 		}
-		if normalizeStepKind(step.Kind) == StepWrite {
+		switch candidate.kind {
+		case StepWrite:
 			if writers < writerRoom {
-				selected = append(selected, step)
+				selected = append(selected, candidate)
 				writers++
 			}
-			continue
-		}
-		if scouts < scoutRoom {
-			selected = append(selected, step)
-			scouts++
+		case teamKind:
+			if teams < teamRoom {
+				selected = append(selected, candidate)
+				teams++
+			}
+		default:
+			if scouts < scoutRoom {
+				selected = append(selected, candidate)
+				scouts++
+			}
 		}
 	}
 	return selected
@@ -593,10 +679,15 @@ func (s *planScheduler) nextWave() int {
 	return s.waveSeq
 }
 
-func (s *planScheduler) start(step *Step, kind string, scoutTokens, writerTokens int, contextPack string, wave int) {
-	run := planTaskRun{step: step, kind: kind, scoutTokens: scoutTokens, writerTokens: writerTokens, contextPack: contextPack}
+func (s *planScheduler) start(candidate planCandidate, scoutTokens, writerTokens, teamTokens int, contextPack string, wave int) {
+	step := candidate.step
+	run := planTaskRun{
+		step: step, kind: candidate.kind, member: candidate.member,
+		scoutTokens: scoutTokens, writerTokens: writerTokens, teamTokens: teamTokens,
+		contextPack: contextPack,
+	}
 	s.running[step.ID] = true
-	s.kinds[step.ID] = kind
+	s.kinds[step.ID] = candidate.kind
 	s.waveTasks[wave] = append(s.waveTasks[wave], step.ID)
 	s.o.mu.Lock()
 	if current := s.o.ledger.Find(step.ID); current != nil {
@@ -607,8 +698,8 @@ func (s *planScheduler) start(step *Step, kind string, scoutTokens, writerTokens
 	}
 	s.o.planActive[step.ID] = true
 	s.o.mu.Unlock()
-	s.o.planProgress("started %s (%s)", step.ID, kind)
-	if kind == StepWrite {
+	s.o.planProgress("started %s (%s)", step.ID, candidate.kind)
+	if candidate.kind == StepWrite || candidate.kind == teamKind {
 		for _, file := range step.Files {
 			s.writerFiles[file] = step.ID
 		}
@@ -634,6 +725,11 @@ func (s *planScheduler) executeWithRetry(run planTaskRun) planTaskOutcome {
 	// replay it after a timeout: a retry could apply the same side effects
 	// twice. Writers and worktree-backed workers are isolated and safe.
 	canRetry := run.kind == StepWrite || !s.cfg.FullWorkers || s.o.worktrees != nil
+	if run.kind == teamKind {
+		// A custom agent may have changed the workspace; only replay a
+		// read-only specialist after a transient failure.
+		canRetry = run.member != nil && run.member.ReadOnly
+	}
 	if !canRetry {
 		return out
 	}
@@ -683,6 +779,9 @@ func retryablePlanOutcome(out planTaskOutcome) bool {
 func (s *planScheduler) executePlanTask(ctx context.Context, run planTaskRun, goal string, facts []string, cfg Config) planTaskOutcome {
 	step := run.step
 	out := planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: run.kind}
+	if run.kind == teamKind {
+		return s.executeTeamTask(ctx, run, goal, facts, cfg)
+	}
 	if run.kind == StepWrite {
 		copyStep := *step
 		r := writerRun{
@@ -746,6 +845,7 @@ func (s *planScheduler) executePlanTask(ctx context.Context, run planTaskRun, go
 		Role:        step.Role,
 		Deliverable: step.Deliverable,
 		Files:       append([]string(nil), step.Files...),
+		Context:     s.o.upstreamContext(step),
 	}
 	var report *WorkerReport
 	var usage ReportUsage
@@ -764,6 +864,64 @@ func (s *planScheduler) executePlanTask(ctx context.Context, run planTaskRun, go
 	}
 	if err != nil {
 		out.Status = "failed"
+		out.Error = err.Error()
+	}
+	if out.Status == "completed" && len(step.Checks) > 0 {
+		checks := runCheckCommands(ctx, s.o.lead.Env, step.Checks, 0)
+		out.Checks = checks
+		for _, check := range checks {
+			if check.Status != CheckPassed {
+				out.Status = "failed"
+				out.Error = "check failed: " + check.Command
+				break
+			}
+		}
+	}
+	if ctx.Err() != nil && out.Status != "completed" && out.Status != "needs_input" {
+		out.Status = "pending"
+		out.Error = ""
+		out.Warning = combineWarnings(ctx.Err(), out.Warning)
+		if out.Report != nil {
+			out.Report.Status = "pending"
+			out.Report.Summary = "interrupted; run run_plan again to resume"
+		}
+	}
+	return out
+}
+
+// executeTeamTask runs one step with a custom agent. The agent works in the
+// session workspace and its report is recorded on the ledger; dependent steps
+// receive that report through upstream context.
+func (s *planScheduler) executeTeamTask(ctx context.Context, run planTaskRun, goal string, facts []string, cfg Config) planTaskOutcome {
+	step := run.step
+	out := planTaskOutcome{StepID: step.ID, Title: step.Title, Kind: teamKind}
+	if run.member == nil {
+		out.Status = "failed"
+		out.Error = "custom agent is unavailable"
+		out.Report = &WorkerReport{Status: "failed", Summary: out.Error}
+		return out
+	}
+	args := delegateArgs{
+		StepID:      step.ID,
+		Title:       step.Title,
+		Objective:   stepObjective(step),
+		Role:        step.Role,
+		Deliverable: step.Deliverable,
+		Files:       append([]string(nil), step.Files...),
+		Agent:       run.member.ID,
+		Context:     s.o.upstreamContext(step),
+	}
+	report, usage, workerSession, err := s.o.runTeamWorker(ctx, args, run.member, step, goal, facts, cfg.WorkerMaxSteps, run.teamTokens)
+	out.Usage = usage
+	out.Report = report
+	out.WorkerSession = workerSession
+	if report != nil {
+		out.Status = report.Status
+	}
+	if err != nil {
+		if out.Status == "" || out.Status == "completed" {
+			out.Status = "failed"
+		}
 		out.Error = err.Error()
 	}
 	if out.Status == "completed" && len(step.Checks) > 0 {
@@ -833,7 +991,7 @@ func (s *planScheduler) record(out planTaskOutcome, wave int) {
 }
 
 func (s *planScheduler) apply(out planTaskOutcome) {
-	if out.Kind == StepWrite {
+	if out.Kind == StepWrite || out.Kind == teamKind {
 		for file, owner := range s.writerFiles {
 			if owner == out.StepID {
 				delete(s.writerFiles, file)
@@ -857,7 +1015,7 @@ func (s *planScheduler) apply(out planTaskOutcome) {
 		if out.Review != nil {
 			step.Review = out.Review
 		}
-		if len(out.Checks) > 0 && (out.Kind == StepWrite || out.Kind == StepScout) {
+		if len(out.Checks) > 0 && (out.Kind == StepWrite || out.Kind == StepScout || out.Kind == teamKind) {
 			step.Checks = nil
 			for _, c := range out.Checks {
 				step.Checks = append(step.Checks, Check{ID: c.ID, Command: c.Command, Status: c.Status, Output: truncateCheckOutput(c.Output), ExitCode: c.ExitCode, RanAt: time.Now()})
@@ -883,6 +1041,9 @@ func (s *planScheduler) apply(out planTaskOutcome) {
 	s.o.mu.Unlock()
 	if out.Kind == StepWrite {
 		s.o.releaseWriterSlots(1)
+	}
+	if out.Kind == teamKind {
+		s.o.releaseTeamSlots(1)
 	}
 	s.o.mu.Lock()
 	s.o.ledger.Updated = time.Now()

@@ -25,6 +25,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/checkpoint"
 	clipboard "github.com/ramsterr/Wombat/internal/clip"
 	"github.com/ramsterr/Wombat/internal/commands"
@@ -77,6 +78,9 @@ const (
 	modalPreviews
 	modalCopy
 	modalReasoning
+	modalAgents
+	modalAgentForm
+	modalSkills
 )
 
 type textMsg string
@@ -274,6 +278,21 @@ type chat struct {
 	refs     []reference
 	refInput textinput.Model
 
+	// custom agents selected for this session, and the picker state
+	agentDefs     []agents.Loaded
+	agentSel      []string
+	agentProblems []agents.Problem
+	agentRows     []agentRow
+	agentCursor   int
+	agentDraft    map[string]bool
+	wizard        *agentWizard
+
+	// skills browser
+	skillRows     []skillRow
+	skillCursor   int
+	skillExpanded bool
+	skillProblems []agents.Problem
+
 	// reasoning picker
 	reasoningOptions []string
 	reasoningSel     int
@@ -342,6 +361,7 @@ func newChat(opt Options) (*chat, error) {
 		if c.sess.Meta.Model != "" {
 			c.modelName = c.sess.Meta.Model
 		}
+		c.agentSel = normalizeAgentSelection(c.sess.Meta.Agents)
 	}
 
 	ta := textarea.New()
@@ -572,6 +592,23 @@ func (c *chat) rebuild(reset bool) error {
 		env.SetMCPManager(manager)
 		allTools = append(allTools, tools.MCPTools(manager)...)
 	}
+	c.agentDefs = agents.Load(c.cfg, config.Home(), cwd)
+	var team []*agents.Member
+	var agentProblems []agents.Problem
+	if c.cfg.Orchestrator && len(c.agentSel) > 0 {
+		team, agentProblems = agents.Prepare(agents.PrepareOptions{
+			Cfg:           c.cfg,
+			Cwd:           cwd,
+			Home:          config.Home(),
+			BaseProvider:  prov,
+			BaseModel:     c.modelName,
+			AllTools:      allTools,
+			Defs:          c.agentDefs,
+			Selected:      c.agentSel,
+			ForceReadOnly: !c.mode.AllowsWrite(),
+		})
+	}
+	c.agentProblems = agentProblems
 	c.ag = &agent.Agent{
 		Provider:      prov,
 		Model:         c.modelName,
@@ -590,6 +627,8 @@ func (c *chat) rebuild(reset bool) error {
 	if c.cfg.Orchestrator {
 		if _, err := orchestrator.Attach(c.ag, orchestrator.Config{
 			MaxParallelScouts:     c.cfg.MaxParallelScouts,
+			MaxParallelAgents:     c.cfg.MaxParallelAgents,
+			Team:                  team,
 			ScoutModel:            c.cfg.ScoutModel,
 			ParallelAgents:        c.cfg.ParallelAgents,
 			MaxParallelWriters:    c.cfg.MaxParallelWriters,
@@ -648,6 +687,8 @@ func (c *chat) openSession(id string) error {
 	if s.Meta.Model != "" {
 		c.modelName = s.Meta.Model
 	}
+	c.agentSel = normalizeAgentSelection(s.Meta.Agents)
+	c.agentDraft = nil
 	buildErr := c.rebuild(false)
 	c.loadHistory()
 	c.showBanner = len(c.entries) == 0
@@ -657,6 +698,9 @@ func (c *chat) openSession(id string) error {
 	c.refresh()
 	if buildErr != nil {
 		c.note("error: "+buildErr.Error(), true)
+	}
+	for _, problem := range c.agentProblems {
+		c.note("agent: "+problem.String(), true)
 	}
 	return nil
 }
@@ -703,6 +747,19 @@ func (c *chat) updatePalette() {
 		return
 	}
 	name, arg, hasArg := splitCommand(text)
+	if hasArg && (name == "/agents" || name == "/agent" || name == "/team") {
+		opts := c.agentPaletteOptions(arg)
+		if len(opts) > 0 {
+			c.cmdCommand = "/agents"
+			c.cmdOptions = opts
+			c.cmdList = optionEntries(opts, "")
+			if c.cmdSel >= len(c.cmdList) {
+				c.cmdSel = 0
+			}
+			c.cmdTop = 0
+			return
+		}
+	}
 	cmd, known := commands.Find(name)
 	if known && len(cmd.Options) > 0 && hasArg {
 		// the user is typing an argument: offer the command's options
@@ -745,8 +802,8 @@ func (c *chat) updatePalette() {
 // canonical order inside each group.
 func sortPaletteByGroup(entries []paletteEntry) {
 	order := map[string]int{
-		"Session": 1, "Models": 2, "Context": 3, "Tools": 4, "Files": 5,
-		"Appearance": 6, "Safety": 7, "Help": 8, "System": 9,
+		"Session": 1, "Models": 2, "Context": 3, "Tools": 4, "Skills": 5,
+		"Files": 6, "Appearance": 7, "Safety": 8, "Help": 9, "System": 10,
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		gi, gj := order[entries[i].group], order[entries[j].group]
@@ -1360,6 +1417,7 @@ func (c *chat) ensureSession() error {
 		return err
 	}
 	c.sess = s
+	c.persistAgents()
 	return c.rebuild(false)
 }
 
@@ -1717,6 +1775,7 @@ func (c *chat) command(line string) tea.Cmd {
 			break
 		}
 		c.sess = ns
+		c.persistAgents()
 		c.entries = nil
 		c.imageGen = false
 		c.showBanner = true
@@ -1789,8 +1848,8 @@ func (c *chat) command(line string) tea.Cmd {
 		if c.sess != nil {
 			cwd = c.sess.Meta.Cwd
 		}
-		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nmode=%s  auto-approve=%v",
-			c.provName, c.modelName, c.sessionID(), cwd, c.modeLabel(), c.auto), false)
+		c.note(fmt.Sprintf("provider=%s model=%s session=%s\ndir=%s\nmode=%s  auto-approve=%v\nagents=%s",
+			c.provName, c.modelName, c.sessionID(), cwd, c.modeLabel(), c.auto, c.agentSelLabel()), false)
 	case "/yolo":
 		c.auto = !c.auto
 		c.note(fmt.Sprintf("auto-approve: %v", c.auto), false)
@@ -1810,6 +1869,60 @@ func (c *chat) command(line string) tea.Cmd {
 			return nil
 		}
 		c.note(msg, false)
+	case "/agents", "/agent", "/team":
+		if busy() {
+			return nil
+		}
+		arg = strings.TrimSpace(arg)
+		switch {
+		case arg == "":
+			return c.openAgentPicker()
+		case strings.EqualFold(arg, "list"), strings.EqualFold(arg, "ls"):
+			c.notePre(c.agentsList())
+			return nil
+		case strings.EqualFold(arg, "clear"), strings.EqualFold(arg, "none"), strings.EqualFold(arg, "off"):
+			return c.setAgents(nil)
+		case strings.EqualFold(arg, "all"):
+			c.refreshAgentDefs()
+			var names []string
+			for _, def := range agents.Usable(c.agentDefs) {
+				names = append(names, def.Name)
+			}
+			if len(names) == 0 {
+				c.note("no custom agents found — create one with `wombat agent new <name>`", true)
+				return nil
+			}
+			return c.setAgents(names)
+		default:
+			c.refreshAgentDefs()
+			available := map[string]bool{}
+			for _, def := range agents.Usable(c.agentDefs) {
+				available[def.Name] = true
+			}
+			names := splitAgentArgs(arg)
+			var unknown []string
+			for _, name := range names {
+				if !available[name] {
+					unknown = append(unknown, name)
+				}
+			}
+			if len(unknown) > 0 {
+				c.note("unknown agent: "+strings.Join(unknown, ", ")+" — /agents list", true)
+				return nil
+			}
+			return c.setAgents(names)
+		}
+	case "/skill", "/skills":
+		arg = strings.TrimSpace(arg)
+		switch {
+		case arg == "":
+			return c.openSkills()
+		case strings.EqualFold(arg, "list"), strings.EqualFold(arg, "ls"):
+			c.notePre(c.skillsList())
+		default:
+			c.notePre(c.skillDetail(arg))
+		}
+		return nil
 	case "/thinking":
 		settings, msg, changed, err := commands.ThinkingCommand(line, c.showThinking)
 		if err != nil {
@@ -2343,6 +2456,9 @@ func (c *chat) header() string {
 		right += "  " + styleWarn.Render("yolo")
 	}
 	right += "  " + mode
+	if badge := c.agentsBadge(); badge != "" && c.w >= 100 {
+		right += "  " + styleFaint.Render(badge)
+	}
 	if c.w >= 110 {
 		right += "  " + styleFaint.Render(clip(c.sessionID(), 18))
 	}
@@ -2357,6 +2473,18 @@ func (c *chat) hint() string {
 	switch {
 	case c.modal == modalHelp:
 		left = keyHint("j/k", "scroll") + "   " + keyHint("g/G", "top/bottom") + "   " + keyHint("esc", "close")
+	case c.modal == modalAgents:
+		left = keyHint("space", "toggle") + "   " + keyHint("enter", "apply") + "   " + keyHint("c", "create") + "   " + keyHint("esc", "cancel")
+	case c.modal == modalAgentForm:
+		if c.wizard != nil && c.wizard.editing && c.wizard.section == wizardPrompt {
+			left = keyHint("ctrl+s", "done") + "   " + keyHint("enter", "new line") + "   " + keyHint("esc", "done")
+		} else if c.wizard != nil && c.wizard.editing {
+			left = keyHint("tab", "next") + "   " + keyHint("space", "toggle") + "   " + keyHint("esc", "back")
+		} else {
+			left = keyHint("↑↓", "section") + "   " + keyHint("enter", "edit") + "   " + keyHint("ctrl+s", "save") + "   " + keyHint("esc", "cancel")
+		}
+	case c.modal == modalSkills:
+		left = keyHint("↑↓", "browse") + "   " + keyHint("enter", "expand") + "   " + keyHint("esc", "close")
 	case c.modal == modalTheme:
 		left = keyHint("↑↓", "preview") + "   " + keyHint("enter", "apply") + "   " + keyHint("esc", "restore")
 	case c.perm != nil && c.permFeedback:

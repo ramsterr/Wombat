@@ -328,6 +328,7 @@ Orchestration tools and `question` stay with the lead.
 - `run_plan` executes the ledger as a dependency graph with continuous scheduling. Free slots start newly-ready work instead of waiting for a slow step; writers can review and merge while scouts are still running; long dependency chains are scheduled first; timed-out/transient steps retry once; and slots are shared between scouts and writers. `background=true` returns immediately, `cancel=true` stops the plan, and canceled or interrupted steps stay pending so a later `run_plan` resumes them.
 - `delegate_write` gives writers explicit file ownership; writes outside the declared files are refused.
 - `resume_worker` answers a worker that reported `needs_input` and continues the same session and worktree.
+- Selected custom agents (see below) are first-class workers: `update_plan` steps take an `agent` id, the planner runs them in parallel by dependency, and dependent steps receive the upstream report.
 - `rename` and `refactor` use a real language server.
 - Workers run in git worktrees when possible; warm worktrees are reused between steps, changes are reviewed and merged, and checks run once before merge.
 - Token budgets are unlimited by default. `max_parallel_scouts` and
@@ -343,6 +344,84 @@ then call run_plan.
 ```
 
 Set `worker_full_access false` for read-only research workers.
+
+## Custom agents
+
+Custom agents are specialists you define once and select per session. Each
+one has its own system prompt, skills, tool allowlist, permissions, MCP
+servers, and optional model/provider. The planner coordinates every selected
+specialist with the default agent, running independent steps in parallel and
+handing each dependent step its upstream report.
+
+Create a definition:
+
+```sh
+wombat agent new math-research
+wombat agent list
+```
+
+This writes `~/.wombat/agents/math-research.json` (or
+`.wombat/agents/<name>.json` inside a project that already has `.wombat`).
+Edit it:
+
+```json
+{
+  "name": "math-research",
+  "description": "Verifies mathematical claims and writes clear proofs",
+  "prompt": "You are a rigorous mathematician. Justify each step and cite sources.",
+  "model": "",
+  "tools": ["read", "grep", "websearch", "webfetch"],
+  "mcp_servers": [],
+  "permissions": { "write": "deny" },
+  "skills": ["careful-proofs"],
+  "readonly": true
+}
+```
+
+Definitions can also be markdown with a flat frontmatter block, and skills are
+markdown files in `~/.wombat/skills/<name>.md` or `.wombat/skills/<name>.md`
+(project wins on conflicts). Every definition may set:
+
+| Field | Meaning |
+| --- | --- |
+| `description` | When the planner and picker should use this agent. |
+| `prompt`, `prompt_file` | The agent's system prompt, inline or from a file. |
+| `provider`, `model` | Run this agent on a different provider/model. |
+| `tools` | Allowlist of names, globs (`web*`), classes (`class:read`), or `mcp:<server>`. Empty means every worker-eligible tool. |
+| `exclude_tools` | Remove tools that would otherwise be included. |
+| `mcp_servers` | Restrict the agent to the named MCP servers. |
+| `permissions` | `allow` or `deny` for `bash`, `write`, `edit`, `network`, `dangerous`, `sensitive-read`, `outside`, `mcp`, `mcp:<server>`. Custom agents never prompt, so `ask` is rejected; credentials reads and dangerous commands stay denied unless explicitly allowed. |
+| `skills` | Skill names whose instructions are appended to the prompt. |
+| `max_steps` | Per-run step budget (0 uses the session default). |
+| `readonly` | Blocks writes, edits, and mutating commands. |
+
+Select agents in the TUI with `/agents`. The picker is a multi-select list
+with a **Create a new agent…** row (also `c`). Create opens a sectioned
+builder for basics, system prompt, tools, MCP servers, permissions, skills,
+and options, then writes the definition file and returns to the picker.
+`space` toggles an agent, `a` selects all or none, and `enter` applies the
+selection. Power users can also use `/agents math-research,design`, `/agents
+clear`, or `/agents list`. Selections are saved on the session and restored
+by `wombat resume`. Headless runs take the same selection:
+
+```sh
+wombat run --agents math-research,design "research MCTS and design a deck"
+```
+
+With no agents selected the default agent plans and works exactly as before.
+Chat mode forces every selected agent read-only. `max_parallel_agents`
+(default 5) caps how many custom agents run at once.
+
+Skills are reusable instruction files. `/skill` (or `/skills`) opens the
+skills browser, with `enter` expanding the selected skill, `/skill <name>`
+printing it in full, and `/skill list` printing every installed skill with
+its source and the agents that enable it. Enable skills per agent with the
+builder's Skills section or the `skills` field.
+
+A planning example: the default agent plans `research` (agent: math-research)
+→ `design` (agent: design, depends_on: research) → assembles the deck itself.
+Research and any independent step run in the first wave; design starts as
+soon as research completes and receives its findings automatically.
 
 ## Configuration
 

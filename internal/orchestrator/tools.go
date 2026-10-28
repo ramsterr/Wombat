@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/ramsterr/Wombat/internal/tools"
 )
@@ -22,6 +23,7 @@ type planStep struct {
 	Objective   string      `json:"objective"`
 	Role        string      `json:"role"`
 	Kind        string      `json:"kind"`
+	Agent       string      `json:"agent,omitempty"`
 	Files       []string    `json:"files"`
 	Deliverable string      `json:"deliverable"`
 	Status      string      `json:"status"`
@@ -38,9 +40,13 @@ type planCheck struct {
 func (t *updatePlanTool) Name() string  { return "update_plan" }
 func (t *updatePlanTool) Class() string { return "plan" }
 func (t *updatePlanTool) Description() string {
-	return "Create or replace the task ledger: the goal, durable facts, and ordered steps. Use for multi-step work, before delegating, and whenever the plan materially changes. Keep sequential work focused on one in_progress step; a parallel scout fleet may have several. Steps are ordered but dependencies are explicit."
+	return "Create or replace the task ledger: the goal, durable facts, and ordered steps. Use for multi-step work, before delegating, and whenever the plan materially changes. Keep sequential work focused on one in_progress step; a parallel scout fleet may have several. Steps are ordered but dependencies are explicit. Set a step's agent to a selected custom agent id to have that specialist run the step; leave it empty to do the work yourself."
 }
 func (t *updatePlanTool) Schema() map[string]any {
+	agentDesc := "optional custom agent id to run this step with that agent's own prompt, tools, and permissions; leave empty to do the step yourself with your workers"
+	if names := t.o.teamIDs(); len(names) > 0 {
+		agentDesc += " (selected agents: " + strings.Join(names, ", ") + ")"
+	}
 	stepSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -49,6 +55,7 @@ func (t *updatePlanTool) Schema() map[string]any {
 			"objective":   map[string]any{"type": "string", "description": "concrete outcome and scope"},
 			"role":        map[string]any{"type": "string", "description": "optional role, e.g. explorer, implementer, verifier"},
 			"kind":        map[string]any{"type": "string", "enum": []string{"scout", "write"}, "description": "scout (read-only research, default) or write (owned files in a worktree, then review and merge)"},
+			"agent":       map[string]any{"type": "string", "description": agentDesc},
 			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "for kind=write: every repo-relative file the writer may change; tasks with overlapping files cannot run together"},
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected from a scout or writer"},
 			"status":      map[string]any{"type": "string", "enum": []string{"pending", "in_progress", "completed", "blocked", "failed"}},
@@ -96,6 +103,7 @@ func (t *updatePlanTool) Run(_ context.Context, raw json.RawMessage, _ *tools.En
 			Objective:   s.Objective,
 			Role:        s.Role,
 			Kind:        s.Kind,
+			Agent:       s.Agent,
 			Files:       s.Files,
 			Deliverable: s.Deliverable,
 			Status:      StepStatus(s.Status),
@@ -130,6 +138,9 @@ type delegateArgs struct {
 	Deliverable string   `json:"deliverable"`
 	Files       []string `json:"files,omitempty"`
 	MaxSteps    int      `json:"max_steps"`
+	// Agent routes the task to one of the selected custom agents instead of
+	// a generic worker.
+	Agent string `json:"agent,omitempty"`
 }
 
 func (t *delegateTool) Name() string  { return "delegate" }
@@ -138,7 +149,8 @@ func (t *delegateTool) Description() string {
 	return "Delegate one self-contained task to a fresh worker with its own context. " +
 		"Use when exploration would flood your context. For two or more independent angles, use delegate_many - that is " +
 		"the default for multi-step work. Do the work directly when it is small. " +
-		"Workers are full-access by default: they can read, write, edit, run commands, use the network, and use every non-orchestration tool in an isolated worktree; changes are reviewed and merged. They cannot delegate further. Returns a structured JSON report with evidence and usage."
+		"Workers are full-access by default: they can read, write, edit, run commands, use the network, and use every non-orchestration tool in an isolated worktree; changes are reviewed and merged. They cannot delegate further. " +
+		"Set agent to a selected custom agent id to run the task with that specialist instead. Returns a structured JSON report with evidence and usage."
 }
 func (t *delegateTool) Schema() map[string]any {
 	return map[string]any{
@@ -152,6 +164,7 @@ func (t *delegateTool) Schema() map[string]any {
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including which claims need evidence"},
 			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "optional repo-relative file ownership; omit to let a full-access worker edit anywhere in its worktree"},
 			"max_steps":   map[string]any{"type": "integer", "description": "optional worker step budget (default from config, max 100)"},
+			"agent":       map[string]any{"type": "string", "description": t.o.delegateAgentDescription()},
 		},
 		"required": []string{"title", "objective"},
 	}
@@ -195,6 +208,7 @@ func (t *delegateManyTool) Schema() map[string]any {
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including evidence requirements"},
 			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "optional repo-relative ownership, for workers that may write"},
 			"max_steps":   map[string]any{"type": "integer", "description": "optional worker step budget (default from config, max 100)"},
+			"agent":       map[string]any{"type": "string", "description": t.o.delegateAgentDescription()},
 		},
 		"required": []string{"title", "objective"},
 	}
@@ -219,6 +233,15 @@ func (t *delegateManyTool) Run(ctx context.Context, raw json.RawMessage, _ *tool
 		return "", fmt.Errorf("bad arguments: %w", err)
 	}
 	return t.o.delegateMany(ctx, a.Tasks)
+}
+
+// delegateAgentDescription names the team for the direct-delegation tools.
+func (o *Orchestrator) delegateAgentDescription() string {
+	desc := "optional custom agent id; leave empty for a generic worker"
+	if names := o.teamIDs(); len(names) > 0 {
+		desc += " (selected agents: " + strings.Join(names, ", ") + ")"
+	}
+	return desc
 }
 
 func jsonMarshalIndent(v any) (string, error) {
