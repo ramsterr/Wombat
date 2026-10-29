@@ -112,13 +112,14 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		sessionMode = opts.mode
 	}
 	env := &tools.Env{
-		Dir:            cwd,
-		Permit:         p.Permit,
-		PermitPreview:  p.PermitPreview,
-		Mode:           sessionMode.Label(),
-		DenyMutate:     !sessionMode.AllowsWrite(),
-		Todos:          todo.New(todo.PathForSession(sess.Path())),
-		SessionStarted: time.Now(),
+		Dir:              cwd,
+		Permit:           p.Permit,
+		PermitPreview:    p.PermitPreview,
+		Mode:             sessionMode.Label(),
+		DenyMutate:       !sessionMode.AllowsWrite(),
+		Todos:            todo.New(todo.PathForSession(sess.Path())),
+		SessionStarted:   time.Now(),
+		AllowScreenshots: cfg.BrowserScreenshots,
 	}
 	if p != nil {
 		env.AskUser = func(q tools.Question) (string, error) {

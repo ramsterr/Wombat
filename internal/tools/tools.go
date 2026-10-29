@@ -108,6 +108,11 @@ type Env struct {
 	// distinguishes "not supported" from a caller that did not set it.
 	Vision      bool
 	VisionKnown bool
+
+	// AllowScreenshots opts in to browser screenshots. They are off by
+	// default: DOM assertions and verify_site cover the harness without
+	// spending time and context on images.
+	AllowScreenshots bool
 }
 
 // mediaSink is a pointer so copying an Env (the orchestrator does that for

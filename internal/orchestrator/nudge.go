@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/ramsterr/Wombat/internal/llm"
@@ -15,6 +16,7 @@ func (o *Orchestrator) inputNote(input string) string {
 	o.mu.Lock()
 	o.planExpected = expected
 	o.steered = false
+	o.screenshotSteered = false
 	active := false
 	if o.ledger != nil {
 		for _, step := range o.ledger.Steps {
@@ -48,7 +50,16 @@ func (o *Orchestrator) inputNote(input string) string {
 func (o *Orchestrator) stepNote(step int, calls []llm.ToolCall) string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.steered || len(calls) == 0 {
+	if len(calls) == 0 {
+		return ""
+	}
+	if !o.screenshotSteered {
+		if note := screenshotBatchNudge(calls); note != "" {
+			o.screenshotSteered = true
+			return note
+		}
+	}
+	if o.steered {
 		return ""
 	}
 	if o.planExpected && len(calls) >= 3 {
@@ -63,6 +74,64 @@ func (o *Orchestrator) stepNote(step int, calls []llm.ToolCall) string {
 		return "## Steering\nYou have made 10 or more calls without changing anything. Stop exploring: use the evidence you have, make the smallest complete change now, then verify the result."
 	}
 	return ""
+}
+
+// screenshotBatchNudge catches the expensive screenshot -> one fix ->
+// screenshot loop. A single small edit between two screenshots is not a
+// review pass; the model should collect every visible defect and fix them
+// together.
+func screenshotBatchNudge(calls []llm.ToolCall) string {
+	shots := 0
+	mutations := 0
+	for _, call := range calls {
+		if isScreenshotCall(call) {
+			if shots > 0 && mutations < 2 {
+				return "## Screenshot batching\nYou took another screenshot after only one small edit. Stop the screenshot → fix → screenshot loop: list every visible defect from the latest image, fix them together with apply_patch or multi_edit, then take one verification screenshot."
+			}
+			shots++
+			mutations = 0
+			continue
+		}
+		mutations += mutationWeight(call.Name)
+	}
+	if shots >= 3 {
+		return "## Screenshot batching\nYou have taken three screenshots this turn. Consolidate the remaining defects into one batch of edits, then verify once; do not keep screenshotting after each fix."
+	}
+	return ""
+}
+
+func isScreenshotCall(call llm.ToolCall) bool {
+	if call.Name != "browser" {
+		return false
+	}
+	var args struct {
+		Action string `json:"action"`
+		Steps  []struct {
+			Action string `json:"action"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+		return false
+	}
+	if strings.EqualFold(args.Action, "screenshot") {
+		return true
+	}
+	for _, step := range args.Steps {
+		if strings.EqualFold(step.Action, "screenshot") {
+			return true
+		}
+	}
+	return false
+}
+
+func mutationWeight(name string) int {
+	switch name {
+	case "apply_patch", "multi_edit", "replace":
+		return 2
+	case "write", "edit", "rename", "refactor", "imagegen", "image_edit":
+		return 1
+	}
+	return 0
 }
 
 func hasPlanningCall(calls []llm.ToolCall) bool {

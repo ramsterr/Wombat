@@ -60,6 +60,7 @@ type Config struct {
 	Mode                  string                `json:"mode"`
 	Reasoning             string                `json:"reasoning,omitempty"`
 	ShowThinking          bool                  `json:"show_thinking"`
+	BrowserScreenshots    bool                  `json:"browser_screenshots,omitempty"`
 	TrimReasoning         bool                  `json:"trim_reasoning,omitempty"`
 	ParallelAgents        bool                  `json:"parallel_agents"`
 	ScoutModel            string                `json:"scout_model,omitempty"`
@@ -165,6 +166,7 @@ func Defaults() *Config {
 		RequireVerification: false,
 		Writers:             true,
 		Mouse:               false,
+		BrowserScreenshots:  true,
 		Theme:               "wombat",
 		Panel:               true,
 		PaintBackground:     true,

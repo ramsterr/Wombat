@@ -581,13 +581,14 @@ func (c *chat) rebuild(reset bool) error {
 		c.todos = todo.New(todoPath)
 	}
 	env := &tools.Env{
-		Dir:            cwd,
-		Permit:         c.permit,
-		PermitPreview:  c.permitPreview,
-		DenyMutate:     !c.mode.AllowsWrite(),
-		Mode:           c.mode.Label(),
-		Todos:          c.todos,
-		SessionStarted: c.startedAt,
+		Dir:              cwd,
+		Permit:           c.permit,
+		PermitPreview:    c.permitPreview,
+		DenyMutate:       !c.mode.AllowsWrite(),
+		Mode:             c.mode.Label(),
+		Todos:            c.todos,
+		SessionStarted:   c.startedAt,
+		AllowScreenshots: c.cfg.BrowserScreenshots,
 	}
 	env.AskUser = c.askUser
 	env.Embeddings = embeddings.FromConfig(c.cfg)

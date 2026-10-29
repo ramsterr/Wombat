@@ -35,6 +35,9 @@ const MaxBytes = 64 * 1024
 // maxInstallBytes caps a remote skill download.
 const maxInstallBytes = 2 << 20
 
+// maxSkillDirBytes caps a skill directory that carries templates or scripts.
+const maxSkillDirBytes = 32 << 20
+
 // Skill is one discovered instruction file.
 type Skill struct {
 	Name        string
@@ -369,6 +372,9 @@ func Install(source, home string) ([]Skill, error) {
 		if info.IsDir() {
 			return installDir(source, store)
 		}
+		if strings.EqualFold(filepath.Base(source), "SKILL.md") {
+			return installDir(filepath.Dir(source), store)
+		}
 		return installFile(source, store)
 	}
 	// Not a path: treat it as the name of a discovered skill.
@@ -376,18 +382,21 @@ func Install(source, home string) ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
+	if strings.EqualFold(filepath.Base(skill.Source), "SKILL.md") {
+		return installDir(filepath.Dir(skill.Source), store)
+	}
 	return installFile(skill.Source, store)
 }
 
 func installDir(dir, store string) ([]Skill, error) {
+	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err == nil {
+		return installSkillDir(dir, store)
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	var files []string
-	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err == nil {
-		files = append(files, filepath.Join(dir, "SKILL.md"))
-	}
+	var out []Skill
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
@@ -396,26 +405,96 @@ func installDir(dir, store string) ([]Skill, error) {
 			}
 			nested := filepath.Join(dir, name, "SKILL.md")
 			if _, err := os.Stat(nested); err == nil {
-				files = append(files, nested)
+				installed, err := installSkillDir(filepath.Dir(nested), store)
+				if err != nil {
+					return out, err
+				}
+				out = append(out, installed...)
 			}
 			continue
 		}
 		if strings.EqualFold(filepath.Ext(name), ".md") && !strings.EqualFold(name, "SKILL.md") {
-			files = append(files, filepath.Join(dir, name))
+			installed, err := installFile(filepath.Join(dir, name), store)
+			if err != nil {
+				return out, err
+			}
+			out = append(out, installed...)
 		}
 	}
-	if len(files) == 0 {
+	if len(out) == 0 {
 		return nil, fmt.Errorf("no skill markdown found in %s", dir)
 	}
-	var out []Skill
-	for _, file := range files {
-		skill, err := installFile(file, store)
-		if err != nil {
-			return out, err
-		}
-		out = append(out, skill...)
-	}
 	return out, nil
+}
+
+// installSkillDir preserves the whole skill directory, including templates,
+// references, and scripts. A skill that points at <SKILL_DIR>/templates would
+// break if only SKILL.md were copied.
+func installSkillDir(src, store string) ([]Skill, error) {
+	skill, err := parseFile(filepath.Join(src, "SKILL.md"))
+	if err != nil {
+		return nil, err
+	}
+	target := filepath.Join(store, skill.Name)
+	if filepath.Clean(src) != filepath.Clean(target) {
+		if err := os.RemoveAll(target); err != nil {
+			return nil, err
+		}
+		if err := copySkillTree(src, target, maxSkillDirBytes); err != nil {
+			return nil, err
+		}
+	}
+	installed, err := parseFile(filepath.Join(target, "SKILL.md"))
+	if err != nil {
+		return nil, err
+	}
+	return []Skill{installed}, nil
+}
+
+func copySkillTree(src, dst string, limit int64) error {
+	var total int64
+	err := filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return os.MkdirAll(dst, 0o755)
+		}
+		if entry.IsDir() {
+			if strings.HasPrefix(entry.Name(), ".") || entry.Name() == "node_modules" || entry.Name() == "__pycache__" {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		if total > limit {
+			return fmt.Errorf("skill directory is larger than %d bytes", limit)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm()
+		if mode == 0 {
+			mode = 0o644
+		}
+		return os.WriteFile(filepath.Join(dst, rel), data, mode)
+	})
+	if err != nil {
+		_ = os.RemoveAll(dst)
+	}
+	return err
 }
 
 func installFile(path, store string) ([]Skill, error) {
@@ -517,14 +596,21 @@ func Remove(name, home string) (string, error) {
 	if key == "" {
 		return "", errors.New("skill name is empty")
 	}
-	target := filepath.Join(StoreDir(home), key+".md")
-	if err := os.Remove(target); err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("skill %q is not installed in %s", name, StoreDir(home))
-		}
+	store := StoreDir(home)
+	target := filepath.Join(store, key+".md")
+	if err := os.Remove(target); err == nil {
+		return target, nil
+	} else if !os.IsNotExist(err) {
 		return "", err
 	}
-	return target, nil
+	target = filepath.Join(store, key)
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		if err := os.RemoveAll(target); err != nil {
+			return "", err
+		}
+		return target, nil
+	}
+	return "", fmt.Errorf("skill %q is not installed in %s", name, store)
 }
 
 // RouterPrompt is the compact skill section appended to the system prompt.

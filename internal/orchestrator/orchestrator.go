@@ -170,27 +170,28 @@ type Orchestrator struct {
 	worktrees   *worktree.Manager
 	writerWarn  string
 
-	mu               sync.Mutex
-	mergeMu          sync.Mutex
-	worktreeMu       sync.Mutex
-	ledger           *Ledger
-	ledgerPath       string
-	loadWarning      string
-	delegations      int
-	totalDelegations int
-	workerTokens     int
-	activeWriters    int
-	activeAgents     int
-	writerTokens     int
-	writerBase       string
-	planExpected     bool
-	steered          bool
-	planRun          *planSession
-	planActive       map[string]bool
-	resumables       map[string]*resumableWorker
-	resumeOrder      []string
-	hooksMu          sync.Mutex
-	resumeMu         sync.Mutex
+	mu                sync.Mutex
+	mergeMu           sync.Mutex
+	worktreeMu        sync.Mutex
+	ledger            *Ledger
+	ledgerPath        string
+	loadWarning       string
+	delegations       int
+	totalDelegations  int
+	workerTokens      int
+	activeWriters     int
+	activeAgents      int
+	writerTokens      int
+	writerBase        string
+	planExpected      bool
+	steered           bool
+	screenshotSteered bool
+	planRun           *planSession
+	planActive        map[string]bool
+	resumables        map[string]*resumableWorker
+	resumeOrder       []string
+	hooksMu           sync.Mutex
+	resumeMu          sync.Mutex
 }
 
 func (o *Orchestrator) currentWriterBase() string {

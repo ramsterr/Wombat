@@ -28,8 +28,9 @@ func TestBrowserToolScreenshotAndInteraction(t *testing.T) {
 	defer server.Close()
 	dir := t.TempDir()
 	env := &Env{
-		Dir:    dir,
-		Permit: func(string, string) Decision { return Decision{Allow: true} },
+		Dir:              dir,
+		Permit:           func(string, string) Decision { return Decision{Allow: true} },
+		AllowScreenshots: true,
 	}
 	env.SetSpillDir(filepath.Join(dir, ".tmp"))
 	var media []Media
@@ -118,6 +119,14 @@ func TestBrowserSkipsScreenshotsForNonVisionModels(t *testing.T) {
 	env.Vision = false
 	out := run(t, &Browser{}, env, `{"action":"screenshot"}`)
 	if !strings.Contains(out, "screenshot skipped") {
+		t.Fatalf("screenshot output = %q", out)
+	}
+}
+
+func TestBrowserScreenshotsCanBeDisabled(t *testing.T) {
+	env := testEnv(t.TempDir())
+	out := run(t, &Browser{}, env, `{"action":"screenshot"}`)
+	if !strings.Contains(out, "screenshots are disabled") {
 		t.Fatalf("screenshot output = %q", out)
 	}
 }

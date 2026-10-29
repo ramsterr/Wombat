@@ -122,3 +122,54 @@ func TestRouterPromptIsCompactAndRoutesVideo(t *testing.T) {
 		t.Errorf("router prompt is %d characters", len(prompt))
 	}
 }
+
+func TestInstallSkillDirectoryPreservesAssets(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	src := filepath.Join(root, "algorithmic-art")
+	writeFile(t, filepath.Join(src, "SKILL.md"),
+		"---\nname: algorithmic-art\ndescription: generative art\n---\nRead <SKILL_DIR>/templates/viewer.html.")
+	writeFile(t, filepath.Join(src, "templates", "viewer.html"), "<!doctype html><title>viewer</title>")
+	writeFile(t, filepath.Join(src, "references", "notes.md"), "notes")
+
+	installed, err := Install(src, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(installed) != 1 || installed[0].Name != "algorithmic-art" {
+		t.Fatalf("installed = %+v", installed)
+	}
+	target := filepath.Join(home, "skills", "algorithmic-art")
+	if _, err := os.Stat(filepath.Join(target, "templates", "viewer.html")); err != nil {
+		t.Fatalf("template was not preserved: %v", err)
+	}
+	skill, err := Find("algorithmic-art", "", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(skill.PromptFor(), filepath.Join(target, "templates", "viewer.html")) {
+		t.Fatalf("<SKILL_DIR> not resolved to installed dir: %q", skill.PromptFor())
+	}
+	path, err := Remove("algorithmic-art", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("removed dir still exists: %s", path)
+	}
+}
+
+func TestInstallSKILLMDFilePreservesItsDirectory(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	src := filepath.Join(root, "bundle", "demo")
+	writeFile(t, filepath.Join(src, "SKILL.md"), "---\nname: demo\n---\nuse <SKILL_DIR>/data.txt")
+	writeFile(t, filepath.Join(src, "data.txt"), "data")
+
+	if _, err := Install(filepath.Join(src, "SKILL.md"), home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "skills", "demo", "data.txt")); err != nil {
+		t.Fatalf("asset was not preserved: %v", err)
+	}
+}

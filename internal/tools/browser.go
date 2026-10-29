@@ -39,7 +39,7 @@ type browserArgs struct {
 func (t *Browser) Name() string  { return "browser" }
 func (t *Browser) Class() string { return "network" }
 func (t *Browser) Description() string {
-	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Use action=script to run a whole batch (navigate, eval, click, screenshot) in one call; it returns one compact line per assertion and full details only for failures, so use it instead of many separate calls. Write eval assertions as {ok, failures}; assertion JSON is compacted automatically. Screenshots are attached in memory and never written to disk. Take one desktop and one mobile screenshot after assertions pass, not after every edit. Use browser for local UI and web apps instead of guessing from HTML."
+	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Use action=script to run a whole batch (navigate, eval, click, screenshot) in one call; it returns one compact line per assertion and full details only for failures, so use it instead of many separate calls. Write eval assertions as {ok, failures}; assertion JSON is compacted automatically. Screenshots are controlled by `browser_screenshots` (on by default), attached in memory, and never written to disk. Use eval assertions and verify_site for routine checks. After a screenshot, batch every visible fix before taking another. Use browser for local UI and web apps instead of guessing from HTML."
 }
 func (t *Browser) Schema() map[string]any {
 	return obj(map[string]any{
@@ -111,6 +111,9 @@ func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Sess
 		}
 		return fmt.Sprintf("opened %s\n%s", info.URL, info.Title), nil
 	case "screenshot":
+		if !env.AllowScreenshots {
+			return "screenshot skipped: browser screenshots are disabled; use DOM eval assertions or verify_site. Enable them with `wombat config set browser_screenshots true` if you need an image.", nil
+		}
 		if env.VisionKnown && !env.Vision {
 			return "screenshot skipped: this model cannot see images; use eval assertions or text instead, and leave screenshots for a vision model.", nil
 		}
@@ -127,7 +130,7 @@ func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Sess
 			name = fmt.Sprintf("screenshot-%dx%d.png", width, height)
 		}
 		env.AddMedia(Media{Data: shot, Size: int64(len(shot)), MIME: "image/png", Name: name})
-		return fmt.Sprintf("screenshot (%dx%d, %d bytes); attached for you to look at", width, height, len(shot)), nil
+		return fmt.Sprintf("screenshot (%dx%d, %d bytes); attached for you to look at. List every visible defect in this image, fix them all in one batch, then take at most one verification screenshot; do not screenshot after each individual fix.", width, height, len(shot)), nil
 	case "click":
 		if strings.TrimSpace(a.Selector) == "" {
 			return "", fmt.Errorf("selector is required")

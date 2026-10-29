@@ -123,3 +123,28 @@ func TestStepNoteStopsEndlessExploration(t *testing.T) {
 		t.Fatalf("steer should fire once, got %q", got)
 	}
 }
+
+func TestStepNotePushesBatchedScreenshotFixes(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	o.inputNote("build a page")
+	shot := llm.ToolCall{Name: "browser", Arguments: `{"action":"screenshot"}`}
+	edit := llm.ToolCall{Name: "edit", Arguments: `{"path":"index.html"}`}
+	calls := []llm.ToolCall{shot, edit, shot}
+	note := o.stepNote(4, calls)
+	if !strings.Contains(note, "Screenshot batching") || !strings.Contains(note, "list every visible defect") {
+		t.Fatalf("screenshot nudge = %q", note)
+	}
+	if again := o.stepNote(5, calls); again != "" {
+		t.Fatalf("screenshot nudge should fire once, got %q", again)
+	}
+}
+
+func TestStepNoteAllowsBatchBetweenScreenshots(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	o.inputNote("build a page")
+	shot := llm.ToolCall{Name: "browser", Arguments: `{"action":"screenshot"}`}
+	patch := llm.ToolCall{Name: "apply_patch", Arguments: `{"patch":"..."}`}
+	if note := o.stepNote(4, []llm.ToolCall{shot, patch, shot}); note != "" {
+		t.Fatalf("a batch edit should not trigger the nudge: %q", note)
+	}
+}
