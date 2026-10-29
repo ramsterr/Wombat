@@ -19,6 +19,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/skills"
 )
 
 type renderer struct {
@@ -452,13 +453,30 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 		}
 		return false, na, sess, nil
 	case "/skill", "/skills":
-		skills, problems := agents.LoadSkills(config.Home(), sess.Meta.Cwd)
 		arg = strings.TrimSpace(arg)
-		if arg == "" || strings.EqualFold(arg, "list") || strings.EqualFold(arg, "ls") {
-			if len(skills) == 0 {
-				fmt.Println(dim("no skills installed — add ~/.wombat/skills/<name>.md or .wombat/skills/<name>.md"))
+		fields := strings.Fields(arg)
+		switch {
+		case len(fields) >= 2 && (strings.EqualFold(fields[0], "install") || strings.EqualFold(fields[0], "add")):
+			source := strings.Trim(strings.TrimSpace(arg[len(fields[0]):]), `"'`)
+			installed, err := skills.Install(source, config.Home())
+			if err != nil {
+				return false, nil, nil, err
 			}
-			for _, skill := range skills {
+			for _, skill := range installed {
+				fmt.Printf("installed %s → %s\n", skill.Name, skill.Source)
+			}
+		case len(fields) >= 2 && (strings.EqualFold(fields[0], "remove") || strings.EqualFold(fields[0], "rm") || strings.EqualFold(fields[0], "uninstall")):
+			path, err := skills.Remove(fields[1], config.Home())
+			if err != nil {
+				return false, nil, nil, err
+			}
+			fmt.Printf("removed %s (%s)\n", fields[1], path)
+		case arg == "" || strings.EqualFold(arg, "list") || strings.EqualFold(arg, "ls"):
+			list, problems := skills.Load(sess.Meta.Cwd, config.Home())
+			if len(list) == 0 {
+				fmt.Println(dim("no skills installed — /skill install <path|url|name>"))
+			}
+			for _, skill := range list {
 				line := "  " + skill.Name
 				if skill.Description != "" {
 					line += " — " + skill.Description
@@ -469,21 +487,19 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 			for _, problem := range problems {
 				fmt.Println(red("  ! " + problem.String()))
 			}
-			return false, nil, nil, nil
-		}
-		key := config.NormalizeAgentName(arg)
-		for _, skill := range skills {
-			if strings.EqualFold(skill.Name, key) {
-				fmt.Println(bold(skill.Name))
-				if skill.Description != "" {
-					fmt.Println(skill.Description)
-				}
-				fmt.Println(dim("source: " + skill.Source))
-				fmt.Println("\n" + strings.TrimSpace(skill.Prompt))
-				return false, nil, nil, nil
+		default:
+			skill, err := skills.Find(arg, sess.Meta.Cwd, config.Home())
+			if err != nil {
+				return false, nil, nil, err
 			}
+			fmt.Println(bold(skill.Name))
+			if skill.Description != "" {
+				fmt.Println(skill.Description)
+			}
+			fmt.Println(dim("source: " + skill.Source))
+			fmt.Println("\n" + skill.PromptFor())
 		}
-		return false, nil, nil, fmt.Errorf("unknown skill %s — /skill list", arg)
+		return false, nil, nil, nil
 	case "/status":
 		current := mode.Create
 		if ag.Env != nil && ag.Env.Mode != "" {

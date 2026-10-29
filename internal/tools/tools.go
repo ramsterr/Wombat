@@ -14,6 +14,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/lsp"
 	"github.com/ramsterr/Wombat/internal/mcp"
+	"github.com/ramsterr/Wombat/internal/todo"
 )
 
 type Checkpointer interface {
@@ -90,6 +91,10 @@ type Env struct {
 	// AskUser asks the user a question and waits for the answer. It is nil
 	// where nobody can answer, such as inside a worker.
 	AskUser func(q Question) (string, error)
+
+	// Todos is the session's visible task list. The agent updates it with
+	// todo_write; the TUI renders it as the anchor for the current work.
+	Todos *todo.Store
 }
 
 // mediaSink is a pointer so copying an Env (the orchestrator does that for
@@ -189,6 +194,23 @@ func (e *Env) CloseJobs() {
 		return
 	}
 	e.jobs.Close()
+}
+
+// todoInit guards the one-time construction of an in-memory todo store.
+var todoInit sync.Mutex
+
+// TodoStore returns the session todo list, creating an in-memory store when
+// the caller did not provide one.
+func (e *Env) TodoStore() *todo.Store {
+	if e == nil {
+		return todo.New("")
+	}
+	todoInit.Lock()
+	defer todoInit.Unlock()
+	if e.Todos == nil {
+		e.Todos = todo.New("")
+	}
+	return e.Todos
 }
 
 // JobManager returns the background process manager, creating it on first
@@ -330,10 +352,11 @@ type Tool interface {
 func Registry() []Tool {
 	return []Tool{
 		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{}, &Refactor{},
-		&Glob{}, &Grep{}, &GitStatus{}, &GitDiff{}, &GitLog{}, &GitShow{}, &GitBlame{}, &Batch{}, &Symbols{}, &LSP{}, &SemanticSearch{}, &Browser{}, &ImageGen{}, &ImageSearch{}, &Verify{},
+		&Glob{}, &Grep{}, &UseSkill{}, &GitStatus{}, &GitDiff{}, &GitLog{}, &GitShow{}, &GitBlame{}, &Batch{}, &Symbols{}, &LSP{}, &SemanticSearch{}, &Browser{}, &ImageGen{}, &ImageSearch{}, &Verify{},
 		&VerifySite{}, &Replace{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},
+		&TodoWrite{}, &TodoRead{},
 	}
 }
 

@@ -77,6 +77,8 @@ func Main() {
 		err = cmdMCP(args)
 	case "agent", "agents":
 		err = cmdAgent(args)
+	case "skill", "skills":
+		err = cmdSkill(args)
 	case "checkpoint":
 		err = cmdCheckpoint(args)
 	case "upgrade":
@@ -112,6 +114,9 @@ usage:
   wombat mcp                 add and test Model Context Protocol servers
   wombat agent new <name>    create a custom agent definition
   wombat agent list          list custom agents
+  wombat skill list          list skills installed on this machine
+  wombat skill install <src> install a skill from a path, URL, or name
+  wombat skill remove <name> remove an installed skill
   wombat checkpoint list     list session checkpoints
   wombat checkpoint restore  restore a checkpoint (--yes to confirm)
   wombat upgrade             update wombat to the latest release

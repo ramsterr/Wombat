@@ -982,6 +982,7 @@ func (s *planScheduler) record(out planTaskOutcome, wave int) {
 	}
 	delete(s.o.planActive, out.StepID)
 	s.o.mu.Unlock()
+	s.o.syncTodos()
 	if out.Status == "failed" {
 		s.failed = true
 	}
@@ -1050,6 +1051,7 @@ func (s *planScheduler) apply(out planTaskOutcome) {
 	saveErr := s.o.ledger.Save(s.o.ledgerPath)
 	s.result.Ledger = s.o.ledger.View()
 	s.o.mu.Unlock()
+	s.o.syncTodos()
 	if out.Status == "failed" || out.Error != "" {
 		s.failed = true
 	}

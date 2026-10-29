@@ -21,6 +21,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
@@ -116,6 +117,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		PermitPreview: p.PermitPreview,
 		Mode:          sessionMode.Label(),
 		DenyMutate:    !sessionMode.AllowsWrite(),
+		Todos:         todo.New(todo.PathForSession(sess.Path())),
 	}
 	if p != nil {
 		env.AskUser = func(q tools.Question) (string, error) {

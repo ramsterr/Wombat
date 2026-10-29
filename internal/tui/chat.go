@@ -36,6 +36,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
@@ -258,6 +259,9 @@ type chat struct {
 
 	// panel is the right-hand inspector.
 	panel bool
+
+	// todos is the session anchor shown in the inspector.
+	todos *todo.Store
 
 	// live run status
 	runStart time.Time
@@ -568,12 +572,17 @@ func (c *chat) rebuild(reset bool) error {
 	if cwd == "" {
 		cwd = c.opt.Cwd
 	}
+	todoPath := todo.PathForSession(c.sess.Path())
+	if c.todos == nil || c.todos.Path() != todoPath {
+		c.todos = todo.New(todoPath)
+	}
 	env := &tools.Env{
 		Dir:           cwd,
 		Permit:        c.permit,
 		PermitPreview: c.permitPreview,
 		DenyMutate:    !c.mode.AllowsWrite(),
 		Mode:          c.mode.Label(),
+		Todos:         c.todos,
 	}
 	env.AskUser = c.askUser
 	env.Embeddings = embeddings.FromConfig(c.cfg)
@@ -650,11 +659,21 @@ func (c *chat) rebuild(reset bool) error {
 		}
 	}
 	c.ag.Hooks = c.hooks()
+	// Keep every earlier section: the orchestrator installs its planner
+	// prompt here, and a later assignment must compose with it, never replace
+	// it.
+	prevExtra := c.ag.SystemExtra
 	c.ag.SystemExtra = func() string {
-		if c.imageGen {
-			return ""
+		var parts []string
+		if prevExtra != nil {
+			if s := strings.TrimSpace(prevExtra()); s != "" {
+				parts = append(parts, s)
+			}
 		}
-		return "Image generation is disabled. Do not generate or edit images unless the user enables it with /imagen."
+		if !c.imageGen {
+			parts = append(parts, "Image generation is disabled. Do not generate or edit images unless the user enables it with /imagen.")
+		}
+		return strings.Join(parts, "\n\n")
 	}
 	c.window = c.ag.ContextWindow
 	c.history = c.ag.HistoryTokens()
@@ -1914,11 +1933,19 @@ func (c *chat) command(line string) tea.Cmd {
 		}
 	case "/skill", "/skills":
 		arg = strings.TrimSpace(arg)
+		fields := strings.Fields(arg)
 		switch {
 		case arg == "":
 			return c.openSkills()
 		case strings.EqualFold(arg, "list"), strings.EqualFold(arg, "ls"):
 			c.notePre(c.skillsList())
+		case len(fields) >= 2 && (strings.EqualFold(fields[0], "install") || strings.EqualFold(fields[0], "add")):
+			source := strings.TrimSpace(arg[len(fields[0]):])
+			c.installSkill(strings.Trim(source, `"'`))
+		case len(fields) >= 2 && (strings.EqualFold(fields[0], "remove") || strings.EqualFold(fields[0], "rm") || strings.EqualFold(fields[0], "uninstall")):
+			c.removeSkill(fields[1])
+		case strings.EqualFold(arg, "help"), arg == "?":
+			c.notePre("skills\n  /skill                 browser\n  /skill list            names and sources\n  /skill install <src>   path, URL, or registry name\n  /skill remove <name>   delete an installed skill\n  /skill <name>          full instructions")
 		default:
 			c.notePre(c.skillDetail(arg))
 		}

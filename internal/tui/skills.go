@@ -8,6 +8,7 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/skills"
 )
 
 // skillRow is one installed skill plus the agents that reference it.
@@ -27,7 +28,7 @@ func (c *chat) openSkills() tea.Cmd {
 	c.skillCursor = 0
 	c.skillExpanded = false
 	if len(rows) == 0 {
-		c.note("no skills installed — add ~/.wombat/skills/<name>.md or .wombat/skills/<name>.md", true)
+		c.note("no skills installed — /skill install <path|url|name>", true)
 		for _, problem := range problems {
 			c.note("skill: "+problem.String(), true)
 		}
@@ -179,7 +180,8 @@ func (c *chat) skillsList() string {
 	b.WriteString("installed skills\n")
 	if len(rows) == 0 {
 		b.WriteString("  (none)\n")
-		b.WriteString("  add a markdown file: .wombat/skills/<name>.md or ~/.wombat/skills/<name>.md\n")
+		b.WriteString("  install one with /skill install <path|url|name>\n")
+		b.WriteString("  or add a markdown file: .wombat/skills/<name>.md or ~/.wombat/skills/<name>.md\n")
 		b.WriteString("  enable it on an agent with \"skills\": [\"<name>\"] or the /agents builder\n")
 	}
 	for _, row := range rows {
@@ -240,4 +242,28 @@ func previewLines(text string, n int) []string {
 		lines = append(lines[:n], "…")
 	}
 	return lines
+}
+
+// installSkill adds a skill from a file, directory, URL, or registry name.
+func (c *chat) installSkill(source string) {
+	installed, err := skills.Install(source, config.Home())
+	if err != nil {
+		c.note("skill install: "+err.Error(), true)
+		return
+	}
+	for _, skill := range installed {
+		c.note("installed "+skill.Name+" → "+skill.Source, false)
+	}
+	c.refreshAgentDefs()
+}
+
+// removeSkill deletes an installed skill by name.
+func (c *chat) removeSkill(name string) {
+	path, err := skills.Remove(name, config.Home())
+	if err != nil {
+		c.note("skill remove: "+err.Error(), true)
+		return
+	}
+	c.note("removed "+name+" ("+path+")", false)
+	c.refreshAgentDefs()
 }

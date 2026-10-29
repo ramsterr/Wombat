@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/skills"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
@@ -40,10 +42,14 @@ type Agent struct {
 	ContextWindow int
 	NumCtx        int
 	SystemExtra   func() string
-	RunStart      func()
-	RunEnd        func()
-	Hooks         Hooks
-	Trace         *trace.Logger
+	// InputNote returns guidance for one user turn. The orchestrator uses it
+	// to put the planner directive in front of a multi-step request without
+	// persisting a fake user message in the session.
+	InputNote func(input string) string
+	RunStart  func()
+	RunEnd    func()
+	Hooks     Hooks
+	Trace     *trace.Logger
 
 	ModeNote string
 	TmpNote  string
@@ -142,6 +148,16 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	if a.SystemExtra != nil {
 		if extra := strings.TrimSpace(a.SystemExtra()); extra != "" {
 			system += "\n\n" + extra
+		}
+	}
+	// Skills are routed by name, not pasted into the prompt. The model loads
+	// the one it needs with use_skill.
+	if router := skills.RouterPrompt(a.Env.Dir, config.Home()); router != "" {
+		system += "\n\n" + router
+	}
+	if a.InputNote != nil && strings.TrimSpace(input) != "" {
+		if note := strings.TrimSpace(a.InputNote(input)); note != "" {
+			system += "\n\n" + note
 		}
 	}
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {

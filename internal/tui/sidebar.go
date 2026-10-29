@@ -207,6 +207,14 @@ func (c *chat) panelView() string {
 	}
 	blank()
 
+	if todoLines := c.todoSection(contentW); len(todoLines) > 0 {
+		add(sectionLabel("todo"))
+		for _, line := range todoLines {
+			add(line)
+		}
+		blank()
+	}
+
 	for _, line := range c.referencesSection(contentW) {
 		add(line)
 	}
@@ -258,20 +266,22 @@ func (c *chat) panelView() string {
 		blank()
 	}
 
-	recent := c.recentTools(4)
-	if len(recent) > 0 && len(lines)+len(recent)+2 <= max(1, h-2) {
-		add(sectionLabel("recent tools"))
-		for _, e := range recent {
-			glyph, st := toolGlyph(e.name)
-			mark := styleGood.Render("✓")
-			if e.running {
-				mark = c.sp.View()
-			} else if !e.ok {
-				mark = styleBad.Render("✗")
+	if len(c.todos.Items()) == 0 {
+		recent := c.recentTools(4)
+		if len(recent) > 0 && len(lines)+len(recent)+2 <= max(1, h-2) {
+			add(sectionLabel("recent tools"))
+			for _, e := range recent {
+				glyph, st := toolGlyph(e.name)
+				mark := styleGood.Render("✓")
+				if e.running {
+					mark = c.sp.View()
+				} else if !e.ok {
+					mark = styleBad.Render("✗")
+				}
+				add(mark + " " + st.Render(glyph) + " " + styleDim.Render(clip(e.name, contentW-6)))
 			}
-			add(mark + " " + st.Render(glyph) + " " + styleDim.Render(clip(e.name, contentW-6)))
+			blank()
 		}
-		blank()
 	}
 
 	if c.streaming && len(lines)+4 <= max(1, h-2) {

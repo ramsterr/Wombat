@@ -220,28 +220,30 @@ func (o *Orchestrator) runDelegations(ctx context.Context, batch *delegationBatc
 	if o.cfg.FullWorkers && o.worktrees != nil {
 		o.ensureWriterBase()
 	}
-	parallel := o.cfg.MaxParallelScouts
-	if parallel < 1 {
-		parallel = 1
-	}
-	if parallel > len(batch.items) {
-		parallel = len(batch.items)
-	}
+	// Separate lanes: custom agents use MaxParallelAgents, generic workers
+	// use MaxParallelScouts. A task only takes one lane, so neither lane can
+	// starve the other.
+	scoutSem := make(chan struct{}, maxInt(1, o.cfg.MaxParallelScouts))
+	teamSem := make(chan struct{}, maxInt(1, o.cfg.MaxParallelAgents))
 	outcomes := make([]delegationOutcome, len(batch.items))
-	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 	for i := range batch.items {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			item := batch.items[i]
+			sem := scoutSem
+			if isTeamDelegation(item.args) {
+				sem = teamSem
+			}
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
 			case <-ctx.Done():
-				outcomes[i] = failedDelegation(batch.items[i].args, ctx.Err())
+				outcomes[i] = failedDelegation(item.args, ctx.Err())
 				return
 			}
-			outcomes[i] = o.runOneDelegation(ctx, batch.items[i], batch.goal, batch.facts)
+			outcomes[i] = o.runOneDelegation(ctx, item, batch.goal, batch.facts)
 		}(i)
 	}
 	wg.Wait()
@@ -265,16 +267,18 @@ func (o *Orchestrator) runDelegationDAG(ctx context.Context, batch *delegationBa
 	}
 	type dagResult struct {
 		index   int
+		team    bool
 		outcome delegationOutcome
 	}
-	parallel := o.cfg.MaxParallelScouts
-	if parallel < 1 {
-		parallel = 1
+	scoutCap := maxInt(1, o.cfg.MaxParallelScouts)
+	teamCap := maxInt(1, o.cfg.MaxParallelAgents)
+	parallel := scoutCap + teamCap
+	if parallel > n {
+		parallel = n
 	}
 	ch := make(chan dagResult, n)
-	running := 0
-	started := 0
-	remaining := n
+	running, started, remaining := 0, 0, n
+	activeScouts, activeTeams := 0, 0
 	for remaining > 0 {
 		for running < parallel && started < n {
 			next := -1
@@ -290,10 +294,18 @@ func (o *Orchestrator) runDelegationDAG(ctx context.Context, batch *delegationBa
 					next = -1
 					break
 				}
-				if ready {
-					next = i
-					break
+				if !ready {
+					continue
 				}
+				if isTeamDelegation(batch.items[i].args) {
+					if activeTeams >= teamCap {
+						continue
+					}
+				} else if activeScouts >= scoutCap {
+					continue
+				}
+				next = i
+				break
 			}
 			if next < 0 {
 				break
@@ -301,13 +313,19 @@ func (o *Orchestrator) runDelegationDAG(ctx context.Context, batch *delegationBa
 			status[next] = "running"
 			started++
 			running++
+			team := isTeamDelegation(batch.items[next].args)
+			if team {
+				activeTeams++
+			} else {
+				activeScouts++
+			}
 			item := batch.items[next]
 			if len(deps[fleetID(item.args)]) > 0 {
 				item.args = withUpstreamContext(item.args, deps[fleetID(item.args)], index, outcomes)
 			}
-			go func(i int, item delegation) {
-				ch <- dagResult{index: i, outcome: o.runOneDelegation(ctx, item, batch.goal, batch.facts)}
-			}(next, item)
+			go func(i int, item delegation, team bool) {
+				ch <- dagResult{index: i, team: team, outcome: o.runOneDelegation(ctx, item, batch.goal, batch.facts)}
+			}(next, item, team)
 		}
 		if running == 0 {
 			// Every remaining task is blocked; the loop above already
@@ -317,6 +335,11 @@ func (o *Orchestrator) runDelegationDAG(ctx context.Context, batch *delegationBa
 		res := <-ch
 		running--
 		remaining--
+		if res.team {
+			activeTeams--
+		} else {
+			activeScouts--
+		}
 		status[res.index] = res.outcome.report.Status
 		if status[res.index] == "" {
 			status[res.index] = "failed"
@@ -330,6 +353,10 @@ func (o *Orchestrator) runDelegationDAG(ctx context.Context, batch *delegationBa
 		}
 	}
 	return o.finalizeDelegations(outcomes)
+}
+
+func isTeamDelegation(a delegateArgs) bool {
+	return strings.TrimSpace(a.Agent) != ""
 }
 
 func dagReady(id string, deps map[string][]string, status []string, index map[string]int) (ready, blocked bool, reason string) {

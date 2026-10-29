@@ -579,3 +579,50 @@ func TestFullAccessOrchestrationPromptStaysShort(t *testing.T) {
 		t.Errorf("the full-access orchestration prompt is %d characters, want under 2200", n)
 	}
 }
+
+func TestAttachPutsPlannerFirstAndInstallsNudge(t *testing.T) {
+	p := &scriptProvider{fn: func(int, llm.Request) (*llm.Result, error) {
+		return &llm.Result{Content: "ok", StopReason: "end_turn"}, nil
+	}}
+	_, ag, _ := newOrch(t, p, Config{ParallelAgents: true, MaxParallelScouts: 4})
+	for i, want := range []string{"update_plan", "run_plan", "delegate", "delegate_many", "resume_worker", "run_checks"} {
+		if i >= len(ag.Tools) || ag.Tools[i].Name() != want {
+			names := make([]string, 0, len(ag.Tools))
+			for _, tool := range ag.Tools {
+				names = append(names, tool.Name())
+			}
+			t.Fatalf("tool %d = %v, want %s (tools: %s)", i, ag.Tools[min(i, len(ag.Tools)-1)].Name(), want, strings.Join(names, ", "))
+		}
+	}
+	if !strings.Contains(ag.SystemExtra(), "First action rule") {
+		t.Error("orchestration prompt missing from SystemExtra")
+	}
+	if ag.InputNote == nil {
+		t.Fatal("InputNote was not installed")
+	}
+	if note := ag.InputNote("build a site, write the copy, and render a video"); !strings.Contains(note, "update_plan") {
+		t.Errorf("nudge = %q", note)
+	}
+	if ag.Env.Todos == nil {
+		t.Error("Attach did not create a todo store")
+	}
+}
+
+func TestLeadRequestCarriesPlannerSkillsAndNudge(t *testing.T) {
+	var system string
+	p := &scriptProvider{fn: func(call int, req llm.Request) (*llm.Result, error) {
+		if call == 1 {
+			system = req.System
+		}
+		return &llm.Result{Content: "ok", StopReason: "end_turn"}, nil
+	}}
+	_, ag, _ := newOrch(t, p, Config{ParallelAgents: true, MaxParallelScouts: 3})
+	if err := ag.Run(context.Background(), "build a site, write the copy, and render a video"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"## Orchestration", "First action rule", "## Skills", "use_skill", "Planner directive", "update_plan"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("lead request missing %q", want)
+		}
+	}
+}
