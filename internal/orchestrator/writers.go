@@ -418,6 +418,7 @@ func (o *Orchestrator) runWriter(ctx context.Context, r *writerRun, goal string,
 	defer env.CloseJobs()
 	defer env.CloseLSP()
 	defer env.CloseBrowser()
+	defer env.ClosePreview()
 	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WriterTimeout, fmt.Errorf("writer timed out after %s", cfg.WriterTimeout))
 	defer cancel()
 	budgetCtx, cancelBudget := context.WithCancelCause(runCtx)
@@ -629,6 +630,7 @@ func (o *Orchestrator) reviewWriter(ctx context.Context, r *writerRun, goal stri
 	defer env.CloseJobs()
 	defer env.CloseLSP()
 	defer env.CloseBrowser()
+	defer env.ClosePreview()
 	env.Dir = r.worktree.Path
 	env.ReadOnly = true
 	env.Permit = nil

@@ -25,3 +25,19 @@
 /.scratch/
 /.wombat/
 /assets/
+
+/videos/
+
+# Local generated sites and scratch artifacts
+/wombats/
+/research/
+/404.html
+/favicon.svg
+/og.svg
+/robots.txt
+/sitemap.xml
+/Capture-*.png
+/faultsrv
+/cmd/faultsrv/
+/eval/faults/
+/internal/session/fault_test.go

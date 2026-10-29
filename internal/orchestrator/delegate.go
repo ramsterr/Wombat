@@ -528,6 +528,7 @@ func (o *Orchestrator) runWorker(ctx context.Context, a delegateArgs, step *Step
 	defer env.CloseJobs()
 	defer env.CloseLSP()
 	defer env.CloseBrowser()
+	defer env.ClosePreview()
 
 	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WorkerTimeout, fmt.Errorf("worker timed out after %s", cfg.WorkerTimeout))
 	defer cancel()

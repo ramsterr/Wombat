@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ramsterr/Wombat/internal/browser"
 )
@@ -89,5 +90,50 @@ func TestVerifySiteAuditsCachesAndReportsFailures(t *testing.T) {
 	}
 	if report.Checked != 2 || report.Cached != 0 {
 		t.Fatalf("fresh counts = %+v", report)
+	}
+}
+
+func TestSitePagesScopesToSession(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, at time.Time) {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("<!doctype html><title>x</title>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	old := now.Add(-2 * time.Hour)
+	write("index.html", now)
+	write("old.html", old)
+	write("nested/new.html", now)
+	write("nested/old.html", old)
+
+	pages, err := sitePages(dir, nil, 50, false, now.Add(-5*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"index.html": true, "nested/new.html": true}
+	if len(pages) != len(want) {
+		t.Fatalf("pages = %v, want %v", pages, want)
+	}
+	for _, page := range pages {
+		if !want[page] {
+			t.Errorf("unexpected page %q", page)
+		}
+	}
+
+	pages, err = sitePages(dir, nil, 50, false, now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pages) != 1 || pages[0] != "index.html" {
+		t.Fatalf("fallback pages = %v, want root index.html", pages)
 	}
 }

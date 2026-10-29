@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"strings"
+
+	"github.com/ramsterr/Wombat/internal/llm"
 )
 
 // inputNote puts the planner directive in front of a request that clearly has
@@ -9,10 +11,10 @@ import (
 // the first action concrete on the turn where it matters most, without
 // persisting a synthetic user message in the session.
 func (o *Orchestrator) inputNote(input string) string {
-	if !looksMultiStep(input) {
-		return ""
-	}
+	expected := looksMultiStep(input)
 	o.mu.Lock()
+	o.planExpected = expected
+	o.steered = false
 	active := false
 	if o.ledger != nil {
 		for _, step := range o.ledger.Steps {
@@ -24,6 +26,9 @@ func (o *Orchestrator) inputNote(input string) string {
 	}
 	maxParallel := o.cfg.MaxParallelScouts
 	o.mu.Unlock()
+	if !expected {
+		return ""
+	}
 	if active {
 		return "## Planner directive\nThis request extends an active ledger. Update the ledger with update_plan when the scope changes, then run_plan. Keep todo_write current."
 	}
@@ -35,6 +40,49 @@ func (o *Orchestrator) inputNote(input string) string {
 	}
 	b.WriteString("Do not open with a sequence of bash/read calls. For a pure research fleet with no ledger, delegate_many with 2-5 self-contained briefs is acceptable. Keep todo_write current, and synthesize every worker report before answering.")
 	return b.String()
+}
+
+// stepNote is the runtime counterpart to inputNote. A prompt nudge only
+// helps before the first tool call; this one catches a turn that has already
+// drifted into a serial bash/read loop or kept exploring without acting.
+func (o *Orchestrator) stepNote(step int, calls []llm.ToolCall) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.steered || len(calls) == 0 {
+		return ""
+	}
+	if o.planExpected && len(calls) >= 3 {
+		if hasPlanningCall(calls) {
+			return ""
+		}
+		o.steered = true
+		return "## Steering\nThis multi-step request has used several tool calls without a plan. Stop the serial read/bash loop now: call update_plan with 2-6 concrete steps, then run_plan. For independent research angles, delegate_many is the alternative. Keep todo_write current."
+	}
+	if len(calls) >= 10 && !hasMutationCall(calls) {
+		o.steered = true
+		return "## Steering\nYou have made 10 or more calls without changing anything. Stop exploring: use the evidence you have, make the smallest complete change now, then verify the result."
+	}
+	return ""
+}
+
+func hasPlanningCall(calls []llm.ToolCall) bool {
+	for _, call := range calls {
+		switch call.Name {
+		case "update_plan", "run_plan", "delegate", "delegate_many":
+			return true
+		}
+	}
+	return false
+}
+
+func hasMutationCall(calls []llm.ToolCall) bool {
+	for _, call := range calls {
+		switch call.Name {
+		case "write", "edit", "multi_edit", "apply_patch", "replace", "rename", "refactor", "imagegen", "image_edit":
+			return true
+		}
+	}
+	return false
 }
 
 // looksMultiStep is deliberately conservative. It fires when a request has

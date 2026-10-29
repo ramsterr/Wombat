@@ -38,6 +38,7 @@ type verifySiteArgs struct {
 	Script       string   `json:"script"`
 	NoScript     bool     `json:"no_script"`
 	Fresh        bool     `json:"fresh"`
+	All          bool     `json:"all"`
 	TimeoutMS    int      `json:"timeout_ms"`
 	DesktopWidth int      `json:"desktop_width"`
 	MobileWidth  int      `json:"mobile_width"`
@@ -56,6 +57,7 @@ type siteReport struct {
 	Checked  int           `json:"checked"`
 	Cached   int           `json:"cached"`
 	Script   string        `json:"script,omitempty"`
+	Scope    string        `json:"scope,omitempty"`
 	Warnings []string      `json:"warnings,omitempty"`
 	Failures []siteFailure `json:"failures,omitempty"`
 	Omitted  int           `json:"omitted,omitempty"`
@@ -82,7 +84,7 @@ var verifySiteCaches sync.Map
 func (t *VerifySite) Name() string  { return "verify_site" }
 func (t *VerifySite) Class() string { return "bash" }
 func (t *VerifySite) Description() string {
-	return "Audit a static or local site in one call. Runs the project's check script when one is found, then loads each page in Chromium and reports console errors, failed network requests, broken local links and anchors, missing assets, JavaScript syntax errors, and horizontal overflow at desktop and mobile widths. Results are cached by file mtime, so unchanged pages are not rechecked; pass fresh=true to bypass the cache. Use this instead of taking screenshots or running check-site by hand."
+	return "Audit a static or local site in one call. Runs the project's check script when one is found, then loads each page in Chromium and reports console errors, failed network requests, broken local links and anchors, missing assets, JavaScript syntax errors, and horizontal overflow at desktop and mobile widths. By default only HTML pages changed during this session are audited, so unrelated sites in the workspace are ignored; pass pages for an explicit set or all=true to scan everything. Results are cached by file mtime; pass fresh=true to bypass the cache."
 }
 func (t *VerifySite) Schema() map[string]any {
 	return obj(map[string]any{
@@ -91,6 +93,7 @@ func (t *VerifySite) Schema() map[string]any {
 		"script":        desc("optional project check script; default is scripts/check-site.mjs, check-site.js, or similar"),
 		"no_script":     map[string]any{"type": "boolean", "description": "skip the project's check script"},
 		"fresh":         map[string]any{"type": "boolean", "description": "ignore cached page and script results"},
+		"all":           map[string]any{"type": "boolean", "description": "audit every HTML page in the workspace instead of only pages changed this session"},
 		"timeout_ms":    map[string]any{"type": "integer", "description": "timeout for the project check script and each page load (default 120000 and 20000)"},
 		"desktop_width": map[string]any{"type": "integer", "description": "desktop viewport width (default 1280)"},
 		"mobile_width":  map[string]any{"type": "integer", "description": "mobile viewport width (default 390)"},
@@ -122,13 +125,21 @@ func (t *VerifySite) Run(ctx context.Context, raw json.RawMessage, env *Env) (st
 	if err != nil {
 		return "", err
 	}
-	pages, err := sitePages(root, a.Pages, a.MaxPages)
+	pages, err := sitePages(root, a.Pages, a.MaxPages, a.All, env.SessionStarted)
 	if err != nil {
 		return "", err
 	}
 	cacheAny, _ := verifySiteCaches.LoadOrStore(root, &siteCache{pages: map[string]sitePageEntry{}})
 	cache := cacheAny.(*siteCache)
 	report := siteReport{Pages: len(pages)}
+	switch {
+	case len(a.Pages) > 0:
+		report.Scope = "explicit pages"
+	case a.All || env.SessionStarted.IsZero():
+		report.Scope = "all HTML pages"
+	default:
+		report.Scope = "pages changed this session"
+	}
 	seen := map[string]bool{}
 	add := func(page, kind, detail string) {
 		detail = compactLine(detail, 400)
@@ -504,7 +515,7 @@ func serveSite(root string) (string, func(), error) {
 	return "http://" + listener.Addr().String(), stop, nil
 }
 
-func sitePages(root string, explicit []string, max int) ([]string, error) {
+func sitePages(root string, explicit []string, max int, all bool, since time.Time) ([]string, error) {
 	seen := map[string]bool{}
 	var pages []string
 	add := func(rel string) {
@@ -532,11 +543,20 @@ func sitePages(root string, explicit []string, max int) ([]string, error) {
 		}
 		return pages, nil
 	}
+	cutoff := time.Time{}
+	if !all && !since.IsZero() {
+		// A small grace window catches files written just before the session
+		// was created without pulling in older, unrelated sites.
+		cutoff = since.Add(-5 * time.Minute)
+	}
 	err := filepath.WalkDir(root, func(current string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if entry.IsDir() {
+			if current != root && strings.HasPrefix(entry.Name(), ".") {
+				return filepath.SkipDir
+			}
 			switch entry.Name() {
 			case ".git", "node_modules", ".wombat", "vendor", "dist", "build", ".next", "coverage", ".cache":
 				return filepath.SkipDir
@@ -547,6 +567,12 @@ func sitePages(root string, explicit []string, max int) ([]string, error) {
 		if ext != ".html" && ext != ".htm" {
 			return nil
 		}
+		if !cutoff.IsZero() {
+			info, infoErr := entry.Info()
+			if infoErr != nil || info.ModTime().Before(cutoff) {
+				return nil
+			}
+		}
 		rel, err := filepath.Rel(root, current)
 		if err == nil {
 			add(rel)
@@ -555,6 +581,15 @@ func sitePages(root string, explicit []string, max int) ([]string, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if !cutoff.IsZero() && len(pages) == 0 {
+		// With no changed pages, keep the audit useful by checking the
+		// workspace's root page rather than walking unrelated projects.
+		for _, name := range []string{"index.html", "index.htm"} {
+			if st, statErr := os.Stat(filepath.Join(root, name)); statErr == nil && !st.IsDir() {
+				add(name)
+			}
+		}
 	}
 	sort.Strings(pages)
 	if len(pages) > max {

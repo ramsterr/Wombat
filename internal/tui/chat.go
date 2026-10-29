@@ -263,6 +263,9 @@ type chat struct {
 	// todos is the session anchor shown in the inspector.
 	todos *todo.Store
 
+	// startedAt scopes default verification to files touched by this run.
+	startedAt time.Time
+
 	// live run status
 	runStart time.Time
 	runTools int
@@ -347,6 +350,7 @@ func newChat(opt Options) (*chat, error) {
 	applyTheme(c.cfg.Theme)
 	c.provName = c.cfg.Provider
 	c.modelName = c.cfg.ActiveModel()
+	c.startedAt = time.Now()
 	c.branch = gitBranch(c.opt.Cwd)
 	c.refs = loadReferences(c.opt.Cwd)
 	c.missingKey = c.missingProviderKey()
@@ -577,12 +581,13 @@ func (c *chat) rebuild(reset bool) error {
 		c.todos = todo.New(todoPath)
 	}
 	env := &tools.Env{
-		Dir:           cwd,
-		Permit:        c.permit,
-		PermitPreview: c.permitPreview,
-		DenyMutate:    !c.mode.AllowsWrite(),
-		Mode:          c.mode.Label(),
-		Todos:         c.todos,
+		Dir:            cwd,
+		Permit:         c.permit,
+		PermitPreview:  c.permitPreview,
+		DenyMutate:     !c.mode.AllowsWrite(),
+		Mode:           c.mode.Label(),
+		Todos:          c.todos,
+		SessionStarted: c.startedAt,
 	}
 	env.AskUser = c.askUser
 	env.Embeddings = embeddings.FromConfig(c.cfg)
@@ -692,6 +697,7 @@ func (c *chat) openSession(id string) error {
 		return err
 	}
 	c.sess = s
+	c.startedAt = time.Now()
 	c.entries = nil
 	c.imageGen = false
 	c.previews = nil
@@ -1350,6 +1356,7 @@ func (c *chat) closeAgent() {
 		c.ag.Env.JobManager().Close()
 		c.ag.Env.CloseLSP()
 		c.ag.Env.CloseBrowser()
+		c.ag.Env.ClosePreview()
 		c.ag.Env.CloseMCP()
 	}
 	c.ag = nil
@@ -1436,6 +1443,7 @@ func (c *chat) ensureSession() error {
 		return err
 	}
 	c.sess = s
+	c.startedAt = time.Now()
 	c.persistAgents()
 	return c.rebuild(false)
 }
@@ -1794,6 +1802,7 @@ func (c *chat) command(line string) tea.Cmd {
 			break
 		}
 		c.sess = ns
+		c.startedAt = time.Now()
 		c.persistAgents()
 		c.entries = nil
 		c.imageGen = false

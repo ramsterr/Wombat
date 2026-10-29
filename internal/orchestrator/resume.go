@@ -187,6 +187,7 @@ func (o *Orchestrator) resumeScout(ctx context.Context, rec *resumableWorker, an
 	defer env.CloseJobs()
 	defer env.CloseLSP()
 	defer env.CloseBrowser()
+	defer env.ClosePreview()
 	remaining := remainingTokens(rec.Tokens, rec.Usage)
 	if rec.Tokens > 0 && remaining <= 0 {
 		return "", fmt.Errorf("worker token budget exhausted (%d tokens)", rec.Tokens)
@@ -294,6 +295,7 @@ func (o *Orchestrator) resumeWriter(ctx context.Context, rec *resumableWorker, a
 	defer env.CloseJobs()
 	defer env.CloseLSP()
 	defer env.CloseBrowser()
+	defer env.ClosePreview()
 	remaining := remainingTokens(rec.Tokens, rec.Usage)
 	if rec.Tokens > 0 && remaining <= 0 {
 		return "", fmt.Errorf("worker token budget exhausted (%d tokens)", rec.Tokens)

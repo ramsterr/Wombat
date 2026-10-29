@@ -111,3 +111,13 @@ func TestBrowserScriptBatchesActionsAndCompactsAssertions(t *testing.T) {
 	}
 	run(t, &Browser{}, env, `{"action":"close"}`)
 }
+
+func TestBrowserSkipsScreenshotsForNonVisionModels(t *testing.T) {
+	env := testEnv(t.TempDir())
+	env.VisionKnown = true
+	env.Vision = false
+	out := run(t, &Browser{}, env, `{"action":"screenshot"}`)
+	if !strings.Contains(out, "screenshot skipped") {
+		t.Fatalf("screenshot output = %q", out)
+	}
+}

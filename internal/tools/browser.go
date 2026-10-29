@@ -111,6 +111,9 @@ func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Sess
 		}
 		return fmt.Sprintf("opened %s\n%s", info.URL, info.Title), nil
 	case "screenshot":
+		if env.VisionKnown && !env.Vision {
+			return "screenshot skipped: this model cannot see images; use eval assertions or text instead, and leave screenshots for a vision model.", nil
+		}
 		shot, err := session.Screenshot(ctx, a.FullPage)
 		if err != nil {
 			return "", err

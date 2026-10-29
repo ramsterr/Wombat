@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ramsterr/Wombat/internal/agent"
+	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
@@ -86,4 +87,39 @@ func TestSyncTodosMirrorsLedgerStatuses(t *testing.T) {
 func TestSyncTodosIsNilSafe(t *testing.T) {
 	o := &Orchestrator{ledger: &Ledger{Steps: []Step{{ID: "a", Title: "A", Status: StepPending}}}}
 	o.syncTodos()
+}
+
+func TestStepNoteSteersSerialWork(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}, cfg: Config{MaxParallelScouts: 3}}
+	o.inputNote("build a site, write the copy, and render a video")
+	calls := []llm.ToolCall{{Name: "bash"}, {Name: "read"}, {Name: "bash"}}
+	note := o.stepNote(4, calls)
+	if !strings.Contains(note, "update_plan") || !strings.Contains(note, "run_plan") {
+		t.Fatalf("plan steer = %q", note)
+	}
+	if again := o.stepNote(5, calls); again != "" {
+		t.Fatalf("steer should fire once, got %q", again)
+	}
+
+	planned := &Orchestrator{ledger: &Ledger{}, cfg: Config{MaxParallelScouts: 3}}
+	planned.inputNote("build a site, write the copy, and render a video")
+	if got := planned.stepNote(4, []llm.ToolCall{{Name: "update_plan"}}); got != "" {
+		t.Fatalf("planning should satisfy the steer: %q", got)
+	}
+}
+
+func TestStepNoteStopsEndlessExploration(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	o.inputNote("make a video")
+	calls := make([]llm.ToolCall, 10)
+	for i := range calls {
+		calls[i] = llm.ToolCall{Name: "read"}
+	}
+	note := o.stepNote(11, calls)
+	if !strings.Contains(note, "Stop exploring") {
+		t.Fatalf("exploration steer = %q", note)
+	}
+	if got := o.stepNote(12, calls); got != "" {
+		t.Fatalf("steer should fire once, got %q", got)
+	}
 }

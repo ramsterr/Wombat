@@ -102,7 +102,7 @@ func detectVisualArtifact(tc llm.ToolCall, result string) (visualArtifact, bool)
 		if path := firstFilePath(result); path != "" {
 			return visualArtifact{Kind: visualKind(path), Ref: path}, true
 		}
-	case "browser":
+	case "browser", "preview":
 		if u := firstURL(result); u != "" {
 			return visualArtifact{Kind: "site", Ref: u}, true
 		}

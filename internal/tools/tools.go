@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ramsterr/Wombat/internal/browser"
 	"github.com/ramsterr/Wombat/internal/embeddings"
@@ -88,6 +89,9 @@ type Env struct {
 	// browser owns the local Chromium session used for visual verification.
 	browser *browser.Manager
 
+	// preview owns the local static server started by the preview tool.
+	preview *previewHost
+
 	// AskUser asks the user a question and waits for the answer. It is nil
 	// where nobody can answer, such as inside a worker.
 	AskUser func(q Question) (string, error)
@@ -95,6 +99,15 @@ type Env struct {
 	// Todos is the session's visible task list. The agent updates it with
 	// todo_write; the TUI renders it as the anchor for the current work.
 	Todos *todo.Store
+
+	// SessionStarted scopes default verification to pages this session
+	// touched, instead of auditing every old site in the workspace.
+	SessionStarted time.Time
+
+	// Vision reports whether the active model can see images. VisionKnown
+	// distinguishes "not supported" from a caller that did not set it.
+	Vision      bool
+	VisionKnown bool
 }
 
 // mediaSink is a pointer so copying an Env (the orchestrator does that for
@@ -180,6 +193,7 @@ func (e *Env) Isolate() {
 	e.lsp = nil
 	e.Images = nil
 	e.browser = nil
+	e.preview = nil
 	e.PermitPreview = nil
 }
 
@@ -194,6 +208,31 @@ func (e *Env) CloseJobs() {
 		return
 	}
 	e.jobs.Close()
+}
+
+// previewInit guards the one-time construction of the preview server host.
+var previewInit sync.Mutex
+
+// PreviewHost returns the local static-preview server, creating it on first
+// use.
+func (e *Env) PreviewHost() *previewHost {
+	if e == nil {
+		return nil
+	}
+	previewInit.Lock()
+	defer previewInit.Unlock()
+	if e.preview == nil {
+		e.preview = &previewHost{}
+	}
+	return e.preview
+}
+
+// ClosePreview stops the local static-preview server, if one is running.
+func (e *Env) ClosePreview() {
+	if e == nil || e.preview == nil {
+		return
+	}
+	e.preview.close()
 }
 
 // todoInit guards the one-time construction of an in-memory todo store.
@@ -367,7 +406,7 @@ type Tool interface {
 func Registry() []Tool {
 	return []Tool{
 		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{}, &Refactor{},
-		&Glob{}, &Grep{}, &UseSkill{}, &GitStatus{}, &GitDiff{}, &GitLog{}, &GitShow{}, &GitBlame{}, &Batch{}, &Symbols{}, &LSP{}, &SemanticSearch{}, &Browser{}, &ImageGen{}, &ImageSearch{}, &Verify{},
+		&Glob{}, &Grep{}, &UseSkill{}, &GitStatus{}, &GitDiff{}, &GitLog{}, &GitShow{}, &GitBlame{}, &Batch{}, &Symbols{}, &LSP{}, &SemanticSearch{}, &Browser{}, &Preview{}, &ImageGen{}, &ImageSearch{}, &Verify{},
 		&VerifySite{}, &Replace{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},

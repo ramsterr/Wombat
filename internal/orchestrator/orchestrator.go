@@ -183,6 +183,8 @@ type Orchestrator struct {
 	activeAgents     int
 	writerTokens     int
 	writerBase       string
+	planExpected     bool
+	steered          bool
 	planRun          *planSession
 	planActive       map[string]bool
 	resumables       map[string]*resumableWorker
@@ -344,6 +346,7 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 	ag.InputNote = func(input string) string {
 		return o.inputNote(input)
 	}
+	ag.StepNote = o.stepNote
 	// Put orchestration tools first: they are the intended opening move for
 	// multi-step work, and a long base tool list otherwise buries them.
 	orchTools := []tools.Tool{
@@ -408,8 +411,8 @@ func (o *Orchestrator) systemPrompt() string {
 	var b strings.Builder
 	b.WriteString("## Orchestration\n")
 	b.WriteString("You are the lead agent: you own the plan, the edits, the commands, and the final answer. ")
-	b.WriteString("First action rule: for 3+ steps or 2+ independent deliverables, call update_plan, then run_plan; never open with bash or read. ")
-	b.WriteString("Mirror the ledger with todo_write. If a third serial bash/read call appears on multi-step work, stop and plan or delegate.\n\n")
+	b.WriteString("First action rule: for 3+ steps or 2+ independent deliverables, call update_plan, then run_plan; never open with bash or read. Batch independent reads/searches in one turn. One small artifact is not a plan: build it in one pass. ")
+	b.WriteString("Mirror the ledger with todo_write; after a third serial bash/read call on multi-step work, plan or delegate.\n\n")
 	b.WriteString("### Task ledger\n")
 	b.WriteString(view)
 	b.WriteString("\n\n")
@@ -421,7 +424,7 @@ func (o *Orchestrator) systemPrompt() string {
 	}
 	b.WriteString("### Running the plan\n")
 	if o.worktrees != nil {
-		b.WriteString("After update_plan, call run_plan: ready steps run in parallel, a slow step does not stall other ready work, and timed-out steps retry once. Writers are isolated, reviewed, and merged only when checks pass. Never mark a failed write completed by hand.\n\n")
+		b.WriteString("After update_plan, call run_plan: ready steps run in parallel, a slow step doesn't stall others, timeouts retry once. Writers are isolated, reviewed, and merged only when checks pass; never mark a failed write completed by hand.\n\n")
 	} else {
 		b.WriteString("After update_plan, call run_plan: ready scouts run in parallel, slow steps don't stall independent work, and timeouts retry once. Failed steps block only dependents.\n\n")
 	}
@@ -432,25 +435,25 @@ func (o *Orchestrator) systemPrompt() string {
 	b.WriteString("### Delegation\n")
 	if o.cfg.ParallelAgents {
 		b.WriteString("Parallel work is the default. Past two steps, delegate_many dispatches ")
-		b.WriteString("two to five independent workers at the same time, each on a different angle; ")
+		b.WriteString("two to five independent workers at the same time, each on separate angles; ")
 		b.WriteString("it is faster and uses fewer tokens than one thread. ")
 	}
-	b.WriteString("Use workers for independent files, pages, or audits; they fetch docs and skills with web tools. Give each an exact output path. ")
-	b.WriteString("Use delegate for a single investigation. ")
-	b.WriteString("Never put dependent steps in one fleet; use run_plan for dependencies. Use one script for scraping, transforms, and shell work. Give each worker a disjoint slice and output file, never the same dataset. Research is optional: never gate delivery on it; make a stalled worker return a partial file. Stop when artifacts and checks pass. ")
+	b.WriteString("Use workers for independent files, pages, or audits; give each an exact output path. ")
+	b.WriteString("Use delegate for one investigation. ")
+	b.WriteString("Never put dependent steps in one fleet; use run_plan. Use one script for scraping, transforms, and shell work. Give each worker a disjoint slice and output file, never the same dataset. Research is optional: never gate delivery on it; make a stalled worker return a partial file. Stop when artifacts and checks pass. ")
 	if maxDelegations > 0 {
 		fmt.Fprintf(&b, "At most %d delegations per turn and %d workers at once; every delegation is grounded in the ledger.\n", maxDelegations, o.cfg.MaxParallelScouts)
 	} else {
 		fmt.Fprintf(&b, "Delegations are unlimited this turn, with %d workers at once; every delegation is grounded in the ledger.\n", o.cfg.MaxParallelScouts)
 	}
-	b.WriteString("Give each worker a complete objective, context it cannot see, and a concrete deliverable. ")
+	b.WriteString("Give each a complete objective, missing context, and a concrete deliverable. ")
 	if o.cfg.FullWorkers {
 		b.WriteString("Workers are full-access and cannot delegate. They have every non-orchestration tool (read/write/edit, bash, network, browser, image generation) in isolated worktrees. Changes are reviewed and merged; no-change research still completes. ")
 	} else {
 		b.WriteString("Workers are read-only and cannot delegate. They have read, glob, grep, batch, websearch, webfetch, and bash for non-mutating " +
 			"commands (ls, which, grep, curl to stdout). They cannot write files: do downloads and writes yourself, or use delegate_write. ")
 	}
-	b.WriteString("Treat their reports as evidence, not truth: reconcile them and verify what matters.\n\n")
+	b.WriteString("Treat reports as evidence, not truth; reconcile and verify what matters.\n\n")
 	if o.worktrees != nil {
 		b.WriteString("### Writers\n")
 		b.WriteString("Use delegate_write when coding splits into independent tasks with disjoint files. ")

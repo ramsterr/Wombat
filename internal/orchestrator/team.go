@@ -232,6 +232,7 @@ func (o *Orchestrator) runTeamWorker(ctx context.Context, a delegateArgs, m *age
 	defer env.CloseJobs()
 	defer env.CloseLSP()
 	defer env.CloseBrowser()
+	defer env.ClosePreview()
 
 	runCtx, cancel := context.WithTimeoutCause(ctx, cfg.WorkerTimeout,
 		fmt.Errorf("agent %s timed out after %s", m.ID, cfg.WorkerTimeout))
@@ -337,6 +338,7 @@ func (o *Orchestrator) resumeCustomAgent(ctx context.Context, rec *resumableWork
 	defer env.CloseJobs()
 	defer env.CloseLSP()
 	defer env.CloseBrowser()
+	defer env.ClosePreview()
 
 	remaining := remainingTokens(rec.Tokens, rec.Usage)
 	if rec.Tokens > 0 && remaining <= 0 {

@@ -207,7 +207,7 @@ func (c *chat) detectToolPreview(name, text string) {
 			p.Source = base
 			c.addPreview(p)
 		}
-	case "bash", "verify_site":
+	case "bash", "verify_site", "preview":
 		if !serverBanner(text) {
 			return
 		}

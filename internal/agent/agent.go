@@ -46,10 +46,14 @@ type Agent struct {
 	// to put the planner directive in front of a multi-step request without
 	// persisting a fake user message in the session.
 	InputNote func(input string) string
-	RunStart  func()
-	RunEnd    func()
-	Hooks     Hooks
-	Trace     *trace.Logger
+	// StepNote adds one-turn guidance before a model step. The orchestrator
+	// uses it to break out of serial tool loops without persisting a synthetic
+	// message in the session.
+	StepNote func(step int, calls []llm.ToolCall) string
+	RunStart func()
+	RunEnd   func()
+	Hooks    Hooks
+	Trace    *trace.Logger
 
 	ModeNote string
 	TmpNote  string
@@ -133,11 +137,14 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	if a.Env != nil {
 		a.Env.SetMediaSink(&media)
 		a.Env.SetSpillDir(a.spillDir())
+		a.Env.Vision = a.supportsImages()
+		a.Env.VisionKnown = true
 	}
 	// Repeating the same call with the same arguments means the model is
 	// stuck; stop it before it burns the budget.
 	calls := map[string]int{}
 	turnRetries := 0
+	var turnCalls []llm.ToolCall
 	system := buildSystem(a.Env.Dir)
 	if note := strings.TrimSpace(a.ModeNote); note != "" {
 		system += "\n\n" + note
@@ -171,7 +178,14 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if maxSteps > 0 && step == maxSteps-1 {
 			defs = nil
 		}
-		res, err := a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
+		requestSystem := system
+		if a.StepNote != nil && len(turnCalls) > 0 {
+			if note := strings.TrimSpace(a.StepNote(step+1, turnCalls)); note != "" {
+				requestSystem += "\n\n" + note
+				a.Trace.Emit("step_note", map[string]any{"step": step + 1})
+			}
+		}
+		res, err := a.Provider.Chat(ctx, a.request(requestSystem, defs), a.Hooks.OnText)
 		if err != nil && llm.InvalidRequest(err) {
 			// The provider rejected the request itself. The history is the
 			// problem, so repair it and try again: otherwise every later
@@ -202,7 +216,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 					break
 				}
 				_ = a.Sess.Append(llm.Message{Role: "user", Content: note})
-				res, err = a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
+				res, err = a.Provider.Chat(ctx, a.request(requestSystem, defs), a.Hooks.OnText)
 			}
 		}
 		if err != nil {
@@ -284,6 +298,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}
 			media = media[:0]
 		}
+		turnCalls = append(turnCalls, res.ToolCalls...)
 		if err := ctx.Err(); err != nil {
 			return err
 		}

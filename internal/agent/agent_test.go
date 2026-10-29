@@ -377,3 +377,59 @@ func TestAppendMediaStoresAttachmentCopy(t *testing.T) {
 		t.Fatalf("stored bytes = %q", data)
 	}
 }
+
+type noteProvider struct {
+	calls int
+	reqs  []llm.Request
+}
+
+func (p *noteProvider) Name() string                                 { return "note-fake" }
+func (p *noteProvider) ListModels(context.Context) ([]string, error) { return nil, nil }
+func (p *noteProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	p.reqs = append(p.reqs, req)
+	p.calls++
+	if p.calls <= 2 {
+		return &llm.Result{ToolCalls: []llm.ToolCall{{
+			ID:        fmt.Sprintf("g%d", p.calls),
+			Name:      "glob",
+			Arguments: `{"pattern":"*.txt"}`,
+		}}}, nil
+	}
+	return &llm.Result{Content: "done"}, nil
+}
+
+func TestStepNoteIsAddedToTheNextRequest(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	dir := t.TempDir()
+	sess, err := session.Create(dir, "note-fake", "model", "step-note")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &noteProvider{}
+	a := &Agent{
+		Provider: prov,
+		Model:    "model",
+		Tools:    tools.Registry(),
+		Sess:     sess,
+		MaxSteps: 5,
+		Env: &tools.Env{
+			Dir:    dir,
+			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
+		},
+		StepNote: func(step int, calls []llm.ToolCall) string {
+			if step == 2 && len(calls) == 1 {
+				return "STEER_NOW"
+			}
+			return ""
+		},
+	}
+	if err := a.Run(context.Background(), "do work"); err != nil {
+		t.Fatal(err)
+	}
+	if len(prov.reqs) < 2 || !strings.Contains(prov.reqs[1].System, "STEER_NOW") {
+		t.Fatalf("steer was not added to the next request: %+v", prov.reqs)
+	}
+	if len(prov.reqs) >= 3 && strings.Contains(prov.reqs[2].System, "STEER_NOW") {
+		t.Error("steer leaked into a later request")
+	}
+}
