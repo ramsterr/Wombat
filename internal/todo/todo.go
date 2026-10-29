@@ -107,6 +107,17 @@ func (s *Store) loadLocked() error {
 	return nil
 }
 
+// Reload re-reads the persisted list. It lets a second process or a
+// background scheduler publish progress without losing the shared store.
+func (s *Store) Reload() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.loadLocked()
+}
+
 // Items returns a copy of the list.
 func (s *Store) Items() []Item {
 	if s == nil {

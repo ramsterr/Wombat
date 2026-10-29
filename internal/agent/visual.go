@@ -147,6 +147,12 @@ func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results 
 	if len(found) == 0 {
 		return false, nil
 	}
+	// A preview hand-off stops the run. Never do that while tracked work is
+	// still unfinished: the todo list is the user's anchor, and interrupting
+	// mid-plan loses the thread of the work.
+	if !a.Env.TodosComplete() {
+		return false, nil
+	}
 	a.visualPasses++
 	if a.Env.AskUser == nil {
 		// Headless runs have no eyes. Stop after a small budget instead of

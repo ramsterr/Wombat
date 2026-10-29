@@ -199,6 +199,21 @@ func (e *Env) CloseJobs() {
 // todoInit guards the one-time construction of an in-memory todo store.
 var todoInit sync.Mutex
 
+// TodosComplete reports whether every item on the session todo list is done.
+// An empty list counts as complete so a run with no tracked todos is not
+// blocked.
+func (e *Env) TodosComplete() bool {
+	if e == nil || e.Todos == nil {
+		return true
+	}
+	items := e.Todos.Items()
+	if len(items) == 0 {
+		return true
+	}
+	done, total := e.Todos.Progress()
+	return total > 0 && done == total
+}
+
 // TodoStore returns the session todo list, creating an in-memory store when
 // the caller did not provide one.
 func (e *Env) TodoStore() *todo.Store {

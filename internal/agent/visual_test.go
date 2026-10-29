@@ -8,6 +8,8 @@ import (
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
 	"github.com/ramsterr/Wombat/internal/tools"
+
+	"github.com/ramsterr/Wombat/internal/todo"
 )
 
 func TestDetectVisualArtifact(t *testing.T) {
@@ -157,5 +159,26 @@ func TestAgentStopsAtVisualHandoff(t *testing.T) {
 	}
 	if prov.calls != 1 {
 		t.Fatalf("provider was called %d times; approval should stop the run after the first visual turn", prov.calls)
+	}
+}
+
+func TestVisualReviewWaitsForTodos(t *testing.T) {
+	a, sess := newVisualAgent(t, "Looks good — ship it")
+	store := todo.New("")
+	if err := store.Set([]todo.Item{{Content: "build the page", Status: todo.InProgress}}); err != nil {
+		t.Fatal(err)
+	}
+	a.Env.Todos = store
+	calls := []llm.ToolCall{{Name: "write", Arguments: `{"path":"index.html"}`}}
+	results := []toolResult{{content: "wrote index.html"}}
+	stop, err := a.visualReview(context.Background(), calls, results)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop {
+		t.Fatal("visual review must not interrupt while todos are incomplete")
+	}
+	if len(sess.Messages) != 0 {
+		t.Fatalf("no hand-off message should be recorded: %+v", sess.Messages)
 	}
 }

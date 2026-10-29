@@ -237,23 +237,6 @@ func (c *chat) panelView() string {
 	}
 	blank()
 
-	if !c.previewRailVisible() {
-		for _, line := range c.previewsSection(contentW) {
-			add(line)
-		}
-		blank()
-	}
-
-	add(sectionLabel("sources"))
-	if c.sourceSites+c.sourceFiles == 0 {
-		add(styleFaint.Render("none · /sources to browse"))
-	} else {
-		add(styleLink.Render(itoa(c.sourceSites)+" sites") + " · " +
-			styleAccent2.Render(itoa(c.sourceFiles)+" files"))
-		add(styleFaint.Render("/sources to browse"))
-	}
-	blank()
-
 	if len(c.pending) > 0 {
 		add(sectionLabel("attached"))
 		for i, a := range c.pending {

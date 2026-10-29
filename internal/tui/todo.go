@@ -12,13 +12,17 @@ func (c *chat) todoSection(width int) []string {
 	if c.todos == nil {
 		return nil
 	}
+	_ = c.todos.Reload()
 	items := c.todos.Items()
 	if len(items) == 0 {
 		return nil
 	}
 	done, total := c.todos.Progress()
 	lines := []string{styleFaint.Render(fmt.Sprintf("%d/%d done", done, total))}
-	limit := 6
+	if total > 0 {
+		lines = append(lines, miniBar(done, total, max(6, width-2)))
+	}
+	limit := 8
 	if len(items) > limit {
 		items = items[:limit]
 	}
