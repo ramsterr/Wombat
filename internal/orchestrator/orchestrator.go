@@ -186,6 +186,7 @@ type Orchestrator struct {
 	planExpected      bool
 	steered           bool
 	screenshotSteered bool
+	routingSteered    bool
 	planRun           *planSession
 	planActive        map[string]bool
 	resumables        map[string]*resumableWorker

@@ -38,6 +38,9 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 	if strings.TrimSpace(a.Command) == "" {
 		return "", errors.New("empty command")
 	}
+	if err := guardBroadScan(a.Command); err != nil {
+		return "", err
+	}
 	if err := env.checkPolicy("bash", a.Command); err != nil {
 		return "", err
 	}

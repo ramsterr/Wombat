@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,6 +18,85 @@ var (
 	shellSed      = regexp.MustCompile(`(?:^|[;&|]\s*)(?:sed|perl)\b([^;&|\n]*)`)
 	shellDD       = regexp.MustCompile(`\bdd\b[^\n]*\bof=("[^"]+"|'[^']+'|[^\s;&|]+)`)
 )
+
+var shellSegment = regexp.MustCompile(`[;&|\n]+`)
+
+// guardBroadScan rejects recursive filesystem scans rooted at / or the user's
+// home. Those commands routinely take minutes, flood the context, and are
+// almost always a sign that the model should use glob or grep with a focused
+// path instead.
+func guardBroadScan(command string) error {
+	home, _ := os.UserHomeDir()
+	for _, segment := range shellSegment.Split(command, -1) {
+		words := shellWords(segment)
+		i := 0
+		for i < len(words) && isShellAssignment(words[i]) {
+			i++
+		}
+		if i >= len(words) {
+			continue
+		}
+		head := words[i]
+		recursive := false
+		switch head {
+		case "find", "du", "tree", "rg", "fd", "ack":
+			recursive = true
+		case "grep", "ls":
+			recursive = hasRecursiveFlag(words[i+1:])
+		default:
+			continue
+		}
+		if !recursive {
+			continue
+		}
+		for _, arg := range words[i+1:] {
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
+			if isBroadScanPath(arg, home) {
+				return fmt.Errorf("refusing a broad filesystem scan of %s: it can take minutes and flood the context. Use glob or grep with a focused path, or scan a subdirectory", arg)
+			}
+		}
+	}
+	return nil
+}
+
+func hasRecursiveFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-R" || arg == "-r" || arg == "--recursive" {
+			return true
+		}
+	}
+	return false
+}
+
+func isShellAssignment(word string) bool {
+	if word == "" || strings.HasPrefix(word, "-") {
+		return false
+	}
+	name, _, ok := strings.Cut(word, "=")
+	if !ok || name == "" {
+		return false
+	}
+	for i, r := range name {
+		if !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func isBroadScanPath(path, home string) bool {
+	path = trimQuotes(strings.TrimSpace(path))
+	if path == "" {
+		return false
+	}
+	switch path {
+	case "/", "~", "$HOME", "${HOME}":
+		return true
+	}
+	return home != "" && filepath.Clean(path) == filepath.Clean(home)
+}
 
 // checkShellWriteIsolation rejects shell commands that write into a blocked
 // root, such as the lead workspace from inside a writer worktree. It is

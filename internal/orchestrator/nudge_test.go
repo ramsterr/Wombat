@@ -148,3 +148,20 @@ func TestStepNoteAllowsBatchBetweenScreenshots(t *testing.T) {
 		t.Fatalf("a batch edit should not trigger the nudge: %q", note)
 	}
 }
+
+func TestStepNoteRoutesBashReadsToDedicatedTools(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	o.inputNote("make a page")
+	calls := []llm.ToolCall{
+		{Name: "bash", Arguments: `{"command":"cat README.md"}`},
+		{Name: "bash", Arguments: `{"command":"grep -n wombat README.md"}`},
+		{Name: "bash", Arguments: `{"command":"ls internal"}`},
+	}
+	note := o.stepNote(4, calls)
+	if !strings.Contains(note, "Tool routing") || !strings.Contains(note, "read, grep, glob") {
+		t.Fatalf("routing nudge = %q", note)
+	}
+	if again := o.stepNote(5, calls); again != "" {
+		t.Fatalf("routing nudge should fire once, got %q", again)
+	}
+}

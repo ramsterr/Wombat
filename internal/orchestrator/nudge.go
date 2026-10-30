@@ -17,6 +17,7 @@ func (o *Orchestrator) inputNote(input string) string {
 	o.planExpected = expected
 	o.steered = false
 	o.screenshotSteered = false
+	o.routingSteered = false
 	active := false
 	if o.ledger != nil {
 		for _, step := range o.ledger.Steps {
@@ -68,6 +69,10 @@ func (o *Orchestrator) stepNote(step int, calls []llm.ToolCall) string {
 		}
 		o.steered = true
 		return "## Steering\nThis multi-step request has used several tool calls without a plan. Stop the serial read/bash loop now: call update_plan with 2-6 concrete steps, then run_plan. For independent research angles, delegate_many is the alternative. Keep todo_write current."
+	}
+	if !o.routingSteered && bashReadCount(calls) >= 3 {
+		o.routingSteered = true
+		return "## Tool routing\nYou have used bash for several simple file reads or searches. Use read, grep, glob, or batch instead: they return structured results, cost fewer tokens, and respect path permissions. Keep bash for execution, builds, and multi-step shell workflows."
 	}
 	if len(calls) >= 10 && !hasMutationCall(calls) {
 		o.steered = true
@@ -132,6 +137,34 @@ func mutationWeight(name string) int {
 		return 1
 	}
 	return 0
+}
+
+func bashReadCount(calls []llm.ToolCall) int {
+	count := 0
+	for _, call := range calls {
+		if call.Name != "bash" {
+			continue
+		}
+		var args struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+			continue
+		}
+		cmd := strings.TrimSpace(args.Command)
+		if cmd == "" || strings.ContainsAny(cmd, "|;&><`") {
+			continue
+		}
+		fields := strings.Fields(cmd)
+		if len(fields) == 0 {
+			continue
+		}
+		switch fields[0] {
+		case "cat", "head", "tail", "grep", "rg", "find", "ls":
+			count++
+		}
+	}
+	return count
 }
 
 func hasPlanningCall(calls []llm.ToolCall) bool {

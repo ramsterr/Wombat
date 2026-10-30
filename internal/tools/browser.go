@@ -39,12 +39,12 @@ type browserArgs struct {
 func (t *Browser) Name() string  { return "browser" }
 func (t *Browser) Class() string { return "network" }
 func (t *Browser) Description() string {
-	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Use action=script to run a whole batch (navigate, eval, click, screenshot) in one call; it returns one compact line per assertion and full details only for failures, so use it instead of many separate calls. Write eval assertions as {ok, failures}; assertion JSON is compacted automatically. Screenshots are controlled by `browser_screenshots` (on by default), attached in memory, and never written to disk. Use eval assertions and verify_site for routine checks. After a screenshot, batch every visible fix before taking another. Use browser for local UI and web apps instead of guessing from HTML."
+	return "Control a local Chromium browser: open a page, read its text, click, type, press keys, scroll, run JavaScript, resize the viewport, and take screenshots. Use action=snapshot for a compact text view of layout, headings, links, controls, images, overflow, and audit errors — cheaper and more general than a screenshot. Use action=script to run a whole batch (navigate, eval, click, snapshot, screenshot) in one call; it returns one compact line per assertion and full details only for failures, so use it instead of many separate calls. Write eval assertions as {ok, failures}; assertion JSON is compacted automatically. Screenshots are controlled by `browser_screenshots` (on by default), attached in memory, and never written to disk. Use eval assertions and verify_site for routine checks. After a screenshot, batch every visible fix before taking another. Use browser for local UI and web apps instead of guessing from HTML."
 }
 func (t *Browser) Schema() map[string]any {
 	return obj(map[string]any{
-		"action":     map[string]any{"type": "string", "enum": []string{"open", "navigate", "screenshot", "click", "type", "press", "scroll", "eval", "text", "wait", "resize", "back", "forward", "reload", "script", "close"}},
-		"steps":      map[string]any{"type": "array", "description": "for action=script: the ordered browser steps to run in one call", "maxItems": 50, "items": map[string]any{"type": "object", "properties": map[string]any{"action": map[string]any{"type": "string", "enum": []string{"open", "navigate", "screenshot", "click", "type", "press", "scroll", "eval", "text", "wait", "resize", "back", "forward", "reload"}}, "url": desc("URL for open or navigate"), "selector": desc("CSS selector"), "text": desc("text to type"), "key": desc("key to press"), "expression": desc("JavaScript expression for eval; return {ok, failures} for assertions"), "full_page": map[string]any{"type": "boolean"}, "width": map[string]any{"type": "integer"}, "height": map[string]any{"type": "integer"}, "timeout_ms": map[string]any{"type": "integer"}, "quiet": map[string]any{"type": "boolean", "description": "suppress this step's successful output"}, "verbose": map[string]any{"type": "boolean", "description": "include this step's successful output"}}, "required": []string{"action"}}},
+		"action":     map[string]any{"type": "string", "enum": []string{"open", "navigate", "snapshot", "screenshot", "click", "type", "press", "scroll", "eval", "text", "wait", "resize", "back", "forward", "reload", "script", "close"}},
+		"steps":      map[string]any{"type": "array", "description": "for action=script: the ordered browser steps to run in one call", "maxItems": 50, "items": map[string]any{"type": "object", "properties": map[string]any{"action": map[string]any{"type": "string", "enum": []string{"open", "navigate", "snapshot", "screenshot", "click", "type", "press", "scroll", "eval", "text", "wait", "resize", "back", "forward", "reload"}}, "url": desc("URL for open or navigate"), "selector": desc("CSS selector"), "text": desc("text to type"), "key": desc("key to press"), "expression": desc("JavaScript expression for eval; return {ok, failures} for assertions"), "full_page": map[string]any{"type": "boolean"}, "width": map[string]any{"type": "integer"}, "height": map[string]any{"type": "integer"}, "timeout_ms": map[string]any{"type": "integer"}, "quiet": map[string]any{"type": "boolean", "description": "suppress this step's successful output"}, "verbose": map[string]any{"type": "boolean", "description": "include this step's successful output"}}, "required": []string{"action"}}},
 		"quiet":      map[string]any{"type": "boolean", "description": "suppress successful step output in a script"},
 		"verbose":    map[string]any{"type": "boolean", "description": "include every successful step output in a script"},
 		"url":        desc("URL to open; http, https, file, and data URLs are supported"),
@@ -110,6 +110,20 @@ func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Sess
 			return "", err
 		}
 		return fmt.Sprintf("opened %s\n%s", info.URL, info.Title), nil
+	case "snapshot":
+		raw, err := session.Eval(ctx, pageSnapshotJS)
+		if err != nil {
+			return "", err
+		}
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return "snapshot: " + string(raw), nil
+		}
+		pretty, err := json.MarshalIndent(value, "", "  ")
+		if err != nil {
+			return "snapshot: " + string(raw), nil
+		}
+		return "snapshot:\n" + string(pretty), nil
 	case "screenshot":
 		if !env.AllowScreenshots {
 			return "screenshot skipped: browser screenshots are disabled; use DOM eval assertions or verify_site. Enable them with `wombat config set browser_screenshots true` if you need an image.", nil
@@ -236,7 +250,7 @@ func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Sess
 		}
 		return fmt.Sprintf("reloaded %s\n%s", info.URL, info.Title), nil
 	}
-	return "", fmt.Errorf("action must be open, navigate, screenshot, click, type, press, scroll, eval, text, wait, resize, back, forward, reload, script, or close")
+	return "", fmt.Errorf("action must be open, navigate, snapshot, screenshot, click, type, press, scroll, eval, text, wait, resize, back, forward, reload, script, or close")
 }
 
 // runScript executes several browser actions in one round-trip. Successful
@@ -296,6 +310,8 @@ func (t *Browser) runScript(ctx context.Context, env *Env, a browserArgs) (strin
 			if !quiet {
 				details = append(details, fmt.Sprintf("step %d text: %s", i+1, compactLine(out, 500)))
 			}
+		case "snapshot":
+			details = append(details, fmt.Sprintf("step %d snapshot: %s", i+1, compactLine(out, 2000)))
 		case "screenshot":
 			details = append(details, fmt.Sprintf("step %d screenshot: %s", i+1, out))
 		default:
@@ -367,3 +383,80 @@ func compactLine(s string, max int) string {
 	}
 	return s
 }
+
+const pageSnapshotJS = `(() => {
+  const clean = (value, max) => String(value == null ? "" : value).replace(/\s+/g, " ").trim().slice(0, max || 120);
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+  };
+  const sel = (el) => {
+    if (!el || el.nodeType !== 1) return "";
+    if (el.id) return "#" + el.id;
+    const parts = [];
+    let node = el;
+    for (let i = 0; i < 3 && node && node.nodeType === 1; i++) {
+      let part = node.tagName.toLowerCase();
+      if (node.classList && node.classList.length) part += "." + Array.from(node.classList).slice(0, 2).join(".");
+      parts.unshift(part);
+      node = node.parentElement;
+    }
+    return parts.join(" > ");
+  };
+  const de = document.documentElement;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const headings = Array.from(document.querySelectorAll("h1,h2,h3,[role=heading]")).slice(0, 25).map((el) => ({
+    level: el.tagName.toLowerCase() === "h1" ? 1 : el.tagName.toLowerCase() === "h2" ? 2 : el.tagName.toLowerCase() === "h3" ? 3 : clean(el.getAttribute("aria-level"), 3),
+    text: clean(el.innerText, 160),
+    selector: sel(el)
+  }));
+  const links = Array.from(document.querySelectorAll("a[href]")).slice(0, 30).map((el) => ({
+    text: clean(el.innerText || el.getAttribute("aria-label") || el.title, 100),
+    href: clean(el.getAttribute("href"), 240),
+    selector: sel(el)
+  }));
+  const controls = Array.from(document.querySelectorAll("button,input,select,textarea,[role=button],[role=link],[role=textbox]")).slice(0, 30).map((el) => ({
+    tag: el.tagName.toLowerCase(),
+    type: clean(el.getAttribute("type"), 20),
+    name: clean(el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.innerText || el.value, 100),
+    selector: sel(el),
+    disabled: !!el.disabled,
+    checked: el.checked === true
+  }));
+  const images = Array.from(document.images).slice(0, 20).map((img) => ({
+    src: clean(img.currentSrc || img.src, 240),
+    alt: clean(img.alt, 160),
+    loaded: img.complete && img.naturalWidth > 0,
+    width: img.naturalWidth,
+    height: img.naturalHeight
+  }));
+  const overflow = [];
+  for (const el of document.querySelectorAll("body *")) {
+    if (overflow.length >= 20) break;
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") continue;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    if (r.right > vw + 1 || r.left < -1) {
+      overflow.push({ tag: el.tagName.toLowerCase(), selector: sel(el), left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) });
+    }
+  }
+  const audit = window.__wombatAudit || { errors: [], failed: [] };
+  const active = document.activeElement;
+  return {
+    url: location.href,
+    title: document.title,
+    lang: document.documentElement.lang || "",
+    viewport: { width: vw, height: vh, dpr: window.devicePixelRatio || 1 },
+    document: { scrollWidth: de.scrollWidth, clientWidth: de.clientWidth, scrollHeight: de.scrollHeight, clientHeight: de.clientHeight },
+    activeElement: active ? { tag: active.tagName.toLowerCase(), selector: sel(active) } : null,
+    headings: headings,
+    links: links,
+    controls: controls,
+    images: images,
+    overflow: overflow,
+    audit: { errors: (audit.errors || []).slice(0, 20), failed: (audit.failed || []).slice(0, 20) },
+    text: (document.body && document.body.innerText ? document.body.innerText : "").replace(/\s+/g, " ").trim().slice(0, 4000)
+  };
+})()`

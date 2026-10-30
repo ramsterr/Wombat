@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -40,6 +41,35 @@ func TestShellWriteIsolation(t *testing.T) {
 	for _, command := range blocked {
 		if err := env.checkShellWriteIsolation(command); err == nil {
 			t.Errorf("escaping command allowed: %q", command)
+		}
+	}
+}
+
+func TestBroadScanGuard(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	blocked := []string{
+		"find / -name go.mod",
+		"grep -r wombat ~",
+		"ls -R /",
+		"du -sh $HOME",
+		"find " + home + " -name '*.go'",
+	}
+	for _, command := range blocked {
+		if err := guardBroadScan(command); err == nil {
+			t.Errorf("broad scan allowed: %q", command)
+		}
+	}
+	allowed := []string{
+		"find . -name go.mod",
+		"grep -r wombat internal",
+		"ls -la /Users/ramster/Wombatt",
+		"ls /",
+		"find /tmp -maxdepth 1",
+		"cd /tmp && find . -name go.mod",
+	}
+	for _, command := range allowed {
+		if err := guardBroadScan(command); err != nil {
+			t.Errorf("focused scan rejected: %q: %v", command, err)
 		}
 	}
 }

@@ -79,6 +79,7 @@ func mcpList(args []string) error {
 	}
 	names := sortedMCPNames(cfg.MCPServers)
 	fmt.Printf("%s (%d)\n", bold("MCP servers"), len(names))
+	fmt.Println(dim("config: " + config.Path() + " (global)"))
 	for _, name := range names {
 		server := cfg.MCPServers[name]
 		state := green("enabled")
@@ -123,6 +124,7 @@ func mcpAdd(args []string) error {
 		return err
 	}
 	fmt.Printf("%s %s %s\n", green(action+":"), bold(name), dim(tools.RedactSecrets(mcpServerSummary(server))))
+	fmt.Println(dim("saved globally in " + config.Path() + "; available from every directory"))
 	fmt.Println(dim("test it with `wombat mcp test " + name + "`"))
 	return nil
 }
