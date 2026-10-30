@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // Batch runs several read-only calls in one round-trip.
@@ -65,53 +66,65 @@ func (t *Batch) Run(ctx context.Context, raw json.RawMessage, env *Env) (string,
 	if len(a.Calls) > 20 {
 		return "", fmt.Errorf("batch takes at most 20 calls, got %d", len(a.Calls))
 	}
-	read := &Read{}
-	grep := &Grep{}
-	glob := &Glob{}
+	outs := make([]string, len(a.Calls))
+	errs := make([]error, len(a.Calls))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 6)
+	for i, c := range a.Calls {
+		wg.Add(1)
+		go func(i int, c batchCall) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			outs[i], errs[i] = runBatchCall(ctx, env, c)
+		}(i, c)
+	}
+	wg.Wait()
 	var b strings.Builder
 	for i, c := range a.Calls {
-		var out string
-		var err error
-		switch c.Tool {
-		case "read":
-			args := map[string]any{"path": c.Path}
-			if c.Limit > 0 {
-				args["limit"] = c.Limit
-			}
-			if c.Offset > 0 {
-				args["offset"] = c.Offset
-			}
-			raw, _ := json.Marshal(args)
-			out, err = read.Run(ctx, raw, env)
-		case "grep":
-			args := map[string]any{"pattern": c.Pattern}
-			if c.Path != "" {
-				args["path"] = c.Path
-			}
-			if c.Limit > 0 {
-				args["limit"] = c.Limit
-			}
-			raw, _ := json.Marshal(args)
-			out, err = grep.Run(ctx, raw, env)
-		case "glob":
-			args := map[string]any{"pattern": c.Pattern}
-			if c.Path != "" {
-				args["path"] = c.Path
-			}
-			raw, _ := json.Marshal(args)
-			out, err = glob.Run(ctx, raw, env)
-		default:
-			err = fmt.Errorf("batch only runs read, grep, and glob (got %q)", c.Tool)
-		}
 		fmt.Fprintf(&b, "--- %d. %s %s ---\n", i+1, c.Tool, describeBatchCall(c))
-		if err != nil {
-			fmt.Fprintf(&b, "error: %s\n", err)
+		if errs[i] != nil {
+			fmt.Fprintf(&b, "error: %s\n", errs[i])
 			continue
 		}
-		b.WriteString(out)
+		b.WriteString(outs[i])
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String()), nil
+}
+
+func runBatchCall(ctx context.Context, env *Env, c batchCall) (string, error) {
+	switch c.Tool {
+	case "read":
+		args := map[string]any{"path": c.Path}
+		if c.Limit > 0 {
+			args["limit"] = c.Limit
+		}
+		if c.Offset > 0 {
+			args["offset"] = c.Offset
+		}
+		raw, _ := json.Marshal(args)
+		return (&Read{}).Run(ctx, raw, env)
+	case "grep":
+		args := map[string]any{"pattern": c.Pattern}
+		if c.Path != "" {
+			args["path"] = c.Path
+		}
+		if c.Limit > 0 {
+			args["limit"] = c.Limit
+		}
+		raw, _ := json.Marshal(args)
+		return (&Grep{}).Run(ctx, raw, env)
+	case "glob":
+		args := map[string]any{"pattern": c.Pattern}
+		if c.Path != "" {
+			args["path"] = c.Path
+		}
+		raw, _ := json.Marshal(args)
+		return (&Glob{}).Run(ctx, raw, env)
+	default:
+		return "", fmt.Errorf("batch only runs read, grep, and glob (got %q)", c.Tool)
+	}
 }
 
 func describeBatchCall(c batchCall) string {

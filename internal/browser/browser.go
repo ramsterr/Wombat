@@ -121,6 +121,7 @@ func launch(ctx context.Context, root string) (*Session, error) {
 		args = append([]string{"--headless=new"}, args...)
 	}
 	cmd := exec.Command(executable, args...)
+	prepareBrowserCommand(cmd)
 	if root != "" {
 		cmd.Dir = root
 	}
@@ -135,7 +136,7 @@ func launch(ctx context.Context, root string) (*Session, error) {
 	go func() { s.done <- cmd.Wait() }()
 
 	cleanup := func(err error) (*Session, error) {
-		_ = cmd.Process.Kill()
+		killBrowserProcess(cmd)
 		_ = os.RemoveAll(dir)
 		return nil, fmt.Errorf("%w%s", err, stderr.suffix())
 	}
@@ -359,9 +360,7 @@ func (s *Session) Close() {
 		s.conn.Close()
 		s.conn = nil
 	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-	}
+	killBrowserProcess(s.cmd)
 	if s.done != nil {
 		select {
 		case <-s.done:

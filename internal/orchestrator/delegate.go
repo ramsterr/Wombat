@@ -104,6 +104,9 @@ func (o *Orchestrator) prepareDelegations(args []delegateArgs, allowFleetDeps bo
 		return nil, fmt.Errorf("too many scouts in one fleet: %d (max %d)", len(args), maxFleetTasks)
 	}
 	for i := range args {
+		if o.lead != nil && o.lead.Env != nil {
+			args[i].Files = normalizeOwnedFiles(args[i].Files, o.lead.Env.Dir)
+		}
 		if err := validateDelegationArgs(args[i]); err != nil {
 			return nil, fmt.Errorf("task %d: %w", i+1, err)
 		}
@@ -440,9 +443,12 @@ func (o *Orchestrator) runOneDelegation(ctx context.Context, d delegation, goal 
 			err:           err,
 		}
 	}
-	if o.cfg.FullWorkers && o.worktrees != nil {
+	switch {
+	case d.args.ReadOnly:
+		report, usage, workerSession, err = o.runWorker(ctx, d.args, d.step, goal, facts, d.maxSteps, d.tokenBudget, false)
+	case o.cfg.FullWorkers && o.worktrees != nil:
 		report, usage, workerSession, merged, err = o.runFullWorker(ctx, d.args, d.step, goal, facts, d.maxSteps, d.tokenBudget)
-	} else {
+	default:
 		report, usage, workerSession, err = o.runWorker(ctx, d.args, d.step, goal, facts, d.maxSteps, d.tokenBudget, o.cfg.FullWorkers)
 	}
 	if report == nil {

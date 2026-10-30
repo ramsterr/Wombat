@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testEnv(dir string) *Env {
@@ -189,5 +190,41 @@ func TestDenyOutsideBlocksWrites(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outside); statErr == nil {
 		t.Fatal("file was written outside the workspace")
+	}
+}
+
+func TestReadCacheInvalidatesOnChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(path, []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := testEnv(dir)
+	first, err := env.ReadFileCached(path)
+	if err != nil || string(first) != "v1\n" {
+		t.Fatalf("first = %q, %v", first, err)
+	}
+	hits, misses := env.ReadCacheStats()
+	if hits != 0 || misses != 1 {
+		t.Fatalf("stats = %d/%d", hits, misses)
+	}
+	second, err := env.ReadFileCached(path)
+	if err != nil || string(second) != "v1\n" {
+		t.Fatalf("second = %q, %v", second, err)
+	}
+	hits, misses = env.ReadCacheStats()
+	if hits != 1 || misses != 1 {
+		t.Fatalf("hit stats = %d/%d", hits, misses)
+	}
+	if err := os.WriteFile(path, []byte("v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	next := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, next, next); err != nil {
+		t.Fatal(err)
+	}
+	third, err := env.ReadFileCached(path)
+	if err != nil || string(third) != "v2\n" {
+		t.Fatalf("third = %q, %v", third, err)
 	}
 }

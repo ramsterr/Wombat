@@ -55,6 +55,9 @@ func TestInputNoteRespectsActiveLedger(t *testing.T) {
 	if !strings.Contains(note, "active ledger") {
 		t.Errorf("note = %q", note)
 	}
+	if !strings.Contains(note, "read_only=true") {
+		t.Errorf("active-session note should push read-only parallel work: %q", note)
+	}
 	if strings.Contains(note, "first tool call must be update_plan") {
 		t.Errorf("active ledger should not restart planning: %q", note)
 	}
@@ -116,7 +119,7 @@ func TestStepNoteStopsEndlessExploration(t *testing.T) {
 		calls[i] = llm.ToolCall{Name: "read"}
 	}
 	note := o.stepNote(11, calls)
-	if !strings.Contains(note, "Stop exploring") {
+	if !strings.Contains(note, "No progress") {
 		t.Fatalf("exploration steer = %q", note)
 	}
 	if got := o.stepNote(12, calls); got != "" {
@@ -163,5 +166,44 @@ func TestStepNoteRoutesBashReadsToDedicatedTools(t *testing.T) {
 	}
 	if again := o.stepNote(5, calls); again != "" {
 		t.Fatalf("routing nudge should fire once, got %q", again)
+	}
+}
+
+func TestStepNoteDetectsNoProgress(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	o.inputNote("build a page")
+	calls := make([]llm.ToolCall, 8)
+	for i := range calls {
+		calls[i] = llm.ToolCall{Name: "browser", Arguments: `{"action":"eval","expression":"document.title"}`}
+	}
+	note := o.stepNote(9, calls)
+	if !strings.Contains(note, "No progress") {
+		t.Fatalf("no-progress nudge = %q", note)
+	}
+}
+
+func TestStepNoteSwitchesAfterPatchFailures(t *testing.T) {
+	env := &tools.Env{}
+	env.NotePatchFailure()
+	env.NotePatchFailure()
+	o := &Orchestrator{ledger: &Ledger{}, lead: &agent.Agent{Env: env}}
+	o.inputNote("fix the file")
+	note := o.stepNote(4, []llm.ToolCall{{Name: "apply_patch"}})
+	if !strings.Contains(note, "Patch failures") || !strings.Contains(note, "multi_edit") {
+		t.Fatalf("patch nudge = %q", note)
+	}
+}
+
+func TestStepNoteDetectsPerformanceLoop(t *testing.T) {
+	o := &Orchestrator{ledger: &Ledger{}}
+	o.inputNote("make it fast")
+	calls := []llm.ToolCall{
+		{Name: "browser", Arguments: `{"action":"eval","expression":"performance.now()"}`},
+		{Name: "browser", Arguments: `{"action":"eval","expression":"frameRate()"}`},
+		{Name: "browser", Arguments: `{"action":"eval","expression":"requestAnimationFrame(loop)"}`},
+	}
+	note := o.stepNote(5, calls)
+	if !strings.Contains(note, "Performance loop") || !strings.Contains(note, "lower canvas resolution") {
+		t.Fatalf("performance nudge = %q", note)
 	}
 }

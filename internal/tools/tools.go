@@ -92,6 +92,10 @@ type Env struct {
 	// preview owns the local static server started by the preview tool.
 	preview *previewHost
 
+	// readCache shares file bytes across reads, batches, and workers. Entries
+	// are invalidated by size and modification time.
+	readCache *readCacheStore
+
 	// AskUser asks the user a question and waits for the answer. It is nil
 	// where nobody can answer, such as inside a worker.
 	AskUser func(q Question) (string, error)
@@ -109,10 +113,12 @@ type Env struct {
 	Vision      bool
 	VisionKnown bool
 
-	// AllowScreenshots opts in to browser screenshots. They are off by
-	// default: DOM assertions and verify_site cover the harness without
-	// spending time and context on images.
+	// AllowScreenshots opts in to browser screenshots. DOM assertions,
+	// snapshots, and verify_site cover most checks without images.
 	AllowScreenshots bool
+
+	screenshots   int
+	patchFailures int
 }
 
 // mediaSink is a pointer so copying an Env (the orchestrator does that for
@@ -215,6 +221,67 @@ func (e *Env) CloseJobs() {
 	e.jobs.Close()
 }
 
+type readCacheStore struct {
+	mu      sync.Mutex
+	entries map[string]readCacheEntry
+	hits    int
+	misses  int
+}
+
+type readCacheEntry struct {
+	size    int64
+	modTime time.Time
+	data    []byte
+}
+
+// ReadFileCached reads a file through the session read cache.
+func (e *Env) ReadFileCached(path string) ([]byte, error) {
+	if e == nil {
+		return os.ReadFile(path)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	readCacheInit.Lock()
+	if e.readCache == nil {
+		e.readCache = &readCacheStore{entries: map[string]readCacheEntry{}}
+	}
+	cache := e.readCache
+	readCacheInit.Unlock()
+	key := filepath.Clean(path)
+	cache.mu.Lock()
+	entry, ok := cache.entries[key]
+	if ok && entry.size == st.Size() && entry.modTime.Equal(st.ModTime()) {
+		cache.hits++
+		data := entry.data
+		cache.mu.Unlock()
+		return data, nil
+	}
+	cache.mu.Unlock()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	cache.mu.Lock()
+	cache.misses++
+	cache.entries[key] = readCacheEntry{size: st.Size(), modTime: st.ModTime(), data: data}
+	cache.mu.Unlock()
+	return data, nil
+}
+
+// ReadCacheStats reports cache hits and misses for diagnostics.
+func (e *Env) ReadCacheStats() (hits, misses int) {
+	if e == nil || e.readCache == nil {
+		return 0, 0
+	}
+	e.readCache.mu.Lock()
+	defer e.readCache.mu.Unlock()
+	return e.readCache.hits, e.readCache.misses
+}
+
+var readCacheInit sync.Mutex
+
 // previewInit guards the one-time construction of the preview server host.
 var previewInit sync.Mutex
 
@@ -238,6 +305,60 @@ func (e *Env) ClosePreview() {
 		return
 	}
 	e.preview.close()
+}
+
+// ResetToolFailures clears per-turn tool failure counters.
+func (e *Env) ResetToolFailures() {
+	if e != nil {
+		e.patchFailures = 0
+	}
+}
+
+// NotePatchFailure records one failed apply_patch attempt.
+func (e *Env) NotePatchFailure() {
+	if e != nil {
+		e.patchFailures++
+	}
+}
+
+// PatchFailures returns how many apply_patch calls failed this turn.
+func (e *Env) PatchFailures() int {
+	if e == nil {
+		return 0
+	}
+	return e.patchFailures
+}
+
+// maxScreenshotsPerTurn caps screenshot review loops. A fresh turn starts
+// with a clean budget; a worker gets its own copy of Env.
+const maxScreenshotsPerTurn = 8
+
+// ResetScreenshots starts a fresh screenshot budget for a new agent turn.
+func (e *Env) ResetScreenshots() {
+	if e != nil {
+		e.screenshots = 0
+	}
+}
+
+// TakeScreenshot accounts for one screenshot and reports whether the budget
+// allows it.
+func (e *Env) TakeScreenshot() bool {
+	if e == nil || e.screenshots >= maxScreenshotsPerTurn {
+		return false
+	}
+	e.screenshots++
+	return true
+}
+
+func (e *Env) ScreenshotsLeft() int {
+	if e == nil {
+		return 0
+	}
+	left := maxScreenshotsPerTurn - e.screenshots
+	if left < 0 {
+		return 0
+	}
+	return left
 }
 
 // todoInit guards the one-time construction of an in-memory todo store.
@@ -417,6 +538,25 @@ func Registry() []Tool {
 		&Jobs{}, &JobOutput{}, &JobKill{},
 		&TodoWrite{}, &TodoRead{},
 	}
+}
+
+// Without removes tools by name. It keeps optional tools out of a session
+// when their backing service is not configured.
+func Without(list []Tool, names ...string) []Tool {
+	if len(names) == 0 {
+		return list
+	}
+	drop := make(map[string]bool, len(names))
+	for _, name := range names {
+		drop[name] = true
+	}
+	out := make([]Tool, 0, len(list))
+	for _, tool := range list {
+		if !drop[tool.Name()] {
+			out = append(out, tool)
+		}
+	}
+	return out
 }
 
 // RegistryWithQuestion is the full tool set, including the question tool the

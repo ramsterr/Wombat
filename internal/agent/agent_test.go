@@ -433,3 +433,56 @@ func TestStepNoteIsAddedToTheNextRequest(t *testing.T) {
 		t.Error("steer leaked into a later request")
 	}
 }
+
+type budgetProvider struct {
+	calls int
+	reqs  []llm.Request
+}
+
+func (p *budgetProvider) Name() string                                 { return "budget-fake" }
+func (p *budgetProvider) ListModels(context.Context) ([]string, error) { return nil, nil }
+func (p *budgetProvider) Chat(_ context.Context, req llm.Request, _ func(string)) (*llm.Result, error) {
+	p.reqs = append(p.reqs, req)
+	p.calls++
+	return &llm.Result{ToolCalls: []llm.ToolCall{{
+		ID:        fmt.Sprintf("b%d", p.calls),
+		Name:      "glob",
+		Arguments: `{"pattern":"*.go"}`,
+	}}}, nil
+}
+
+func TestAgentSoftAndHardBudgets(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	dir := t.TempDir()
+	sess, err := session.Create(dir, "budget-fake", "model", "budgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &budgetProvider{}
+	a := &Agent{
+		Provider:         prov,
+		Model:            "model",
+		Tools:            tools.Registry(),
+		Sess:             sess,
+		Env:              &tools.Env{Dir: dir, Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} }},
+		SoftStepBudget:   2,
+		HardStepBudget:   4,
+		ContextSoftLimit: 1 << 20,
+		ContextHardLimit: 1 << 20,
+	}
+	if err := a.Run(context.Background(), "loop"); err != nil {
+		t.Fatal(err)
+	}
+	if len(prov.reqs) != 4 {
+		t.Fatalf("provider calls = %d, want 4", len(prov.reqs))
+	}
+	if !strings.Contains(prov.reqs[1].System, "## Budget") {
+		t.Errorf("soft step note missing: %s", prov.reqs[1].System)
+	}
+	if !strings.Contains(prov.reqs[3].System, "## Hard budget") {
+		t.Errorf("hard budget note missing: %s", prov.reqs[3].System)
+	}
+	if len(prov.reqs[3].Tools) != 0 {
+		t.Errorf("tools should be disabled on the hard step: %d", len(prov.reqs[3].Tools))
+	}
+}

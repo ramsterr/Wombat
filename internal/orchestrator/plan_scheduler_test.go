@@ -440,3 +440,30 @@ func TestRunEndCancelsBackgroundPlanAndNextTurnResumes(t *testing.T) {
 		t.Fatalf("step after resume = %+v", step)
 	}
 }
+
+func TestRunPlanDoesNotReturnStaleFailureAfterPlanChanges(t *testing.T) {
+	p := &scriptProvider{fn: func(int, llm.Request) (*llm.Result, error) {
+		return &llm.Result{Content: "ok"}, nil
+	}}
+	o, _, _ := newOrch(t, p, Config{})
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "s", Title: "Write", Kind: StepWrite, Files: []string{"a.txt"}, Status: StepPending,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.runPlan(context.Background(), runPlanArgs{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "s", Title: "Write", Kind: StepScout, Status: StepCompleted,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := o.runPlan(context.Background(), runPlanArgs{})
+	if err == nil {
+		t.Fatalf("second run should have no runnable steps, got %s", out)
+	}
+	if strings.Contains(out, "writers require") || strings.Contains(err.Error(), "writers require") {
+		t.Fatalf("second run returned the stale failed plan: out=%s err=%v", out, err)
+	}
+}

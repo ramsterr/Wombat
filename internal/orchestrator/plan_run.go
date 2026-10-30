@@ -112,7 +112,7 @@ func (o *Orchestrator) runPlan(ctx context.Context, a runPlanArgs) (string, erro
 				o.planRun = nil
 			}
 			o.mu.Unlock()
-			if a.Cancel || a.Background || (len(a.Steps) == 0 && active.s.result.Status != "cancelled") {
+			if a.Cancel || a.Background || (len(a.Steps) == 0 && active.s.result.Status == "completed") {
 				return o.planResultJSON(active)
 			}
 		} else {

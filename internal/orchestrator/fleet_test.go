@@ -246,3 +246,30 @@ func TestDelegateManyRejectsDependencyCycle(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestDelegateManyCanRunReadOnlyScouts(t *testing.T) {
+	p := &scriptProvider{}
+	p.fn = func(call int, req llm.Request) (*llm.Result, error) {
+		if !strings.Contains(req.System, "read-only research worker") {
+			t.Errorf("worker %d was not read-only: %s", call, req.System)
+		}
+		if strings.Contains(req.System, "full-access worker") {
+			t.Errorf("worker %d was full-access", call)
+		}
+		return &llm.Result{
+			Content: `{"status":"completed","summary":"read-only report","findings":[],"changes":[],"tests":[],"risks":[],"next_steps":[]}`,
+			Usage:   llm.Usage{In: 3, Out: 2},
+		}, nil
+	}
+	o, _, _ := newOrch(t, p, Config{FullWorkers: true, WorkerMaxSteps: 4})
+	out, err := o.delegateMany(context.Background(), []delegateArgs{
+		{Title: "A", Objective: "inspect A", ReadOnly: true},
+		{Title: "B", Objective: "inspect B", ReadOnly: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "read-only report") {
+		t.Fatalf("out = %s", out)
+	}
+}

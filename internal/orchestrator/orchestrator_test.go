@@ -626,3 +626,18 @@ func TestLeadRequestCarriesPlannerSkillsAndNudge(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdatePlanNormalizesAbsoluteFiles(t *testing.T) {
+	dir := t.TempDir()
+	o := &Orchestrator{ledger: &Ledger{}, lead: &agent.Agent{Env: &tools.Env{Dir: dir}}}
+	absolute := filepath.Join(dir, "sub", "a.txt")
+	if _, err := o.updatePlan("goal", nil, []Step{{
+		ID: "s", Title: "Write", Kind: StepWrite, Files: []string{absolute}, Status: StepPending,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	step := o.ledger.Find("s")
+	if step == nil || len(step.Files) != 1 || step.Files[0] != "sub/a.txt" {
+		t.Fatalf("files = %+v", step)
+	}
+}

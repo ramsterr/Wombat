@@ -134,3 +134,15 @@ func TestHTMLToText(t *testing.T) {
 		t.Errorf("entities should be decoded: %q", text)
 	}
 }
+
+func TestWithoutRemovesOptionalTools(t *testing.T) {
+	list := Without(Registry(), "imagegen")
+	for _, tool := range list {
+		if tool.Name() == "imagegen" {
+			t.Fatal("imagegen was not removed")
+		}
+	}
+	if len(list) != len(Registry())-1 {
+		t.Fatalf("tools = %d, want %d", len(list), len(Registry())-1)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,10 +51,16 @@ type Agent struct {
 	// uses it to break out of serial tool loops without persisting a synthetic
 	// message in the session.
 	StepNote func(step int, calls []llm.ToolCall) string
-	RunStart func()
-	RunEnd   func()
-	Hooks    Hooks
-	Trace    *trace.Logger
+	// Budgets keep a lead turn from looping forever. Zero uses the defaults.
+	// They are ignored when MaxSteps is set, so workers keep their own limits.
+	SoftStepBudget   int
+	HardStepBudget   int
+	ContextSoftLimit int
+	ContextHardLimit int
+	RunStart         func()
+	RunEnd           func()
+	Hooks            Hooks
+	Trace            *trace.Logger
 
 	ModeNote string
 	TmpNote  string
@@ -100,14 +107,24 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	a.visualPasses = 0
 	traceStart := time.Now()
 	traceUsage := a.Usage()
+	var turnCalls []llm.ToolCall
+	modelSteps := 0
 	a.Trace.Emit("run_start", map[string]any{"model": a.Model, "max_steps": a.MaxSteps})
 	defer func() {
 		u := a.Usage()
+		patchFailures := 0
+		if a.Env != nil {
+			patchFailures = a.Env.PatchFailures()
+		}
 		a.Trace.Emit("run_end", map[string]any{
-			"duration_ms": time.Since(traceStart).Milliseconds(),
-			"in":          u.In - traceUsage.In,
-			"cached":      u.Cached - traceUsage.Cached,
-			"out":         u.Out - traceUsage.Out,
+			"duration_ms":    time.Since(traceStart).Milliseconds(),
+			"in":             u.In - traceUsage.In,
+			"cached":         u.Cached - traceUsage.Cached,
+			"out":            u.Out - traceUsage.Out,
+			"steps":          modelSteps,
+			"tool_calls":     len(turnCalls),
+			"screenshots":    screenshotCalls(turnCalls),
+			"patch_failures": patchFailures,
 		})
 	}()
 	if len(a.Sess.Messages) == 0 {
@@ -139,12 +156,13 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		a.Env.SetSpillDir(a.spillDir())
 		a.Env.Vision = a.supportsImages()
 		a.Env.VisionKnown = true
+		a.Env.ResetScreenshots()
+		a.Env.ResetToolFailures()
 	}
 	// Repeating the same call with the same arguments means the model is
 	// stuck; stop it before it burns the budget.
 	calls := map[string]int{}
 	turnRetries := 0
-	var turnCalls []llm.ToolCall
 	system := buildSystem(a.Env.Dir)
 	if note := strings.TrimSpace(a.ModeNote); note != "" {
 		system += "\n\n" + note
@@ -167,7 +185,10 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			system += "\n\n" + note
 		}
 	}
+	softSteps, hardSteps, ctxSoft, ctxHard := a.turnBudgets()
+	softStepNoted, softContextNoted := false, false
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
+		modelSteps++
 		if a.Compact {
 			a.maybeCompact(ctx)
 		}
@@ -175,10 +196,38 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		// On the last step the model gets no tools, so it has to answer in
 		// text instead of running out of steps mid-thought.
 		defs := a.toolDefs()
+		forceFinal := false
+		requestSystem := system
+		if maxSteps <= 0 {
+			history := a.historyTokens()
+			if !softStepNoted && softSteps > 0 && step+1 >= softSteps {
+				requestSystem += "\n\n## Budget\nThis turn has reached " + strconv.Itoa(step+1) + " model steps. Stop starting new work: finish the current deliverable, update todo_write, and report. If blocked, say exactly what remains."
+				softStepNoted = true
+				a.Trace.Emit("budget_note", map[string]any{"kind": "soft_step", "step": step + 1})
+			}
+			if !softContextNoted && ctxSoft > 0 && history >= ctxSoft {
+				requestSystem += "\n\n## Context budget\nThe conversation is " + strconv.Itoa(history) + " tokens. Summarize what is known, finish the current step, and avoid new exploration."
+				softContextNoted = true
+				a.Trace.Emit("budget_note", map[string]any{"kind": "soft_context", "tokens": history})
+			}
+			if hardSteps > 0 && step+1 >= hardSteps {
+				forceFinal = true
+				a.Trace.Emit("budget_note", map[string]any{"kind": "hard_step", "step": step + 1})
+			}
+			if ctxHard > 0 && history >= ctxHard {
+				forceFinal = true
+				a.Trace.Emit("budget_note", map[string]any{"kind": "hard_context", "tokens": history})
+			}
+			if forceFinal {
+				requestSystem += "\n\n## Hard budget\nThis is the final model step. Tools are disabled. Give a concise final report: what is complete, which files changed, what was verified, and what still remains in the todo list."
+			}
+		}
 		if maxSteps > 0 && step == maxSteps-1 {
+			forceFinal = true
+		}
+		if forceFinal {
 			defs = nil
 		}
-		requestSystem := system
 		if a.StepNote != nil && len(turnCalls) > 0 {
 			if note := strings.TrimSpace(a.StepNote(step+1, turnCalls)); note != "" {
 				requestSystem += "\n\n" + note
@@ -260,6 +309,11 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if a.Hooks.OnUsage != nil {
 			a.Hooks.OnUsage(res.Usage, a.historyTokens())
 		}
+		if forceFinal {
+			// Tools are disabled on the final budget step. If the model still
+			// emitted calls, keep its text and stop instead of executing them.
+			return nil
+		}
 		if len(res.ToolCalls) == 0 {
 			return nil
 		}
@@ -314,6 +368,59 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	// The step limit is not a failure: the model got its last word in
 	// without tools, so the turn ends normally.
 	return nil
+}
+
+func screenshotCalls(calls []llm.ToolCall) int {
+	n := 0
+	for _, call := range calls {
+		if call.Name != "browser" {
+			continue
+		}
+		var args struct {
+			Action string `json:"action"`
+			Steps  []struct {
+				Action string `json:"action"`
+			} `json:"steps"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &args); err != nil {
+			continue
+		}
+		if strings.EqualFold(args.Action, "screenshot") {
+			n++
+		}
+		for _, step := range args.Steps {
+			if strings.EqualFold(step.Action, "screenshot") {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func (a *Agent) turnBudgets() (softSteps, hardSteps, ctxSoft, ctxHard int) {
+	const (
+		defaultSoftSteps = 30
+		defaultHardSteps = 50
+		defaultCtxSoft   = 150_000
+		defaultCtxHard   = 250_000
+	)
+	softSteps = a.SoftStepBudget
+	if softSteps <= 0 {
+		softSteps = defaultSoftSteps
+	}
+	hardSteps = a.HardStepBudget
+	if hardSteps <= 0 {
+		hardSteps = defaultHardSteps
+	}
+	ctxSoft = a.ContextSoftLimit
+	if ctxSoft <= 0 {
+		ctxSoft = defaultCtxSoft
+	}
+	ctxHard = a.ContextHardLimit
+	if ctxHard <= 0 {
+		ctxHard = defaultCtxHard
+	}
+	return
 }
 
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }

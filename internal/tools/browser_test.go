@@ -158,3 +158,21 @@ func TestBrowserSnapshotReturnsStructuredPage(t *testing.T) {
 	}
 	run(t, &Browser{}, env, `{"action":"close"}`)
 }
+
+func TestBrowserScreenshotBudget(t *testing.T) {
+	env := testEnv(t.TempDir())
+	env.AllowScreenshots = true
+	env.VisionKnown = true
+	env.Vision = true
+	for i := 0; i < maxScreenshotsPerTurn; i++ {
+		env.TakeScreenshot()
+	}
+	out := run(t, &Browser{}, env, `{"action":"screenshot"}`)
+	if !strings.Contains(out, "budget for this turn is exhausted") {
+		t.Fatalf("screenshot output = %q", out)
+	}
+	env.ResetScreenshots()
+	if left := env.ScreenshotsLeft(); left != maxScreenshotsPerTurn {
+		t.Fatalf("screenshots left = %d", left)
+	}
+}

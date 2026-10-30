@@ -71,6 +71,10 @@ func (t *ApplyPatch) Run(_ context.Context, raw json.RawMessage, env *Env) (stri
 	if err != nil {
 		return "", err
 	}
+	ops, err = mergePatchOps(ops)
+	if err != nil {
+		return "", err
+	}
 	for _, op := range ops {
 		if err := env.checkPolicy("edit", op.path); err != nil {
 			return "", err
@@ -225,6 +229,27 @@ func (t *ApplyPatch) Run(_ context.Context, raw json.RawMessage, env *Env) (stri
 	return out, nil
 }
 
+// mergePatchOps combines repeated Update File sections for the same path.
+// Models often emit one section per edit; that is safe to apply in order and
+// is better than failing the whole patch.
+func mergePatchOps(ops []patchOp) ([]patchOp, error) {
+	merged := make([]patchOp, 0, len(ops))
+	index := map[string]int{}
+	for _, op := range ops {
+		key := filepath.Clean(op.path)
+		if i, ok := index[key]; ok {
+			if op.kind != patchUpdate || merged[i].kind != patchUpdate {
+				return nil, fmt.Errorf("%s appears more than once in the patch; combine it into one Update File", op.path)
+			}
+			merged[i].hunks = append(merged[i].hunks, op.hunks...)
+			continue
+		}
+		index[key] = len(merged)
+		merged = append(merged, op)
+	}
+	return merged, nil
+}
+
 func hunkText(h patchHunk) (old, new string) {
 	var oldLines, newLines []string
 	for _, line := range h.lines {
@@ -325,6 +350,15 @@ func parsePatch(text string) ([]patchOp, error) {
 				return nil, fmt.Errorf("update lines must start with space, +, or -: %s", line)
 			}
 			hunk.lines = append(hunk.lines, line)
+		}
+	}
+	// Many models omit the closing marker at EOF. If a complete file
+	// operation was parsed, accept it; atomic validation and hunk matching
+	// still protect against a truncated body.
+	if begun && current != nil {
+		finishOp()
+		if len(ops) > 0 {
+			return ops, nil
 		}
 	}
 	return nil, fmt.Errorf("patch is missing *** End Patch")

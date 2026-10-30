@@ -187,6 +187,10 @@ type Orchestrator struct {
 	steered           bool
 	screenshotSteered bool
 	routingSteered    bool
+	noProgressSteered bool
+	patchSteered      bool
+	perfSteered       bool
+	turns             int
 	planRun           *planSession
 	planActive        map[string]bool
 	resumables        map[string]*resumableWorker
@@ -376,6 +380,7 @@ func (o *Orchestrator) endTurn() {
 
 func (o *Orchestrator) beginTurn() {
 	o.mu.Lock()
+	o.turns++
 	o.delegations = 0
 	o.workerTokens = 0
 	o.writerTokens = 0
@@ -484,6 +489,23 @@ func (o *Orchestrator) systemPrompt() string {
 	return strings.TrimSpace(b.String())
 }
 
+func normalizeOwnedFiles(files []string, root string) []string {
+	if len(files) == 0 || root == "" {
+		return files
+	}
+	out := make([]string, len(files))
+	for i, file := range files {
+		file = strings.TrimSpace(file)
+		if filepath.IsAbs(file) {
+			if rel, err := filepath.Rel(root, file); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				file = filepath.ToSlash(rel)
+			}
+		}
+		out[i] = file
+	}
+	return out
+}
+
 // independentSteps counts the ledger steps that do not depend on each other.
 func (o *Orchestrator) independentSteps() int {
 	o.mu.Lock()
@@ -525,6 +547,9 @@ func (o *Orchestrator) updatePlan(goal string, facts []string, steps []Step) (st
 		steps[i].Status = StepStatus(strings.ToLower(strings.TrimSpace(string(steps[i].Status))))
 		if steps[i].Status == "" {
 			steps[i].Status = StepPending
+		}
+		if o.lead != nil && o.lead.Env != nil {
+			steps[i].Files = normalizeOwnedFiles(steps[i].Files, o.lead.Env.Dir)
 		}
 		if prev, ok := old[steps[i].ID]; ok {
 			if steps[i].Report == nil {

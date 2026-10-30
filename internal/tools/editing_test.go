@@ -286,3 +286,53 @@ func TestReplaceTextTokenSequencePreservesCRLF(t *testing.T) {
 		t.Fatalf("got %q, want %q", updated, want)
 	}
 }
+
+func TestApplyPatchMergesDuplicateUpdateSections(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := testEnv(dir)
+	patch := `*** Begin Patch
+*** Update File: a.txt
+@@
+-one
++ONE
+*** Update File: a.txt
+@@
+-three
++THREE
+*** End Patch`
+	raw, _ := json.Marshal(applyPatchArgs{Patch: patch})
+	if _, err := (&ApplyPatch{}).Run(context.Background(), raw, env); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "ONE\ntwo\nTHREE\n" {
+		t.Fatalf("a.txt = %q", data)
+	}
+}
+
+func TestApplyPatchAcceptsMissingEndMarker(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := testEnv(dir)
+	patch := `*** Begin Patch
+*** Update File: a.txt
+@@
+-old
++new`
+	raw, _ := json.Marshal(applyPatchArgs{Patch: patch})
+	if _, err := (&ApplyPatch{}).Run(context.Background(), raw, env); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(data) != "new\n" {
+		t.Fatalf("a.txt = %q", data)
+	}
+}

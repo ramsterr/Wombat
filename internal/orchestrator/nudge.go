@@ -18,6 +18,9 @@ func (o *Orchestrator) inputNote(input string) string {
 	o.steered = false
 	o.screenshotSteered = false
 	o.routingSteered = false
+	o.noProgressSteered = false
+	o.patchSteered = false
+	o.perfSteered = false
 	active := false
 	if o.ledger != nil {
 		for _, step := range o.ledger.Steps {
@@ -33,7 +36,7 @@ func (o *Orchestrator) inputNote(input string) string {
 		return ""
 	}
 	if active {
-		return "## Planner directive\nThis request extends an active ledger. Update the ledger with update_plan when the scope changes, then run_plan. Keep todo_write current."
+		return "## Planner directive\nThis request extends an active ledger. For every independent read-only angle (research, file survey, comparison, audit), dispatch one delegate_many fleet with read_only=true instead of reading serially. If the new work changes the plan, update_plan then run_plan. Keep todo_write current."
 	}
 	var b strings.Builder
 	b.WriteString("## Planner directive\n")
@@ -41,7 +44,7 @@ func (o *Orchestrator) inputNote(input string) string {
 	if maxParallel > 1 {
 		b.WriteString("Then call run_plan so ready steps run in one parallel wave. ")
 	}
-	b.WriteString("Do not open with a sequence of bash/read calls. For a pure research fleet with no ledger, delegate_many with 2-5 self-contained briefs is acceptable. Keep todo_write current, and synthesize every worker report before answering.")
+	b.WriteString("Do not open with a sequence of bash/read calls. For independent read-only angles, dispatch delegate_many with read_only=true in one wave; keep writes and edits sequential unless files are disjoint. Keep todo_write current, and synthesize every worker report before answering.")
 	return b.String()
 }
 
@@ -68,11 +71,27 @@ func (o *Orchestrator) stepNote(step int, calls []llm.ToolCall) string {
 			return ""
 		}
 		o.steered = true
-		return "## Steering\nThis multi-step request has used several tool calls without a plan. Stop the serial read/bash loop now: call update_plan with 2-6 concrete steps, then run_plan. For independent research angles, delegate_many is the alternative. Keep todo_write current."
+		return "## Steering\nThis multi-step request has used several tool calls without a plan. Stop the serial read/bash loop now: call update_plan with 2-6 concrete steps, then run_plan. For independent read-only angles, delegate_many with read_only=true is the alternative. Keep todo_write current."
 	}
 	if !o.routingSteered && bashReadCount(calls) >= 3 {
 		o.routingSteered = true
+		o.steered = true
 		return "## Tool routing\nYou have used bash for several simple file reads or searches. Use read, grep, glob, or batch instead: they return structured results, cost fewer tokens, and respect path permissions. Keep bash for execution, builds, and multi-step shell workflows."
+	}
+	if !o.noProgressSteered && callsSinceProgress(calls) >= 8 {
+		o.noProgressSteered = true
+		o.steered = true
+		return "## No progress\nYou have made 8 or more calls without changing files, todos, or the plan. Stop investigating: state the blocking fact, make the smallest useful change, or finish with a partial report and what remains."
+	}
+	if !o.patchSteered && o.lead != nil && o.lead.Env != nil && o.lead.Env.PatchFailures() >= 2 {
+		o.patchSteered = true
+		o.steered = true
+		return "## Patch failures\napply_patch has failed twice this turn. Stop retrying the same patch: use multi_edit for several edits in one file, replace for a literal or regex, or rewrite the whole file with write. Read the current file first if its contents may have changed."
+	}
+	if !o.perfSteered && perfProbeCount(calls) >= 3 {
+		o.perfSteered = true
+		o.steered = true
+		return "## Performance loop\nYou have measured rendering performance several times. Stop micro-benchmarking: make one structural change (lower canvas resolution, reduce particles, cache static layers), verify once, and finish. If the target still misses, report the measured limit instead of continuing to optimize."
 	}
 	if len(calls) >= 10 && !hasMutationCall(calls) {
 		o.steered = true
@@ -137,6 +156,43 @@ func mutationWeight(name string) int {
 		return 1
 	}
 	return 0
+}
+
+func callsSinceProgress(calls []llm.ToolCall) int {
+	n := 0
+	for i := len(calls) - 1; i >= 0; i-- {
+		if isProgressCall(calls[i].Name) {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+func isProgressCall(name string) bool {
+	switch name {
+	case "write", "edit", "multi_edit", "apply_patch", "replace", "rename", "refactor",
+		"todo_write", "update_plan", "run_plan", "run_checks":
+		return true
+	}
+	return false
+}
+
+func perfProbeCount(calls []llm.ToolCall) int {
+	n := 0
+	for _, call := range calls {
+		if call.Name != "browser" {
+			continue
+		}
+		lower := strings.ToLower(call.Arguments)
+		for _, marker := range []string{"performance.now", "framerate", "requestanimationframe", "rafpersec", "avgdrawms", "drawms"} {
+			if strings.Contains(lower, marker) {
+				n++
+				break
+			}
+		}
+	}
+	return n
 }
 
 func bashReadCount(calls []llm.ToolCall) int {

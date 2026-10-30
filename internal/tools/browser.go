@@ -77,6 +77,11 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 	if action == "script" {
 		return t.runScript(ctx, env, a)
 	}
+	if action == "screenshot" {
+		if blocked := screenshotBlock(env); blocked != "" {
+			return blocked, nil
+		}
+	}
 	if action == "close" {
 		env.CloseBrowser()
 		return "browser closed", nil
@@ -86,6 +91,19 @@ func (t *Browser) Run(ctx context.Context, raw json.RawMessage, env *Env) (strin
 		return "", err
 	}
 	return t.runAction(ctx, env, session, action, a)
+}
+
+func screenshotBlock(env *Env) string {
+	if env == nil || !env.AllowScreenshots {
+		return "screenshot skipped: browser screenshots are disabled; use DOM eval assertions or verify_site. Enable them with `wombat config set browser_screenshots true` if you need an image."
+	}
+	if env.VisionKnown && !env.Vision {
+		return "screenshot skipped: this model cannot see images; use eval assertions or text instead, and leave screenshots for a vision model."
+	}
+	if env.ScreenshotsLeft() <= 0 {
+		return fmt.Sprintf("screenshot skipped: the %d-screenshot budget for this turn is exhausted. Use browser action=snapshot for layout/accessibility, batch the remaining fixes, and finish; ask the user if another visual review is truly needed.", maxScreenshotsPerTurn)
+	}
+	return ""
 }
 
 func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Session, action string, a browserArgs) (string, error) {
@@ -125,12 +143,10 @@ func (t *Browser) runAction(ctx context.Context, env *Env, session *browser.Sess
 		}
 		return "snapshot:\n" + string(pretty), nil
 	case "screenshot":
-		if !env.AllowScreenshots {
-			return "screenshot skipped: browser screenshots are disabled; use DOM eval assertions or verify_site. Enable them with `wombat config set browser_screenshots true` if you need an image.", nil
+		if blocked := screenshotBlock(env); blocked != "" {
+			return blocked, nil
 		}
-		if env.VisionKnown && !env.Vision {
-			return "screenshot skipped: this model cannot see images; use eval assertions or text instead, and leave screenshots for a vision model.", nil
-		}
+		env.TakeScreenshot()
 		shot, err := session.Screenshot(ctx, a.FullPage)
 		if err != nil {
 			return "", err

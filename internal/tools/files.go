@@ -102,7 +102,7 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if mime, ok := imageMIME(path); ok {
 		return t.readImage(env, path, mime)
 	}
-	data, err := os.ReadFile(path)
+	data, err := env.ReadFileCached(path)
 	if err != nil {
 		return "", err
 	}

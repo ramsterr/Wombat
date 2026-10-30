@@ -138,6 +138,7 @@ type delegateArgs struct {
 	Deliverable string   `json:"deliverable"`
 	Files       []string `json:"files,omitempty"`
 	MaxSteps    int      `json:"max_steps"`
+	ReadOnly    bool     `json:"read_only,omitempty"`
 	// Agent routes the task to one of the selected custom agents instead of
 	// a generic worker.
 	Agent string `json:"agent,omitempty"`
@@ -149,7 +150,7 @@ func (t *delegateTool) Description() string {
 	return "Delegate one self-contained task to a fresh worker with its own context. " +
 		"Use when exploration would flood your context. For two or more independent angles, use delegate_many - that is " +
 		"the default for multi-step work. Do the work directly when it is small. " +
-		"Workers are full-access by default: they can read, write, edit, run commands, use the network, and use every non-orchestration tool in an isolated worktree; changes are reviewed and merged. They cannot delegate further. " +
+		"Workers are full-access by default: they can read, write, edit, run commands, use the network, and use every non-orchestration tool in an isolated worktree; changes are reviewed and merged. Set read_only=true for a cheaper research worker that cannot modify files. They cannot delegate further. " +
 		"Set agent to a selected custom agent id to run the task with that specialist instead. Returns a structured JSON report with evidence and usage."
 }
 func (t *delegateTool) Schema() map[string]any {
@@ -164,6 +165,7 @@ func (t *delegateTool) Schema() map[string]any {
 			"deliverable": map[string]any{"type": "string", "description": "exact output expected, including which claims need evidence"},
 			"files":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "optional repo-relative file ownership; omit to let a full-access worker edit anywhere in its worktree"},
 			"max_steps":   map[string]any{"type": "integer", "description": "optional worker step budget (default from config, max 100)"},
+			"read_only":   map[string]any{"type": "boolean", "description": "run a read-only research worker that cannot modify files"},
 			"agent":       map[string]any{"type": "string", "description": t.o.delegateAgentDescription()},
 		},
 		"required": []string{"title", "objective"},
@@ -192,7 +194,7 @@ func (t *delegateManyTool) Description() string {
 		"spans several parts of the codebase, dispatch a fleet with one call instead of exploring one thread at " +
 		"a time. Give each worker a distinct angle and a self-contained brief. Add id and depends_on to build a DAG: " +
 		"a dependent worker starts after its upstream tasks and receives their reports in its context. " +
-		"Workers can read, write, edit, run commands, use the network, and use every non-orchestration tool; changes are reviewed and merged, and tasks with no changes still complete. Returns one structured JSON report per worker plus total usage; reconcile conflicting reports yourself."
+		"Workers can read, write, edit, run commands, use the network, and use every non-orchestration tool; changes are reviewed and merged, and tasks with no changes still complete. Set read_only=true per task for a cheaper research worker that cannot modify files. Returns one structured JSON report per worker plus total usage; reconcile conflicting reports yourself."
 }
 func (t *delegateManyTool) Schema() map[string]any {
 	taskSchema := map[string]any{

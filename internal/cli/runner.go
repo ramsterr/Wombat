@@ -137,6 +137,9 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		env.Checkpoint = cp
 	}
 	allTools := tools.RegistryWithQuestion()
+	if env.Images == nil {
+		allTools = tools.Without(allTools, "imagegen")
+	}
 	if len(cfg.MCPServers) > 0 {
 		manager := mcp.Connect(context.Background(), cfg.MCPServers, cwd, Version)
 		env.SetMCPManager(manager)
