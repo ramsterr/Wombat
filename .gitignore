@@ -41,3 +41,6 @@
 /cmd/faultsrv/
 /eval/faults/
 /internal/session/fault_test.go
+
+# Local generated site artifact
+/still/
