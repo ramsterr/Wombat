@@ -569,6 +569,8 @@ your environment, so only add servers you trust.
 wombat config set provider openai
 wombat config set model gpt-5
 wombat config set mode create
+wombat config set tool_profile auto
+wombat config set capabilities.semantic off
 wombat config set fallback_models gpt-5-mini
 wombat config set scout_model gpt-5-mini
 wombat config set worker_full_access false
@@ -635,6 +637,10 @@ go build -o /tmp/wombat ./cmd/wombat
 
 CI runs on the default branch and on pull requests. Issues and pull requests
 are welcome.
+
+Benchmarks: [Wombat vs OpenCode](eval/benchmarks/opencode-vs-wombat/README.md)
+(15 tasks) and [Pi vs Wombat](eval/benchmarks/pi-vs-wombat/README.md)
+(18 harness-capability tasks).
 
 regards
     ____

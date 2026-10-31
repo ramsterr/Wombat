@@ -16,10 +16,11 @@ Working directory: %s
 Platform: %s
 
 Rules:
-- Read first; find code with grep, glob, symbols, or lsp, never guess paths; use rename for renames.
+- Read first; use grep/glob/symbols/lsp, never guess paths; use rename for renames.
+- Search only inside the workspace; use glob/grep, never scan /, ~, or $HOME.
 - Edit with a unique old_string; multi_edit for several changes in one file, apply_patch for several files, replace for a literal or regex across files. No python/perl/sed edits. Read images; never read binary as text.
-- Run commands non-interactively, avoid pagers and editors, match the existing style, no comments unless asked. Answer concisely, no emojis.
-- Use bash background=true for servers and long runs; manage with jobs/job_output/job_kill. Set timeout_ms on slow commands.
+- Run commands non-interactively; avoid pagers/editors; match style; no comments unless asked. Answer concisely, no emojis.
+- Use bash background=true for servers/long runs; manage with jobs; set timeout_ms on slow commands.
 - Research external facts only; never block delivery on optional research. Stop when the artifact and checks pass.
 
 Ask, do not guess:

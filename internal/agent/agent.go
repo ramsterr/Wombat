@@ -47,6 +47,7 @@ type Agent struct {
 
 	ModeNote string
 	TmpNote  string
+	ToolNote string
 	// TrimReasoning drops the reasoning of older turns from the request.
 	// Some gateways require it to be passed back, so it is off by default.
 	TrimReasoning bool
@@ -132,17 +133,25 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	// stuck; stop it before it burns the budget.
 	calls := map[string]int{}
 	turnRetries := 0
-	system := buildSystem(a.Env.Dir)
-	if note := strings.TrimSpace(a.ModeNote); note != "" {
-		system += "\n\n" + note
+	baseSystem := buildSystem(a.Env.Dir)
+	system := baseSystem
+	modeNote := strings.TrimSpace(a.ModeNote)
+	if modeNote != "" {
+		system += "\n\n" + modeNote
 	}
-	if note := strings.TrimSpace(a.TmpNote); note != "" {
-		system += "\n\n" + note
+	tmpNote := strings.TrimSpace(a.TmpNote)
+	if tmpNote != "" {
+		system += "\n\n" + tmpNote
 	}
+	extra := ""
 	if a.SystemExtra != nil {
-		if extra := strings.TrimSpace(a.SystemExtra()); extra != "" {
+		extra = strings.TrimSpace(a.SystemExtra())
+		if extra != "" {
 			system += "\n\n" + extra
 		}
+	}
+	if note := strings.TrimSpace(a.ToolNote); note != "" {
+		system += "\n\n" + note
 	}
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if a.Compact {
@@ -155,6 +164,8 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if maxSteps > 0 && step == maxSteps-1 {
 			defs = nil
 		}
+		stats := a.promptStats(system, defs, baseSystem, modeNote, tmpNote, extra)
+		a.Trace.Emit("prompt", stats.Fields(step+1))
 		res, err := a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
 		if err != nil && llm.InvalidRequest(err) {
 			// The provider rejected the request itself. The history is the
@@ -227,6 +238,15 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 		a.recordUsage(res.Usage)
+		a.Trace.Emit("model_usage", map[string]any{
+			"step":               step + 1,
+			"in":                 res.Usage.In,
+			"cached":             res.Usage.Cached,
+			"out":                res.Usage.Out,
+			"history_tokens":     stats.HistoryTokens,
+			"system_tokens":      stats.SystemTokens,
+			"tool_schema_tokens": stats.ToolSchemaTokens,
+		})
 		if a.Hooks.OnUsage != nil {
 			a.Hooks.OnUsage(res.Usage, a.historyTokens())
 		}
@@ -268,6 +288,16 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}
 			media = media[:0]
 		}
+		if a.Env != nil {
+			if pending := a.Env.TakePendingTools(); len(pending) > 0 {
+				a.Tools = appendUniqueTools(a.Tools, pending)
+				names := make([]string, 0, len(pending))
+				for _, tool := range pending {
+					names = append(names, tool.Name())
+				}
+				a.Trace.Emit("capability_loaded", map[string]any{"tools": names})
+			}
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -283,6 +313,23 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	// The step limit is not a failure: the model got its last word in
 	// without tools, so the turn ends normally.
 	return nil
+}
+
+func appendUniqueTools(existing []tools.Tool, extra []tools.Tool) []tools.Tool {
+	seen := make(map[string]bool, len(existing)+len(extra))
+	for _, tool := range existing {
+		if tool != nil {
+			seen[tool.Name()] = true
+		}
+	}
+	for _, tool := range extra {
+		if tool == nil || seen[tool.Name()] {
+			continue
+		}
+		existing = append(existing, tool)
+		seen[tool.Name()] = true
+	}
+	return existing
 }
 
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }

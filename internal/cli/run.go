@@ -20,6 +20,7 @@ func cmdRun(args []string) error {
 	yolo := fs.Bool("yolo", false, "auto-approve tool permissions")
 	cont := fs.Bool("c", false, "continue latest session")
 	quiet := fs.Bool("quiet", false, "only print assistant text")
+	profile := fs.String("profile", "", "tool profile: auto, minimal, coding, web, semantic, git, verify, media, orchestrator, full")
 	var images, files, videos, audios stringList
 	fs.Var(&images, "image", "attach an image (repeatable)")
 	fs.Var(&images, "i", "attach an image (repeatable)")
@@ -79,8 +80,8 @@ func cmdRun(args []string) error {
 	p := newPrompter(isTTY(os.Stdin), *yolo, cfg)
 	r := &renderer{cfg: cfg, sess: sess, quiet: *quiet}
 	ag, err := buildAgent(cfg, runOpts{
-		model: *model, provider: *prov, yolo: *yolo, quiet: *quiet,
-		agents: splitAgentFlags(agentFlags),
+		model: *model, provider: *prov, profile: *profile, task: task,
+		yolo: *yolo, quiet: *quiet, agents: splitAgentFlags(agentFlags),
 	}, sess, p)
 	if err != nil {
 		return err

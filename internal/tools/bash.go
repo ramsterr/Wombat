@@ -11,6 +11,8 @@ import (
 
 type Bash struct{}
 
+var defaultBashTimeout = 30 * time.Second
+
 type bashArgs struct {
 	Command    string `json:"command"`
 	TimeoutMS  int    `json:"timeout_ms"`
@@ -20,12 +22,12 @@ type bashArgs struct {
 func (t *Bash) Name() string  { return "bash" }
 func (t *Bash) Class() string { return "bash" }
 func (t *Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and exit code. Use background for a server, watcher, or long test run: it returns a job id immediately, and jobs, job_output, and job_kill manage it. There is no default timeout: pass timeout_ms for slow commands. Never scan / or the home directory recursively; use focused paths."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and exit code. Foreground commands default to a 30s timeout; pass timeout_ms for slow commands. Use background for a server, watcher, or long test run: it returns a job id immediately, and jobs, job_output, and job_kill manage it. Never scan /, ~, or the home directory recursively; use focused paths inside the workspace."
 }
 func (t *Bash) Schema() map[string]any {
 	return obj(map[string]any{
 		"command":    desc("shell command to run via sh -c"),
-		"timeout_ms": map[string]any{"type": "integer", "description": "optional timeout in milliseconds; omitted means no timeout"},
+		"timeout_ms": map[string]any{"type": "integer", "description": "optional timeout in milliseconds; foreground commands default to 30000"},
 		"background": map[string]any{"type": "boolean", "description": "start the command as a background job and return its id immediately"},
 	}, "command")
 }
@@ -42,6 +44,9 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 		return "", err
 	}
 	if err := env.checkShellWriteIsolation(a.Command); err != nil {
+		return "", err
+	}
+	if err := checkSearchScope(env, a.Command); err != nil {
 		return "", err
 	}
 	if target := shellSecretTarget(a.Command); target != "" {
@@ -64,6 +69,9 @@ func (t *Bash) Run(ctx context.Context, raw json.RawMessage, env *Env) (string, 
 		}
 	}
 	timeout := time.Duration(a.TimeoutMS) * time.Millisecond
+	if timeout <= 0 && !a.Background {
+		timeout = defaultBashTimeout
+	}
 	if a.Background {
 		job, err := env.JobManager().Start(ctx, env, a.Command, timeout)
 		if err != nil {

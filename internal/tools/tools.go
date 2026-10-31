@@ -90,6 +90,10 @@ type Env struct {
 	// AskUser asks the user a question and waits for the answer. It is nil
 	// where nobody can answer, such as inside a worker.
 	AskUser func(q Question) (string, error)
+
+	// capState holds the optional-capability loader and any tools requested
+	// by the model during this session.
+	capState *capabilityState
 }
 
 // mediaSink is a pointer so copying an Env (the orchestrator does that for
@@ -176,6 +180,7 @@ func (e *Env) Isolate() {
 	e.Images = nil
 	e.browser = nil
 	e.PermitPreview = nil
+	e.capState = nil
 }
 
 // jobManagerInit guards the one-time construction of an Env's manager:
@@ -334,6 +339,7 @@ func Registry() []Tool {
 		&VerifySite{}, &Replace{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},
+		&ToolSearch{}, &RequestCapability{},
 	}
 }
 

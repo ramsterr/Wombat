@@ -65,6 +65,11 @@ Record the model, provider, date, pass rate, confidence interval, tokens, cost, 
 
 Reports include a Wilson 95% confidence interval and failure classes (`agent`, `check`, `setup`, `prepare`, `session`, `orchestrator`). Use `-repeats N` for noisy models and compare per-task pass rates, not just the aggregate.
 
+## Cross-agent benchmarks
+
+- [Wombat vs OpenCode on 15 tasks](benchmarks/opencode-vs-wombat/README.md) — same model, skill content, and MCP server; pass rate, tokens, tools, and wall time, with charts and raw data.
+- [Pi vs Wombat on 18 harness tasks](benchmarks/pi-vs-wombat/README.md) — deterministic capability suite covering browser, MCP, Git, process control, media, exactness, and more; with charts and raw data.
+
 ## Budget controls
 
 - Use `-dry-run` in CI when no model call is needed.
