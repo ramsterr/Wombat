@@ -319,6 +319,7 @@ same install. The native-browser probe was separate and is not scored.
 
 - [EFFICIENCY.md](EFFICIENCY.md) — Phase 0 prompt breakdown and Phase 1
   search-guard results on branch `efficienty`.
+- [efficienty-10/README.md](efficienty-10/README.md) — latest 10-task Wombat vs Pi eval on `deepseek-v4.1-flash`, including the research timeout.
 
 ## Raw data and charts
 

@@ -632,9 +632,53 @@ go build -o /tmp/wombat ./cmd/wombat
 CI runs on the default branch and on pull requests. Issues and pull requests
 are welcome.
 
-Benchmarks: [Wombat vs OpenCode](eval/benchmarks/opencode-vs-wombat/README.md)
-(15 tasks) and [Pi vs Wombat](eval/benchmarks/pi-vs-wombat/README.md)
-(18 harness-capability tasks).
+## Benchmarks
+
+Every benchmark uses the same model, instructions, skill content, MCP server,
+and workspace for both agents. Raw data, task definitions, and chart generators
+live under [`eval/benchmarks/`](eval/benchmarks).
+
+### Wombat vs Pi: 10-task efficiency run
+
+Both agents ran the same 4 simple and 6 multi-step tasks on
+`deepseek-v4.1-flash`.
+
+![Wombat vs Pi summary](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/summary.svg)
+
+| Metric | Wombat | Pi |
+|---|---:|---:|
+| Tasks passed | **10/10** | **9/10** |
+| Input tokens | 498,144 | 836,303 |
+| Output tokens | 17,711 | 16,246 |
+| Tool calls | 66 | 74 |
+| Model steps | 61 | 64 |
+| Wall time | 275.9s | 424.9s |
+
+Wombat finished the bounded research task; Pi has no native search tool, made
+35 bash calls, accumulated 612k input tokens, and timed out at 300s without
+writing `answer.md`. That one failure skews the totals.
+
+On the nine non-research tasks, Pi was the leaner harness:
+
+| Ordinary tasks only | Wombat | Pi |
+|---|---:|---:|
+| Input tokens | 376,592 | 224,267 |
+| Output tokens | 7,386 | 4,708 |
+| Tool calls | 57 | 38 |
+| Wall time | 139.1s | 124.9s |
+
+![Research task comparison](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/research-focus.svg)
+
+The full write-up has the task list, per-task table, method, raw data, and
+limitations: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md).
+
+### Other comparisons
+
+- [Wombat vs Pi](eval/benchmarks/pi-vs-wombat/README.md) — 18
+  harness-capability tasks, plus the efficiency investigation on branch
+  `efficienty`.
+- [Wombat vs OpenCode](eval/benchmarks/opencode-vs-wombat/README.md) — 15
+  mixed coding, research, browser, MCP, and server tasks.
 
 regards
     ____
