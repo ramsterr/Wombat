@@ -107,6 +107,11 @@ type Prompter struct {
 	tty    bool
 	auto   bool
 	perms  map[string]string
+
+	// permitFn and askFn let a frontend own the prompt. The bridge uses this
+	// to ask the opentui client instead of reading the terminal.
+	permitFn func(kind, detail, preview string) tools.Decision
+	askFn    func(q tools.Question) (string, error)
 }
 
 func newPrompter(tty, auto bool, cfg *config.Config) *Prompter {
@@ -120,6 +125,9 @@ func newPrompter(tty, auto bool, cfg *config.Config) *Prompter {
 }
 
 func (p *Prompter) Permit(kind, detail string) tools.Decision {
+	if p.permitFn != nil {
+		return p.permitFn(kind, detail, "")
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.permit(kind, detail, "")
@@ -128,6 +136,9 @@ func (p *Prompter) Permit(kind, detail string) tools.Decision {
 // PermitPreview shows the proposed change before asking. A path alone is
 // not enough to judge a write.
 func (p *Prompter) PermitPreview(kind, detail, preview string) tools.Decision {
+	if p.permitFn != nil {
+		return p.permitFn(kind, detail, preview)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.permit(kind, detail, preview)
@@ -234,6 +245,9 @@ func declinedNote() string {
 // non-interactive run there is nobody to answer, so it says so instead of
 // reading whatever bytes happen to be on stdin.
 func (p *Prompter) AskUser(q tools.Question) (string, error) {
+	if p.askFn != nil {
+		return p.askFn(q)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.tty {

@@ -15,6 +15,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
 
@@ -175,6 +176,37 @@ func TestUpdatePlanPreservesReports(t *testing.T) {
 	}
 	if o.ledger.Steps[0].ID != "s1" || len(o.ledger.Steps) != 2 {
 		t.Fatalf("failed update mutated ledger: %+v", o.ledger)
+	}
+}
+
+func TestOrchestratorPlanDrivesTodoGate(t *testing.T) {
+	p := &scriptProvider{fn: func(int, llm.Request) (*llm.Result, error) {
+		return &llm.Result{Content: "ok"}, nil
+	}}
+	o, ag, _ := newOrch(t, p, Config{})
+	for _, tool := range ag.Tools {
+		if tool.Name() == "todowrite" {
+			t.Fatal("orchestrator lead should not expose todowrite")
+		}
+	}
+	if _, err := o.updatePlan("build", nil, []Step{
+		{ID: "one", Title: "Build the page", Status: StepInProgress},
+		{ID: "two", Title: "Check mobile", Status: StepPending},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items := ag.Plan()
+	if len(items) != 2 || items[0].Status != todo.InProgress || !todo.Incomplete(items) {
+		t.Fatalf("plan = %+v", items)
+	}
+	if _, err := o.updatePlan("build", nil, []Step{
+		{ID: "one", Title: "Build the page", Status: StepCompleted},
+		{ID: "two", Title: "Check mobile", Status: StepCompleted},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if items := ag.Plan(); todo.Incomplete(items) {
+		t.Fatalf("completed plan is still incomplete: %+v", items)
 	}
 }
 

@@ -16,8 +16,8 @@ import (
 )
 
 // preview is one artifact the agent produced: a local dev server, an HTML
-// file, a PDF, an image, or a video. The newest is shown in the top bar; the
-// full de-duplicated list lives in the inspector and /previews.
+// file, a PDF, an image, or a video. The newest is shown just above the
+// prompt; the full de-duplicated list lives in /previews.
 type preview struct {
 	Ref    string
 	Kind   string
@@ -135,10 +135,14 @@ func previewLabel(p preview) string {
 	return p.Ref
 }
 
-// previewBar is the one-line live banner above the transcript.
+// previewBar is the one-line live banner above the prompt.
 func (c *chat) previewBar() string {
 	if c.previewURL == "" {
 		return ""
+	}
+	w := c.columnWidth()
+	if w <= 0 {
+		w = c.w
 	}
 	status := "ready"
 	if c.question != nil {
@@ -155,27 +159,27 @@ func (c *chat) previewBar() string {
 		label = previewLabel(c.previews[0])
 	}
 	left := stylePreviewText.Render(" "+icon+" preview ready ") + " " +
-		styleLink.Render(clip(label, max(12, c.w-48))) + "  " + styleFaint.Render(status)
+		styleLink.Render(clip(label, max(12, w-42))) + "  " + styleFaint.Render(status)
 	if len(c.previews) > 1 {
 		left += "  " + styleAccent2.Render(fmt.Sprintf("%d previews", len(c.previews)))
 	}
 	right := ""
-	if c.w >= 84 && c.modal == modalNone {
+	if w >= 84 && c.modal == modalNone {
 		if len(c.previews) > 1 {
 			right = keyHint("/previews", "list") + "  " + keyHint("ctrl+o", "open") + " "
 		} else {
 			right = keyHint("ctrl+o", "open") + " "
 		}
 	}
-	if c.w <= 0 {
+	if w <= 0 {
 		return left
 	}
-	gap := c.w - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	gap := w - lipgloss.Width(left) - lipgloss.Width(right) - 2
 	if gap < 1 {
-		return lipgloss.NewStyle().Background(cPanel).Width(c.w).Render(clipANSI(" "+left+" ", c.w))
+		return lipgloss.NewStyle().Background(cPanel).Width(w).Render(clipANSI(" "+left+" ", w))
 	}
 	line := " " + left + strings.Repeat(" ", gap) + right + " "
-	return lipgloss.NewStyle().Background(cPanel).Width(c.w).Render(line)
+	return lipgloss.NewStyle().Background(cPanel).Width(w).Render(line)
 }
 
 // detectPreviewFromDetail looks at a write/edit path. It deliberately ignores
@@ -396,24 +400,4 @@ func (c *chat) previewsCard() string {
 		lines[i] = clipANSI(lines[i], innerW)
 	}
 	return styleModal.Width(innerW + 4).Render(strings.Join(lines, "\n"))
-}
-
-// previewsSection renders the inspector block.
-func (c *chat) previewsSection(contentW int) []string {
-	out := []string{sectionLabel("previews")}
-	if len(c.previews) == 0 {
-		out = append(out, styleFaint.Render("none · ctrl+o when ready"))
-		return out
-	}
-	for i, p := range c.previews {
-		if i >= 6 {
-			out = append(out, styleFaint.Render(fmt.Sprintf("+%d more · /previews", len(c.previews)-i)))
-			break
-		}
-		glyph, gs := previewGlyph(p.Kind)
-		out = append(out, styleFaint.Render(fmt.Sprintf("%d ", i+1))+
-			gs.Render(glyph)+" "+styleDim.Render(clip(previewLabel(p), contentW-5)))
-	}
-	out = append(out, styleFaint.Render("ctrl+o open · /previews list"))
-	return out
 }

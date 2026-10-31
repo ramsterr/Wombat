@@ -21,6 +21,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
@@ -125,6 +126,8 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			return p.AskUser(q)
 		}
 	}
+	env.SetTodos(sess.Todos())
+	env.OnTodosChanged = func(items []todo.Item) { _ = sess.SetTodos(items) }
 	env.Images = imageClient(cfg)
 	env.Embeddings = embeddings.FromConfig(cfg)
 	env.IndexDir = filepath.Join(config.Home(), "index")

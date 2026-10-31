@@ -42,7 +42,7 @@ func (t *QuestionTool) Name() string  { return "question" }
 func (t *QuestionTool) Class() string { return "ask" }
 func (t *QuestionTool) Description() string {
 	return "Ask the user to make a decision. Use it when the output you want depends on a choice only the user can make " +
-		"(which direction, which option, what \"good\" means here), or when the work is done and you need feedback. " +
+		"(which direction, which option, what \"good\" means here). Do not use it for final preview feedback; the harness asks when the run is ready to hand off. " +
 		"Give 2-3 concrete options with a short description of each; the user can also type their own answer. " +
 		"Ask once with everything the user needs, then act on the answer."
 }
@@ -100,6 +100,9 @@ func (t *QuestionTool) Run(ctx context.Context, raw json.RawMessage, env *Env) (
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
+		if previewFeedbackQuestion(q) {
+			return "", errors.New("do not ask for preview feedback; finish the complete deliverable and let the harness ask at the end of the run")
+		}
 		answer, err := env.AskUser(q)
 		if err != nil {
 			return "", err
@@ -123,6 +126,33 @@ func decodeInto(raw json.RawMessage, v any) error {
 		return err
 	}
 	return nil
+}
+
+// previewFeedbackQuestion catches the model trying to hand off a preview
+// review itself. The harness owns that hand-off so it can wait for the whole
+// deliverable instead of stopping after the first page.
+func previewFeedbackQuestion(q Question) bool {
+	if strings.EqualFold(strings.TrimSpace(q.ID), "visual-review") {
+		return true
+	}
+	var text strings.Builder
+	text.WriteString(q.Header)
+	text.WriteString(" ")
+	text.WriteString(q.Question)
+	for _, o := range q.Options {
+		text.WriteString(" ")
+		text.WriteString(o.Label)
+	}
+	lower := strings.ToLower(text.String())
+	for _, marker := range []string{
+		"looks good", "needs changes", "look right", "looks right",
+		"preview feedback", "review the preview", "ship it",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // FormatQuestion renders a question for a plain-text interface.

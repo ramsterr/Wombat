@@ -250,7 +250,7 @@ func (c *chat) referenceCard() string {
 	innerW := max(28, cardW-6)
 	lines := []string{
 		styleAccent2.Bold(true).Render("◈  REFERENCES") + "  " + styleFaint.Render("this project"),
-		styleDim.Render("keep paths and links beside the chat; enter adds the value below"),
+		styleDim.Render("keep paths and links for this project; enter adds the value below"),
 		"",
 		c.refInput.View(),
 		"",
@@ -276,23 +276,4 @@ func (c *chat) referenceCard() string {
 		lines[i] = clipANSI(lines[i], innerW)
 	}
 	return styleModal.Width(innerW + 4).Render(strings.Join(lines, "\n"))
-}
-
-// referencesSection renders the inspector block.
-func (c *chat) referencesSection(contentW int) []string {
-	out := []string{sectionLabel("references")}
-	if len(c.refs) == 0 {
-		out = append(out, styleFaint.Render("none · ctrl+r to add"))
-		return out
-	}
-	for i, r := range c.refs {
-		if i >= 6 {
-			out = append(out, styleFaint.Render(fmt.Sprintf("+%d more · ctrl+r", len(c.refs)-i)))
-			break
-		}
-		glyph, gs := refGlyph(r.Kind)
-		out = append(out, styleFaint.Render(fmt.Sprintf("%d ", i+1))+
-			gs.Render(glyph)+" "+styleDim.Render(clip(r.Value, contentW-5)))
-	}
-	return out
 }

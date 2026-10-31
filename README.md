@@ -169,36 +169,43 @@ runs.
 | `wombat version` | print the version |
 
 ## Inside the chat
-<img width="3344" height="1934" alt="image" src="https://github.com/user-attachments/assets/ab6ba27d-a8b3-436f-abf1-bbd48aac83f5" />
 
+The default interface is built with [opentui](https://opentui.com) and
+SolidJS, the same stack opencode uses. The agent, tools, sessions, and
+permissions stay in the Go process; the frontend talks to it over a small
+JSON bridge.
 
+```bash
+cd tui && npm install && npm run build
+```
+
+Node 26.4 or newer is required. `WOMBAT_CLASSIC=1 wombat` (or
+`wombat classic`) still opens the original Bubble Tea interface.
 
 Type a request and press Enter. Useful shortcuts:
 
+- `enter` — send; `shift+enter` — new line
 - `esc` — stop the current run, close an overlay
 - `ctrl+c` — quit
-- `/` — command palette (options appear inline)
+- `/` — command palette
 - `@` — file picker with tab completion
-- `ctrl+v` — attach an image from the clipboard (macOS/Linux)
-- `ctrl+b` — toggle the inspector panel
 - `ctrl+o` — open the live preview
 - `ctrl+g` or `?` — help and key map
 - `ctrl+t` — cycle colour themes
 - `ctrl+p` / `ctrl+n` — prompt history
-- `ctrl+r` — add a project reference (file, folder, or URL)
-- `ctrl+y` — copy the last reply; `/copy` picks any reply; `/copy all` copies
+- `ctrl+r` — project references
+- `ctrl+y` — copy the last reply; `/copy` opens the picker; `/copy all` copies
   the whole transcript
-- `alt+1..5` — jump between chat, sessions, models, usage, and doctor
+- `alt+2/3/4/5` — sessions, models, usage, doctor
 - `pgup` / `pgdn` or `ctrl+up/down` — scroll the transcript
-- mouse wheel — mouse reporting is off by default so you can select and copy
-  text normally; run `/mouse` to enable wheel scrolling
+- click and drag — select text; the selection is copied automatically
 
 Common slash commands:
 
 ```text
 /help          keyboard map and every command
 /keys          alias for /help
-/reference     keep files and links in the inspector
+/reference     keep files and links for this project
 /sources       browse the sites and files the session used
 /preview [n]   open a preview; /previews lists them all
 /copy [n|all]  pick a reply to copy, or copy the transcript
@@ -208,7 +215,6 @@ Common slash commands:
 /reasoning     off, low, medium, high, or max
 /mode          chat or create mode
 /attach <path> attach a file
-/panel         toggle the inspector
 /theme         open the live theme picker
 /new           new session
 /compact       compact context now
@@ -228,23 +234,21 @@ example:
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
 `iceberg`, `nightfox`, `onedark`, and `github`. Pick one with `/theme`, or cycle
-with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The welcome screen
-shows the Wombat banner, and the inspector keeps a compact WOMBAT mark at the
-bottom. The theme also tints the terminal background while Wombat is open and
-restores it on exit (`wombat config set paint_background false` disables this).
+with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The home screen
+uses a compact wombat wordmark, and the wordmark anchors the bottom-right corner
+of the chat. The classic interface still tints the terminal background while
+Wombat is open (`wombat config set paint_background false` disables this).
 
-**References** are project-scoped notes that stay in the right-hand inspector.
+**References** are project-scoped notes you can keep handy for a session.
 Press `ctrl+r` to add a path or URL, or use `/reference add <path|url>`. Remove
 them with `/reference rm <n>` or clear the list with `/reference clear`. They are
 stored under `~/.wombat/references/`, never in your repository.
 
-**Sources** (`/sources`) opens an interactive browser of every site and file the
-session has used. Switch tabs with `tab`, move with the arrows, and press enter
-to open a URL or attach a file.
+**Sources** (`/sources`) lists every site and file the session has used.
 
 **Previews** are collected as the agent works: local dev servers, HTML pages,
 PDFs, images, and video. They are de-duplicated by site origin or file path, the
-newest is shown in the banner, and the left preview rail keeps the ordered
+newest is shown above the prompt, and `/previews` keeps the ordered
 list. Use `ctrl+o` to open the newest or `/previews` to choose from all of them.
 
 Wombat inherits your terminal's font; a terminal UI cannot install a font.
@@ -252,7 +256,7 @@ For the intended look and complete glyph set, use a Nerd Font such as JetBrains
 Mono, Berkeley Mono, or MesloLGS NF in your terminal profile.
 
 When the agent starts a local web server, a highlighted **preview ready** bar
-appears under the header. Use `/preview` to open it, and `esc` to stop when it
+appears above the prompt. Use `/preview` to open it, and `esc` to stop when it
 looks right. For a new site, the agent builds the complete first version, checks
 one desktop and one mobile view, then waits for your feedback before iterating.
 Browser screenshots stay in memory and are not saved in the project.
@@ -290,19 +294,19 @@ Wombat different.
 | Parallel fleet | Lead plus scouts and writers in isolated git worktrees; changes are reviewed and three-way merged. |
 | Continuous plan scheduler | A dependency DAG where free slots start newly-ready work, slow steps do not block independent work, and interrupted steps resume. |
 | Resumable workers | A worker that needs a decision returns `needs_input` and can be resumed in the same session and worktree. |
-| Visual hand-off gate | After the first complete visual artifact, Wombat asks `Looks good` / `Needs changes` before another pass; headless runs stop after three visual passes. |
-| Multi-preview system | Detects local servers, HTML, PDFs, images, and video; de-duplicates by origin or path; keeps an ordered left rail and a `/previews` picker. |
+| Visual hand-off gate | After the complete visual deliverable, Wombat asks `Looks good` / `Needs changes` at the end of the run; headless runs never stop mid-build for a review. |
+| Multi-preview system | Detects local servers, HTML, PDFs, images, and video; de-duplicates by origin or path; shows the newest above the prompt and keeps a `/previews` picker. |
 | Source browser | `/sources` browses every site and file the session used, with counts and open/attach actions. |
-| Project references | `ctrl+r` / `/reference` keeps files, folders, and URLs in a per-project inspector list under `~/.wombat/references/`. |
-| Inspector | Live session facts, context gauge, previews, sources, recent tools, references, and a pinned WOMBAT mark. |
+| Project references | `ctrl+r` / `/reference` keeps files, folders, and URLs in a per-project reference list under `~/.wombat/references/`. |
+| Centered chat | A calm, opencode-style conversation column with the wombat art centred on the welcome screen and a live status footer. |
 | Search ranking | Merges Brave, Serper, Exa, Tavily, Bing RSS, DuckDuckGo, and Mojeek; boosts trusted docs, engine position, and cross-engine hits; filters adult/SEO spam; caps domains. |
 | Image search | Finds direct image URLs via Google Images (Serper), Brave, DuckDuckGo, and Openverse, and downloads them into the workspace. |
 | Provider setup | `/configure` opens a base URL/API-key form; unconfigured models stay selectable but show `no key` and are blocked from chat. |
 | Reasoning picker | After selecting a reasoning model, choose `off`, `low`, `medium`, `high`, or `max`; `/reasoning` reopens it. |
-| Themes | Fifteen palettes, a two-column picker, `ctrl+t` cycling, and a reclaimed terminal background on exit. |
+| Themes | Fifteen palettes, a live picker, `ctrl+t` cycling, and a reclaimed terminal background in the classic interface. |
 | Copy | `ctrl+y` for the last reply and `/copy` for any user, agent, or tool output, with an OSC 52 fallback. |
 | File picker | `@` path completion with directory navigation and quoted paths for spaces. |
-| Built to be driven | Headless `wombat run`, scriptable sessions, and a TUI designed around the inspector, preview rail, and keyboard flow. |
+| Built to be driven | Headless `wombat run`, scriptable sessions, and a TUI designed around a centred chat, a live footer, and keyboard flow. |
 
 ## Coming next
 
@@ -603,7 +607,7 @@ still fails, check your network, proxy, or VPN and retry.
 
 **No preview bar appears**
 
-The banner only appears after a tool reports a local URL such as
+The preview bar only appears after a tool reports a local URL such as
 `http://localhost:5173`.
 
 **An upgrade replaced my source build**

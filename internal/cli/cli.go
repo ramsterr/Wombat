@@ -43,6 +43,10 @@ func Main() {
 		}
 	case "home":
 		err = cmdHome("")
+	case "ui":
+		err = cmdHome("")
+	case "classic":
+		err = cmdClassicHome("")
 	case "chat":
 		if len(args) == 0 && isTTY(os.Stdin) {
 			err = cmdHome("")
@@ -51,6 +55,8 @@ func Main() {
 		}
 	case "run":
 		err = cmdRun(args)
+	case "bridge":
+		err = cmdBridge(args)
 	case "resume":
 		tuiMode := isTTY(os.Stdin)
 		for _, a := range args {

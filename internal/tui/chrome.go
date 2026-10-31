@@ -32,21 +32,6 @@ func rule(width int) string {
 	return styleRule.Render(strings.Repeat("─", width))
 }
 
-// accentRule is a divider with the theme's signature colours at both ends.
-func accentRule(width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if width < 8 {
-		return styleAccent.Render(strings.Repeat("─", width))
-	}
-	left, right := 3, 3
-	mid := width - left - right
-	return styleAccent.Render(strings.Repeat("━", left)) +
-		styleRule.Render(strings.Repeat("─", mid)) +
-		styleAccent2.Render(strings.Repeat("━", right))
-}
-
 // sectionLabel renders a small uppercase heading for a card or panel.
 func sectionLabel(s string) string {
 	return styleSection.Render(strings.ToUpper(s))
@@ -116,6 +101,9 @@ func shortPath(path string, width int) string {
 	return "…" + string(runes[len(runes)-width+1:])
 }
 
+// GitBranch exposes the current branch to other frontends.
+func GitBranch(dir string) string { return gitBranch(dir) }
+
 // gitBranch reads the current branch from the nearest .git directory. It is
 // deliberately cheap and silent: no git process, no errors on disk.
 func gitBranch(dir string) string {
@@ -178,9 +166,9 @@ func modeBadge(label string) string {
 	return styleKey.Render(" " + strings.ToUpper(label) + " ")
 }
 
-// keyHint renders one keyboard hint: a key chip followed by a description.
+// keyHint renders one keyboard hint: the key in the accent, the action quiet.
 func keyHint(key, label string) string {
-	return styleKey.Render(" "+key+" ") + " " + styleFaint.Render(label)
+	return styleAccent.Bold(true).Render(key) + " " + styleFaint.Render(label)
 }
 
 // screenTabs is the compact navigation bar shared by the secondary screens.
@@ -249,6 +237,53 @@ func fitLines(lines []string, height int) []string {
 		lines = append(lines, "")
 	}
 	return lines
+}
+
+// centerBlock centres a multi-line block as one drawing. lipgloss.Place
+// centres each line on its own, which would shear the wombat art and the
+// block wordmark apart.
+func centerBlock(width int, block string) string {
+	if width <= 0 || block == "" {
+		return block
+	}
+	lines := strings.Split(block, "\n")
+	contentW := 0
+	for _, line := range lines {
+		if n := lipgloss.Width(line); n > contentW {
+			contentW = n
+		}
+	}
+	gap := width - contentW
+	if gap <= 0 {
+		return block
+	}
+	prefix := strings.Repeat(" ", gap/2)
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// centerBlockIn centres a block horizontally and vertically inside a
+// rectangle. The rectangle is filled with blank lines so the drawing sits
+// exactly in the middle of the page.
+func centerBlockIn(width, height int, block string) string {
+	block = centerBlock(width, block)
+	lines := strings.Split(block, "\n")
+	if height <= 0 || len(lines) >= height {
+		return strings.Join(lines, "\n")
+	}
+	top := (height - len(lines)) / 2
+	bottom := height - len(lines) - top
+	out := make([]string, 0, height)
+	for i := 0; i < top; i++ {
+		out = append(out, "")
+	}
+	out = append(out, lines...)
+	for i := 0; i < bottom; i++ {
+		out = append(out, "")
+	}
+	return strings.Join(out, "\n")
 }
 
 // clipANSI truncates styled text to a width while preserving the visible

@@ -8,10 +8,11 @@ import (
 	"strings"
 
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
 
-// visualArtifact is something a person has to look at before another pass.
+// visualArtifact is something a person should see before the run is handed back.
 type visualArtifact struct {
 	Kind string
 	Ref  string
@@ -113,21 +114,21 @@ func detectVisualArtifact(tc llm.ToolCall, result string) (visualArtifact, bool)
 	return visualArtifact{}, false
 }
 
-// visualReview is the hard hand-off. After the first complete visual artifact,
-// the agent does not get another modelling step until the user has looked at
-// it. This is deliberately a harness rule, not a prompt suggestion.
-func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results []toolResult) (bool, error) {
+// rememberVisualTurn records previews from one tool batch. It deliberately
+// does not ask the user: a three-page site should finish all three pages before
+// the review prompt appears.
+func (a *Agent) rememberVisualTurn(calls []llm.ToolCall, results []toolResult) {
 	if a.Env == nil {
-		return false, nil
+		return
 	}
 	for _, tc := range calls {
 		if tc.Name == "question" {
 			// The model already handed the decision to the user.
-			return false, nil
+			return
 		}
 	}
-	var found []visualArtifact
 	seen := map[string]bool{}
+	var found []visualArtifact
 	for i, tc := range calls {
 		if i >= len(results) {
 			break
@@ -138,24 +139,42 @@ func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results 
 		}
 	}
 	if len(found) == 0 {
-		return false, nil
+		return
 	}
-	a.visualPasses++
-	if a.Env.AskUser == nil {
-		// Headless runs have no eyes. Stop after a small budget instead of
-		// polishing into the void; the preview is still in the session.
-		if a.visualPasses >= 3 {
+	a.rememberVisual(found)
+}
+
+// finishVisualReview is the end-of-run hand-off. A preview is ready only when
+// the model has stopped producing tool calls. If the plan still has work, the
+// model is told to finish it instead of the user being interrupted mid-build.
+func (a *Agent) finishVisualReview(ctx context.Context) (stop, retry bool, err error) {
+	if a.Env == nil || len(a.visualPending) == 0 {
+		return false, false, nil
+	}
+	plan := a.planItems()
+	if todo.Incomplete(plan) && a.visualNudges < 2 {
+		a.visualNudges++
+		if a.Sess != nil {
 			_ = a.Sess.Append(llm.Message{
-				Role:    "user",
-				Content: "Stopped after three visual passes without a review. Open the TUI to inspect the preview before continuing.",
+				Role: "user",
+				Content: "The preview is ready, but the task plan still has pending or in-progress items. " +
+					"Finish the whole deliverable and mark the remaining items completed with the plan tool before handing it back.",
 			})
-			return true, nil
 		}
-		return false, nil
+		return false, true, nil
 	}
-	what := found[0].Ref
-	if len(found) > 1 {
-		what = fmt.Sprintf("%d previews (newest: %s)", len(found), found[0].Ref)
+	a.visualNudges = 0
+	if a.Env.AskUser == nil {
+		return false, false, nil
+	}
+	return a.askVisualReview(ctx, append([]visualArtifact(nil), a.visualPending...))
+}
+
+// askVisualReview asks for the final verdict after the full deliverable exists.
+func (a *Agent) askVisualReview(ctx context.Context, pending []visualArtifact) (stop, retry bool, err error) {
+	what := pending[0].Ref
+	if len(pending) > 1 {
+		what = fmt.Sprintf("%d previews (newest: %s)", len(pending), pending[0].Ref)
 	}
 	answer, err := a.Env.AskUser(tools.Question{
 		ID:       "visual-review",
@@ -167,15 +186,18 @@ func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results 
 		},
 	})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	answer = strings.TrimSpace(answer)
 	lower := strings.ToLower(answer)
 
 	switch {
 	case answer == "", strings.HasPrefix(lower, "looks good"), strings.Contains(lower, "ship it"):
-		_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user approved the preview. Stop here; do not iterate further."})
-		return true, nil
+		a.visualPending = nil
+		if a.Sess != nil {
+			_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user approved the preview. Stop here; do not iterate further."})
+		}
+		return true, false, nil
 	case strings.HasPrefix(lower, "needs changes"):
 		follow, err := a.Env.AskUser(tools.Question{
 			ID:       "visual-changes",
@@ -183,17 +205,51 @@ func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results 
 			Question: "What should change? Type the changes you want.",
 		})
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		follow = strings.TrimSpace(follow)
 		if follow == "" {
-			_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user did not specify changes. Stop here."})
-			return true, nil
+			a.visualPending = nil
+			if a.Sess != nil {
+				_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user did not specify changes. Stop here."})
+			}
+			return true, false, nil
 		}
-		_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + follow})
-		return false, nil
+		if a.Sess != nil {
+			_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + follow})
+		}
+		return false, true, nil
 	default:
-		_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + answer})
-		return false, nil
+		if a.Sess != nil {
+			_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + answer})
+		}
+		return false, true, nil
+	}
+}
+
+// planItems returns the orchestrator ledger when one is attached, otherwise
+// the session's todowrite plan.
+func (a *Agent) planItems() []todo.Item {
+	if a.Plan != nil {
+		return a.Plan()
+	}
+	if a.Env != nil {
+		return a.Env.Todos()
+	}
+	return nil
+}
+
+func (a *Agent) rememberVisual(found []visualArtifact) {
+	for _, art := range found {
+		duplicate := false
+		for _, pending := range a.visualPending {
+			if pending.Ref == art.Ref {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			a.visualPending = append(a.visualPending, art)
+		}
 	}
 }

@@ -25,7 +25,7 @@ const (
 
 var capabilityTools = map[Capability][]string{
 	CapCore: {
-		"read", "write", "edit", "bash", "glob", "grep",
+		"read", "write", "edit", "bash", "glob", "grep", "todowrite",
 		"tool_search", "request_capability",
 	},
 	CapEdit:     {"apply_patch"},
