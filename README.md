@@ -667,7 +667,13 @@ On the nine non-research tasks, Pi was the leaner harness:
 | Tool calls | 57 | 38 |
 | Wall time | 139.1s | 124.9s |
 
+![Prompt tokens by ordinary task](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/per-task-input.svg)
+
+![Wall time by ordinary task](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/per-task-time.svg)
+
 ![Research task comparison](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/research-focus.svg)
+
+![Cumulative wall time](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/cumulative-time.svg)
 
 The full write-up has the task list, per-task table, method, raw data, and
 limitations: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md).
