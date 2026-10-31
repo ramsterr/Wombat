@@ -26,6 +26,13 @@ func TestResolveResearchPolicy(t *testing.T) {
 	}
 }
 
+func TestResearchTimerStartsOnFirstCall(t *testing.T) {
+	b := NewResearchBudget(ResolveResearchPolicy("quick", ""))
+	if !b.started.IsZero() {
+		t.Fatal("research timer should not start until the first research call")
+	}
+}
+
 func TestResearchBudget(t *testing.T) {
 	env := &Env{Dir: t.TempDir()}
 	env.SetResearchBudget(ResolveResearchPolicy("quick", ""))

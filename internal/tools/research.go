@@ -31,13 +31,13 @@ func ResolveResearchPolicy(mode, prompt string) ResearchPolicy {
 	case "off":
 		return ResearchPolicy{Mode: "off", Depth: "fast"}
 	case "quick":
-		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 30, Depth: "fast"}
+		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 60, Depth: "fast"}
 	case "standard":
-		return ResearchPolicy{Mode: "standard", SoftSearches: 5, SoftFetches: 3, HardSearches: 8, HardFetches: 4, MaxSeconds: 60, Depth: "fast"}
+		return ResearchPolicy{Mode: "standard", SoftSearches: 5, SoftFetches: 3, HardSearches: 8, HardFetches: 4, MaxSeconds: 120, Depth: "fast"}
 	case "deep":
-		return ResearchPolicy{Mode: "deep", SoftSearches: 10, SoftFetches: 6, HardSearches: 15, HardFetches: 8, MaxSeconds: 180, Depth: "deep"}
+		return ResearchPolicy{Mode: "deep", SoftSearches: 10, SoftFetches: 6, HardSearches: 15, HardFetches: 8, MaxSeconds: 300, Depth: "deep"}
 	default:
-		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 30, Depth: "fast"}
+		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 60, Depth: "fast"}
 	}
 }
 
@@ -78,7 +78,7 @@ type ResearchBudget struct {
 }
 
 func NewResearchBudget(p ResearchPolicy) *ResearchBudget {
-	return &ResearchBudget{policy: p, started: time.Now()}
+	return &ResearchBudget{policy: p}
 }
 
 func (b *ResearchBudget) Policy() ResearchPolicy {
@@ -106,6 +106,9 @@ func (b *ResearchBudget) allow(kind string) error {
 	defer b.mu.Unlock()
 	if b.policy.Mode == "off" {
 		return fmt.Errorf("research is off for this task; answer from knowledge")
+	}
+	if b.started.IsZero() {
+		b.started = time.Now()
 	}
 	if b.policy.MaxSeconds > 0 && time.Since(b.started) > time.Duration(b.policy.MaxSeconds)*time.Second {
 		return fmt.Errorf("research time budget reached; synthesize now with what you have")
