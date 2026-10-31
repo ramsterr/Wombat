@@ -696,7 +696,7 @@ func workerSystemPromptAccess(a delegateArgs, step *Step, goal string, facts []s
 	} else {
 		b.WriteString("You are a read-only research worker for a coding agent. You cannot see the lead conversation. ")
 		b.WriteString("Do not modify files, run mutating commands, or request more work. If a decision only the lead can make blocks the work, return status=needs_input with specific questions. ")
-		b.WriteString("You have read, glob, grep, batch, websearch, webfetch, git read tools (git_status, git_diff, git_log, git_show, git_blame), and bash for non-mutating commands. ")
+		b.WriteString("You have read, glob, grep, websearch, webfetch, and bash for non-mutating commands. ")
 		b.WriteString("Bash is read-only: ls, which, grep, and curl or HTTP to stdout are fine, but mkdir, redirection, " +
 			"downloads to disk, ffmpeg output, git mutations, and file writes are refused. ")
 		b.WriteString("If the task needs a file created or downloaded, return status=blocked with the exact command the lead should run. ")

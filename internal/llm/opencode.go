@@ -52,8 +52,27 @@ var openCodeFamily = []struct{ prefix, protocol string }{
 	{"gemini-", "google"},
 }
 
+// openCodeModelOverrides fixes models whose protocol differs from their
+// family. The gateway returns a 500 rather than a protocol-mismatch error when
+// one of these is sent to the wrong endpoint.
+var openCodeModelOverrides = map[string]string{
+	"minimax-m3.1-flash": "openai",
+}
+
+// openCodeProviderOverrides fixes models whose protocol differs by gateway.
+var openCodeProviderOverrides = map[string]string{
+	"opencode-go/qwen3.8-max": "messages",
+}
+
 func classifyOpenCodeModel(provider, model string) string {
-	m := strings.ToLower(model)
+	m := strings.ToLower(strings.TrimSpace(model))
+	p := strings.ToLower(strings.TrimSpace(provider))
+	if protocol, ok := openCodeProviderOverrides[p+"/"+m]; ok {
+		return protocol
+	}
+	if protocol, ok := openCodeModelOverrides[m]; ok {
+		return protocol
+	}
 	for _, f := range openCodeFamily {
 		if strings.HasPrefix(m, f.prefix) {
 			return f.protocol

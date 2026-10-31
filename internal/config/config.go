@@ -58,6 +58,9 @@ type Config struct {
 	WriterTokenBudget     int                   `json:"writer_token_budget,omitempty"`
 	TurnWriterTokenBudget int                   `json:"turn_writer_token_budget,omitempty"`
 	Mode                  string                `json:"mode"`
+	ToolProfile           string                `json:"tool_profile,omitempty"`
+	Capabilities          map[string]string     `json:"capabilities,omitempty"`
+	ResearchMode          string                `json:"research_mode,omitempty"`
 	Reasoning             string                `json:"reasoning,omitempty"`
 	ShowThinking          bool                  `json:"show_thinking"`
 	TrimReasoning         bool                  `json:"trim_reasoning,omitempty"`
@@ -154,12 +157,21 @@ func Defaults() *Config {
 			"dangerous":      "ask",
 			"sensitive-read": "ask",
 		},
-		MCPServers:          map[string]*MCPServer{},
-		Orchestrator:        true,
-		MaxParallelScouts:   DefaultMaxParallelScouts,
-		MaxParallelAgents:   DefaultMaxParallelAgents,
-		MaxParallelWriters:  DefaultMaxParallelWriters,
-		Mode:                "create",
+		MCPServers:         map[string]*MCPServer{},
+		Orchestrator:       true,
+		MaxParallelScouts:  DefaultMaxParallelScouts,
+		MaxParallelAgents:  DefaultMaxParallelAgents,
+		MaxParallelWriters: DefaultMaxParallelWriters,
+		Mode:               "create",
+		ToolProfile:        "auto",
+		ResearchMode:       "auto",
+		Capabilities: map[string]string{
+			"web":      "auto",
+			"semantic": "off",
+			"verify":   "off",
+			"media":    "off",
+			"mcp":      "auto",
+		},
 		ParallelAgents:      true,
 		Checkpoints:         true,
 		RequireVerification: false,
@@ -201,6 +213,20 @@ func Load() (*Config, error) {
 	if c.Version < 3 {
 		c.Mouse = false
 		c.Version = 3
+	}
+	if c.ToolProfile == "" {
+		c.ToolProfile = "auto"
+	}
+	if c.ResearchMode == "" {
+		c.ResearchMode = "auto"
+	}
+	if c.Capabilities == nil {
+		c.Capabilities = map[string]string{}
+	}
+	for key, value := range Defaults().Capabilities {
+		if _, ok := c.Capabilities[key]; !ok {
+			c.Capabilities[key] = value
+		}
 	}
 	if c.Providers == nil {
 		c.Providers = map[string]*Provider{}

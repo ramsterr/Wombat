@@ -29,6 +29,20 @@ func TestBashCancelStopsPromptly(t *testing.T) {
 	}
 }
 
+func TestBashDefaultTimeout(t *testing.T) {
+	old := defaultBashTimeout
+	defaultBashTimeout = 50 * time.Millisecond
+	defer func() { defaultBashTimeout = old }()
+	env := &Env{Dir: t.TempDir()}
+	out, err := (&Bash{}).Run(context.Background(), json.RawMessage(`{"command":"sleep 1"}`), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "timed out") {
+		t.Fatalf("output = %q, want a timeout", out)
+	}
+}
+
 func TestBashDeniedWithFeedback(t *testing.T) {
 	env := &Env{Dir: t.TempDir(), Permit: func(string, string) Decision {
 		return Decision{Feedback: "use printf instead"}

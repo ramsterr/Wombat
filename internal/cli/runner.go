@@ -29,6 +29,9 @@ import (
 type runOpts struct {
 	model    string
 	provider string
+	profile  string
+	research string
+	task     string
 	// agents lists the custom agents selected for this run.
 	agents []string
 	yolo   bool
@@ -143,6 +146,25 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 			}
 		}
 	}
+	fullTools := allTools
+	profile := opts.profile
+	if profile == "" {
+		profile = cfg.ToolProfile
+	}
+	caps := tools.ResolveCapabilities(profile, opts.task, cfg.Capabilities, cfg.Orchestrator)
+	interactive := p != nil && p.tty && os.Getenv("WOMBAT_HEADLESS") != "1"
+	keepMCP := strings.ToLower(strings.TrimSpace(cfg.Capabilities["mcp"])) != "off"
+	allTools = tools.FilterTools(fullTools, caps, interactive, keepMCP)
+	researchMode := opts.research
+	if researchMode == "" {
+		researchMode = cfg.ResearchMode
+	}
+	researchPolicy := tools.ResolveResearchPolicy(researchMode, opts.task)
+	env.SetResearchBudget(researchPolicy)
+	env.SetQuestionBudget(2)
+	env.SetCapabilityLoader(func(name string) ([]tools.Tool, error) {
+		return tools.ToolsForCapability(fullTools, name)
+	}, allTools)
 	selectedAgents := splitAgentFlags(opts.agents)
 	if len(selectedAgents) == 0 && sess != nil {
 		selectedAgents = append([]string(nil), sess.Meta.Agents...)
@@ -168,14 +190,18 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Compact:       true,
 		ContextWindow: tokens.WindowFor(providerName, model),
 		NumCtx:        pc.NumCtx,
+		MaxTokens:     tokens.OpenCodeOutputLimitFor(providerName, model),
 		Reasoning:     cfg.Reasoning,
 		ModeNote:      sessionMode.Note(),
+		ToolNote:      tools.CapabilityNote(caps),
+		ResearchNote:  tools.ResearchNote(researchPolicy),
+		ClarifyNote:   agent.ClarifyNote(opts.task, interactive),
 		TrimReasoning: cfg.TrimReasoning,
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		ag.Trace = tr
 	}
-	if cfg.Orchestrator {
+	if cfg.Orchestrator && tools.HasCapability(caps, tools.CapOrchestrate) {
 		if _, err := orchestrator.Attach(ag, orchestrator.Config{
 			MaxParallelScouts:     cfg.MaxParallelScouts,
 			MaxParallelAgents:     cfg.MaxParallelAgents,

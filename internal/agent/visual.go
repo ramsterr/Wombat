@@ -83,7 +83,7 @@ func detectVisualArtifact(tc llm.ToolCall, result string) (visualArtifact, bool)
 		return visualArtifact{}, false
 	}
 	switch tc.Name {
-	case "write", "edit", "multi_edit", "replace":
+	case "write", "edit":
 		path := toolArg(tc, "path")
 		if path == "" {
 			path = toolArg(tc, "file_path")
@@ -95,13 +95,6 @@ func detectVisualArtifact(tc llm.ToolCall, result string) (visualArtifact, bool)
 		if path := firstFilePath(tc.Arguments); path != "" {
 			return visualArtifact{Kind: visualKind(path), Ref: path}, true
 		}
-	case "imagegen":
-		if path := toolArg(tc, "path"); previewableFile(path) {
-			return visualArtifact{Kind: visualKind(path), Ref: path}, true
-		}
-		if path := firstFilePath(result); path != "" {
-			return visualArtifact{Kind: visualKind(path), Ref: path}, true
-		}
 	case "browser":
 		if u := firstURL(result); u != "" {
 			return visualArtifact{Kind: "site", Ref: u}, true
@@ -109,7 +102,7 @@ func detectVisualArtifact(tc llm.ToolCall, result string) (visualArtifact, bool)
 		if path := firstFilePath(result); path != "" {
 			return visualArtifact{Kind: visualKind(path), Ref: path}, true
 		}
-	case "bash", "verify_site":
+	case "bash":
 		if !serverBanner(result) {
 			return visualArtifact{}, false
 		}

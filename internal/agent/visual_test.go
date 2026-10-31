@@ -25,7 +25,6 @@ func TestDetectVisualArtifact(t *testing.T) {
 		{"bash", `{"command":"npm run dev"}`, "VITE ready in 200 ms\nLocal: http://localhost:5173/", true, "site"},
 		{"bash", `{"command":"cat old.log"}`, "http://localhost:5173/", false, ""},
 		{"browser", `{"action":"open","url":"http://127.0.0.1:8080/"}`, "opened http://127.0.0.1:8080/", true, "site"},
-		{"imagegen", `{"path":"poster.png"}`, "saved poster.png", true, "image"},
 		{"write", `{"path":"main.go"}`, "error: permission denied", false, ""},
 	}
 	for _, tc := range cases {

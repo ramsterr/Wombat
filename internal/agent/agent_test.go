@@ -76,6 +76,52 @@ func newTestAgent(t *testing.T, permit bool) (*Agent, *fakeProvider, string, *[]
 	return a, fake, workdir, &texts, &usage
 }
 
+type emptyProvider struct {
+	calls int
+}
+
+func (p *emptyProvider) Name() string                                 { return "empty" }
+func (p *emptyProvider) ListModels(context.Context) ([]string, error) { return []string{"empty"}, nil }
+func (p *emptyProvider) Chat(context.Context, llm.Request, func(string)) (*llm.Result, error) {
+	p.calls++
+	if p.calls == 1 {
+		return &llm.Result{Reasoning: "thinking forever", StopReason: "length"}, nil
+	}
+	return &llm.Result{Content: "done"}, nil
+}
+
+func TestAgentRecoversFromEmptyTruncatedTurn(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	sess, err := session.Create(t.TempDir(), "empty", "empty", "empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &emptyProvider{}
+	a := &Agent{
+		Provider: prov,
+		Model:    "empty",
+		Sess:     sess,
+		Env:      &tools.Env{Dir: t.TempDir()},
+		MaxSteps: 4,
+	}
+	if err := a.Run(context.Background(), "do the task"); err != nil {
+		t.Fatal(err)
+	}
+	if prov.calls != 2 {
+		t.Fatalf("provider calls = %d, want 2", prov.calls)
+	}
+	found := false
+	for _, m := range sess.Messages {
+		if m.Role == "user" && strings.Contains(m.Content, "output limit") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("missing truncation nudge")
+	}
+}
+
 func TestAgentToolLoop(t *testing.T) {
 	a, fake, workdir, texts, usage := newTestAgent(t, true)
 	if err := a.Run(context.Background(), "write hello"); err != nil {

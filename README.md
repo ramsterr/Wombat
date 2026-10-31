@@ -86,7 +86,7 @@ go build -o /usr/local/bin/wombat ./cmd/wombat
 
 Requirements: Go 1.26.3+ for building from source. The core agent has no runtime
 dependencies. Optional features use standard tools: a Chromium browser for
-`browser`, a language server for `lsp`/`refactor`, git for isolated workers,
+`browser`, a language server for `lsp`, git for isolated workers,
 and `sh` for `bash`.
 
 ### Release installers
@@ -206,7 +206,6 @@ Common slash commands:
 /configure     choose and configure a provider
 /providers     list every provider
 /reasoning     off, low, medium, high, or max
-/imagen        enable image generation, or generate an image
 /mode          chat or create mode
 /attach <path> attach a file
 /panel         toggle the inspector
@@ -225,10 +224,6 @@ wombat gives the user the power to review fast and feed back faster.
 example:
 <img width="766" height="194" alt="image" src="https://github.com/user-attachments/assets/c8ab105b-8a81-4054-b054-e7f661a5e682" />
 
-
-Image generation is off by default. Use `/imagen` to enable it for the session,
-or `/imagen <prompt>` to generate an image directly. The `imagegen` tool is not
-offered to the model until you opt in.
 
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
@@ -271,16 +266,16 @@ Wombat different.
 
 | Feature | What it does |
 |---|---|
-| Code editing | Read, write, edit, multi-edit, atomic multi-file patches, and literal/regex replacement. |
+| Code editing | Read, write, edit, and atomic multi-file patches. |
 | Shell and jobs | Run commands, manage background jobs, run tests and builds. |
-| Git | Status, diff, log, show, and blame as structured read-only tools, including inside worker worktrees. |
-| Verification | `verify`, `verify_site`, browser assertions, and project checks. |
-| Code intelligence | Language-server definitions, references, diagnostics, completions, rename, and refactor. |
-| Search | Glob, grep, AST symbols, and semantic search. |
+| Git | Use `bash git` for status, diff, log, and commits. |
+| Verification | `verify`, browser assertions, and project checks. |
+| Code intelligence | Language-server definitions, references, diagnostics, and completions. |
+| Search | Glob and grep. |
 | Web | Search and fetch with caching, retries, readable-text extraction, and page excerpts. |
 | MCP | Add local stdio or remote HTTP/SSE Model Context Protocol servers, with interactive OAuth; their tools appear as `mcp__<server>__<tool>`. |
 | Browser | Local and web automation, screenshots, clicks, typing, scrolling, and JS evaluation. |
-| Media | Read images, video, audio, and documents; edit and generate images when enabled. |
+| Media | Read images, video, audio, and documents; search images when enabled. |
 | Sessions | Resumable sessions, browsing, continuation, and JSONL transcripts. |
 | Context | Automatic pruning, summarization, compaction, and token accounting. |
 | Checkpoints | Shadow-git snapshots with list and restore. |
@@ -302,7 +297,6 @@ Wombat different.
 | Inspector | Live session facts, context gauge, previews, sources, recent tools, references, and a pinned WOMBAT mark. |
 | Search ranking | Merges Brave, Serper, Exa, Tavily, Bing RSS, DuckDuckGo, and Mojeek; boosts trusted docs, engine position, and cross-engine hits; filters adult/SEO spam; caps domains. |
 | Image search | Finds direct image URLs via Google Images (Serper), Brave, DuckDuckGo, and Openverse, and downloads them into the workspace. |
-| Opt-in image generation | `imagegen` is hidden until `/imagen`; then `/imagen <prompt>` generates directly. |
 | Provider setup | `/configure` opens a base URL/API-key form; unconfigured models stay selectable but show `no key` and are blocked from chat. |
 | Reasoning picker | After selecting a reasoning model, choose `off`, `low`, `medium`, `high`, or `max`; `/reasoning` reopens it. |
 | Themes | Fifteen palettes, a two-column picker, `ctrl+t` cycling, and a reclaimed terminal background on exit. |
@@ -329,7 +323,6 @@ Orchestration tools and `question` stay with the lead.
 - `delegate_write` gives writers explicit file ownership; writes outside the declared files are refused.
 - `resume_worker` answers a worker that reported `needs_input` and continues the same session and worktree.
 - Selected custom agents (see below) are first-class workers: `update_plan` steps take an `agent` id, the planner runs them in parallel by dependency, and dependent steps receive the upstream report.
-- `rename` and `refactor` use a real language server.
 - Workers run in git worktrees when possible; warm worktrees are reused between steps, changes are reviewed and merged, and checks run once before merge.
 - Token budgets are unlimited by default. `max_parallel_scouts` and
   `max_parallel_writers` limit concurrency.
@@ -569,6 +562,9 @@ your environment, so only add servers you trust.
 wombat config set provider openai
 wombat config set model gpt-5
 wombat config set mode create
+wombat config set tool_profile auto
+wombat config set research_mode auto
+wombat config set capabilities.semantic off
 wombat config set fallback_models gpt-5-mini
 wombat config set scout_model gpt-5-mini
 wombat config set worker_full_access false
@@ -635,6 +631,54 @@ go build -o /tmp/wombat ./cmd/wombat
 
 CI runs on the default branch and on pull requests. Issues and pull requests
 are welcome.
+
+## Benchmarks
+
+Every benchmark uses the same model, instructions, skill content, MCP server,
+and workspace for both agents. Raw data, task definitions, and chart generators
+live under [`eval/benchmarks/`](eval/benchmarks).
+
+### Wombat vs Pi: 10-task efficiency run
+
+Both agents ran the same 4 simple and 6 multi-step tasks on
+`deepseek-v4.1-flash`.
+
+![Wombat vs Pi summary](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/summary.svg)
+
+| Metric | Wombat | Pi |
+|---|---:|---:|
+| Tasks passed | **10/10** | **9/10** |
+| Input tokens | 498,144 | 836,303 |
+| Output tokens | 17,711 | 16,246 |
+| Tool calls | 66 | 74 |
+| Model steps | 61 | 64 |
+| Wall time | 275.9s | 424.9s |
+
+Wombat finished the bounded research task; Pi has no native search tool, made
+35 bash calls, accumulated 612k input tokens, and timed out at 300s without
+writing `answer.md`. That one failure skews the totals.
+
+On the nine non-research tasks, Pi was the leaner harness:
+
+| Ordinary tasks only | Wombat | Pi |
+|---|---:|---:|
+| Input tokens | 376,592 | 224,267 |
+| Output tokens | 7,386 | 4,708 |
+| Tool calls | 57 | 38 |
+| Wall time | 139.1s | 124.9s |
+
+![Research task comparison](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/research-focus.svg)
+
+The full write-up has the task list, per-task table, method, raw data, and
+limitations: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md).
+
+### Other comparisons
+
+- [Wombat vs Pi](eval/benchmarks/pi-vs-wombat/README.md) — 18
+  harness-capability tasks, plus the efficiency investigation on branch
+  `efficienty`.
+- [Wombat vs OpenCode](eval/benchmarks/opencode-vs-wombat/README.md) — 15
+  mixed coding, research, browser, MCP, and server tasks.
 
 regards
     ____

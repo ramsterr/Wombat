@@ -8,6 +8,7 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/mode"
+	"github.com/ramsterr/Wombat/internal/tools"
 )
 
 func cmdConfig(args []string) error {
@@ -20,7 +21,7 @@ func cmdConfig(args []string) error {
 		return fmt.Errorf("usage: wombat config [set <key> <value>]")
 	}
 	if len(args) < 3 {
-		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, check_policy, review_policy, worker_full_access, mode, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_agents, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read|mcp|mcp:server>")
+		return fmt.Errorf("usage: wombat config set <key> <value>\nkeys: provider, model, image_provider, image_model, embedding_provider, embedding_model, review_writers, review_model, check_policy, review_policy, worker_full_access, mode, tool_profile, research_mode, capabilities.<web|semantic|verify|media|mcp>, parallel_agents, scout_model, fallback_models, reasoning, show_thinking, orchestrator, checkpoints, require_verification, writers, keep_worktrees, max_parallel_scouts, max_parallel_agents, max_parallel_writers, worker_max_steps, worker_token_budget, turn_worker_token_budget, writer_max_steps, writer_token_budget, turn_writer_token_budget, permissions.<bash|write|edit|outside|network|dangerous|sensitive-read|mcp|mcp:server>")
 	}
 	key, val := args[1], strings.Join(args[2:], " ")
 	switch {
@@ -121,6 +122,45 @@ func cmdConfig(args []string) error {
 			return err
 		}
 		cfg.Mode = string(m)
+	case key == "tool_profile":
+		val = strings.ToLower(strings.TrimSpace(val))
+		if val != "auto" {
+			found := false
+			for _, name := range tools.ProfileNames() {
+				if val == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("tool_profile must be auto or one of: %s", strings.Join(tools.ProfileNames(), ", "))
+			}
+		}
+		cfg.ToolProfile = val
+	case key == "research_mode":
+		val = strings.ToLower(strings.TrimSpace(val))
+		switch val {
+		case "auto", "off", "quick", "standard", "deep":
+			cfg.ResearchMode = val
+		default:
+			return fmt.Errorf("research_mode must be auto, off, quick, standard, or deep")
+		}
+	case strings.HasPrefix(key, "capabilities."):
+		name := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(key, "capabilities.")))
+		switch name {
+		case "web", "semantic", "verify", "media", "mcp":
+		default:
+			return fmt.Errorf("capability must be web, semantic, git, verify, media, or mcp")
+		}
+		switch strings.ToLower(val) {
+		case "auto", "on", "off":
+			if cfg.Capabilities == nil {
+				cfg.Capabilities = map[string]string{}
+			}
+			cfg.Capabilities[name] = strings.ToLower(val)
+		default:
+			return fmt.Errorf("capability value must be auto, on, or off")
+		}
 	case key == "checkpoints":
 		v, err := parseBool(key, val)
 		if err != nil {

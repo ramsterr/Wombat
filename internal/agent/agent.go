@@ -39,14 +39,20 @@ type Agent struct {
 	Compact       bool
 	ContextWindow int
 	NumCtx        int
-	SystemExtra   func() string
-	RunStart      func()
-	RunEnd        func()
-	Hooks         Hooks
-	Trace         *trace.Logger
+	// MaxTokens is the output ceiling sent to the provider. Zero leaves the
+	// provider default in place.
+	MaxTokens   int
+	SystemExtra func() string
+	RunStart    func()
+	RunEnd      func()
+	Hooks       Hooks
+	Trace       *trace.Logger
 
-	ModeNote string
-	TmpNote  string
+	ModeNote     string
+	TmpNote      string
+	ToolNote     string
+	ResearchNote string
+	ClarifyNote  string
 	// TrimReasoning drops the reasoning of older turns from the request.
 	// Some gateways require it to be passed back, so it is off by default.
 	TrimReasoning bool
@@ -60,6 +66,10 @@ type Agent struct {
 	// visualPasses counts artifact-producing turns in the current run. It is
 	// used as a headless safety cap when there is no user to review the work.
 	visualPasses int
+	// emptyTurns counts consecutive responses with no text and no tool call.
+	// A truncated reasoning turn looks like this; nudge the model instead of
+	// silently ending the run.
+	emptyTurns int
 }
 
 func (a *Agent) toolDefs() []llm.Tool {
@@ -88,6 +98,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	}
 	a.markStarted()
 	a.visualPasses = 0
+	a.emptyTurns = 0
 	traceStart := time.Now()
 	traceUsage := a.Usage()
 	a.Trace.Emit("run_start", map[string]any{"model": a.Model, "max_steps": a.MaxSteps})
@@ -132,17 +143,31 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	// stuck; stop it before it burns the budget.
 	calls := map[string]int{}
 	turnRetries := 0
-	system := buildSystem(a.Env.Dir)
-	if note := strings.TrimSpace(a.ModeNote); note != "" {
-		system += "\n\n" + note
+	baseSystem := buildSystem(a.Env.Dir)
+	system := baseSystem
+	modeNote := strings.TrimSpace(a.ModeNote)
+	if modeNote != "" {
+		system += "\n\n" + modeNote
 	}
-	if note := strings.TrimSpace(a.TmpNote); note != "" {
-		system += "\n\n" + note
+	tmpNote := strings.TrimSpace(a.TmpNote)
+	if tmpNote != "" {
+		system += "\n\n" + tmpNote
 	}
+	extra := ""
 	if a.SystemExtra != nil {
-		if extra := strings.TrimSpace(a.SystemExtra()); extra != "" {
+		extra = strings.TrimSpace(a.SystemExtra())
+		if extra != "" {
 			system += "\n\n" + extra
 		}
+	}
+	if note := strings.TrimSpace(a.ToolNote); note != "" {
+		system += "\n\n" + note
+	}
+	if note := strings.TrimSpace(a.ResearchNote); note != "" {
+		system += "\n\n" + note
+	}
+	if note := strings.TrimSpace(a.ClarifyNote); note != "" {
+		system += "\n\n" + note
 	}
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if a.Compact {
@@ -155,6 +180,8 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if maxSteps > 0 && step == maxSteps-1 {
 			defs = nil
 		}
+		stats := a.promptStats(system, defs, baseSystem, modeNote, tmpNote, extra)
+		a.Trace.Emit("prompt", stats.Fields(step+1))
 		res, err := a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
 		if err != nil && llm.InvalidRequest(err) {
 			// The provider rejected the request itself. The history is the
@@ -227,9 +254,37 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 		a.recordUsage(res.Usage)
+		a.Trace.Emit("model_usage", map[string]any{
+			"step":               step + 1,
+			"in":                 res.Usage.In,
+			"cached":             res.Usage.Cached,
+			"out":                res.Usage.Out,
+			"stop_reason":        res.StopReason,
+			"history_tokens":     stats.HistoryTokens,
+			"system_tokens":      stats.SystemTokens,
+			"tool_schema_tokens": stats.ToolSchemaTokens,
+		})
 		if a.Hooks.OnUsage != nil {
 			a.Hooks.OnUsage(res.Usage, a.historyTokens())
 		}
+		if len(res.ToolCalls) == 0 && strings.TrimSpace(res.Content) == "" {
+			a.emptyTurns++
+			if a.emptyTurns <= 2 {
+				reason := "Your last turn produced no answer and no tool call."
+				if strings.EqualFold(res.StopReason, "length") || strings.EqualFold(res.StopReason, "max_tokens") {
+					reason = "Your last turn hit the output limit before making a tool call."
+				}
+				a.Trace.Emit("turn_empty", map[string]any{"attempt": a.emptyTurns, "stop_reason": res.StopReason})
+				_ = a.Sess.Append(llm.Message{
+					Role: "user",
+					Content: reason + " Continue the task now with the next concrete tool call. " +
+						"Do not restart the plan and keep your reasoning brief.",
+				})
+				continue
+			}
+			return fmt.Errorf("model returned three empty turns in a row; the task is incomplete")
+		}
+		a.emptyTurns = 0
 		if len(res.ToolCalls) == 0 {
 			return nil
 		}
@@ -268,6 +323,16 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			}
 			media = media[:0]
 		}
+		if a.Env != nil {
+			if pending := a.Env.TakePendingTools(); len(pending) > 0 {
+				a.Tools = appendUniqueTools(a.Tools, pending)
+				names := make([]string, 0, len(pending))
+				for _, tool := range pending {
+					names = append(names, tool.Name())
+				}
+				a.Trace.Emit("capability_loaded", map[string]any{"tools": names})
+			}
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -283,6 +348,23 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	// The step limit is not a failure: the model got its last word in
 	// without tools, so the turn ends normally.
 	return nil
+}
+
+func appendUniqueTools(existing []tools.Tool, extra []tools.Tool) []tools.Tool {
+	seen := make(map[string]bool, len(existing)+len(extra))
+	for _, tool := range existing {
+		if tool != nil {
+			seen[tool.Name()] = true
+		}
+	}
+	for _, tool := range extra {
+		if tool == nil || seen[tool.Name()] {
+			continue
+		}
+		existing = append(existing, tool)
+		seen[tool.Name()] = true
+	}
+	return existing
 }
 
 func (a *Agent) HistoryTokens() int { return a.historyTokens() }
@@ -384,7 +466,7 @@ func (a *Agent) exclusiveTool(tc llm.ToolCall) bool {
 		if t.Name() != tc.Name {
 			continue
 		}
-		// Every read-only tool, including symbols, batch, and job_output,
+		// Every read-only tool, including job_output,
 		// can run alongside the others. The prompt paths still serialize
 		// when a sensitive file needs approval.
 		return t.Class() != "read"
@@ -449,6 +531,7 @@ func (a *Agent) request(system string, tools []llm.Tool) llm.Request {
 		Messages:    a.requestMessages(),
 		Tools:       tools,
 		NumCtx:      a.NumCtx,
+		MaxTokens:   a.MaxTokens,
 		Reasoning:   a.Reasoning,
 		SessionID:   a.Sess.ID(),
 		OnReasoning: a.Hooks.OnReasoning,
@@ -744,35 +827,16 @@ func toolDetail(tc llm.ToolCall) string {
 		}
 		return ""
 	}
-	pickList := func(key string) string {
-		items, _ := m[key].([]any)
-		var values []string
-		for _, item := range items {
-			if v, ok := item.(string); ok && v != "" {
-				values = append(values, v)
-			}
-		}
-		return strings.Join(values, ", ")
-	}
 	switch tc.Name {
 	case "bash":
 		return pick("command")
-	case "write", "edit", "read", "apply_patch", "symbols", "lsp", "rename", "imagegen", "verify":
+	case "write", "edit", "read", "apply_patch", "lsp", "verify":
 		if v := pick("path"); v != "" {
 			return v
 		}
 		return pick("action", "kind", "name")
 	case "browser":
 		return pick("action", "url", "selector")
-	case "verify_site":
-		return pick("url", "script")
-	case "replace":
-		if v := pick("pattern"); v != "" {
-			return v
-		}
-		return pickList("paths")
-	case "multi_edit":
-		return pickList("paths")
 	case "glob", "grep":
 		return pick("pattern")
 	case "job_output", "job_kill":

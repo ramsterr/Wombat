@@ -1,0 +1,137 @@
+{
+  "note": "Phase 0/1 six-task rerun on branch efficienty. Prompt token fields are estimates.",
+  "tasks": [
+    {
+      "task": "mcp_tool",
+      "input_tokens": 25634,
+      "output_tokens": 216,
+      "duration_s": 6.17,
+      "model_steps": 3,
+      "tool_calls": 2,
+      "first_step_in": 8453,
+      "first_step_prompt": {
+        "system_tokens": 2359,
+        "base_system_tokens": 1154,
+        "extra_tokens": 1184,
+        "skill_tokens": 0,
+        "tool_schema_tokens": 9967,
+        "mcp_tool_schema_tokens": 59,
+        "tool_count": 38,
+        "mcp_tool_count": 1,
+        "history_tokens": 337,
+        "task_tokens": 43,
+        "project_instruction_tokens": 267
+      }
+    },
+    {
+      "task": "git_commit",
+      "input_tokens": 36326,
+      "output_tokens": 228,
+      "duration_s": 6.25,
+      "model_steps": 4,
+      "tool_calls": 3,
+      "first_step_in": 8760,
+      "first_step_prompt": {
+        "system_tokens": 2440,
+        "base_system_tokens": 1154,
+        "extra_tokens": 1263,
+        "skill_tokens": 0,
+        "tool_schema_tokens": 10389,
+        "mcp_tool_schema_tokens": 59,
+        "tool_count": 39,
+        "mcp_tool_count": 1,
+        "history_tokens": 333,
+        "task_tokens": 39,
+        "project_instruction_tokens": 267
+      }
+    },
+    {
+      "task": "code_review",
+      "input_tokens": 45362,
+      "output_tokens": 795,
+      "duration_s": 9.52,
+      "model_steps": 5,
+      "tool_calls": 5,
+      "first_step_in": 8448,
+      "first_step_prompt": {
+        "system_tokens": 2360,
+        "base_system_tokens": 1155,
+        "extra_tokens": 1184,
+        "skill_tokens": 0,
+        "tool_schema_tokens": 9967,
+        "mcp_tool_schema_tokens": 59,
+        "tool_count": 38,
+        "mcp_tool_count": 1,
+        "history_tokens": 337,
+        "task_tokens": 43,
+        "project_instruction_tokens": 267
+      }
+    },
+    {
+      "task": "skill_adherence",
+      "input_tokens": 53856,
+      "output_tokens": 460,
+      "duration_s": 34.86,
+      "model_steps": 6,
+      "tool_calls": 5,
+      "first_step_in": 8428,
+      "first_step_prompt": {
+        "system_tokens": 2361,
+        "base_system_tokens": 1156,
+        "extra_tokens": 1184,
+        "skill_tokens": 0,
+        "tool_schema_tokens": 9967,
+        "mcp_tool_schema_tokens": 59,
+        "tool_count": 38,
+        "mcp_tool_count": 1,
+        "history_tokens": 305,
+        "task_tokens": 11,
+        "project_instruction_tokens": 267
+      }
+    },
+    {
+      "task": "cli_json",
+      "input_tokens": 43670,
+      "output_tokens": 256,
+      "duration_s": 6.8,
+      "model_steps": 5,
+      "tool_calls": 4,
+      "first_step_in": 8460,
+      "first_step_prompt": {
+        "system_tokens": 2359,
+        "base_system_tokens": 1154,
+        "extra_tokens": 1184,
+        "skill_tokens": 0,
+        "tool_schema_tokens": 9967,
+        "mcp_tool_schema_tokens": 59,
+        "tool_count": 38,
+        "mcp_tool_count": 1,
+        "history_tokens": 348,
+        "task_tokens": 54,
+        "project_instruction_tokens": 267
+      }
+    },
+    {
+      "task": "multi_file_refactor",
+      "input_tokens": 46315,
+      "output_tokens": 1084,
+      "duration_s": 13.83,
+      "model_steps": 5,
+      "tool_calls": 6,
+      "first_step_in": 8468,
+      "first_step_prompt": {
+        "system_tokens": 2363,
+        "base_system_tokens": 1157,
+        "extra_tokens": 1184,
+        "skill_tokens": 0,
+        "tool_schema_tokens": 9967,
+        "mcp_tool_schema_tokens": 59,
+        "tool_count": 38,
+        "mcp_tool_count": 1,
+        "history_tokens": 360,
+        "task_tokens": 66,
+        "project_instruction_tokens": 267
+      }
+    }
+  ]
+}

@@ -18,13 +18,6 @@ func TestBackgroundJobLifecycle(t *testing.T) {
 	if !strings.Contains(out, "started background job 1") {
 		t.Fatalf("start output = %q", out)
 	}
-	list, err := (&Jobs{}).Run(context.Background(), nil, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(list, "running") {
-		t.Fatalf("list = %q", list)
-	}
 	raw, _ := json.Marshal(jobOutputArgs{ID: 1, WaitMS: 5000})
 	polled, err := (&JobOutput{}).Run(context.Background(), raw, env)
 	if err != nil {
