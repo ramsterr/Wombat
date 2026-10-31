@@ -8,12 +8,15 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"encoding/json"
 )
 
 func TestClassifyOpenCodeModel(t *testing.T) {
 	cases := map[string]string{
 		"claude-haiku-5-5":    "messages",
 		"minimax-m3":          "messages",
+		"minimax-m3.1-flash":  "openai",
 		"qwen3.7-plus":        "messages",
 		"qwen3.8-flash":       "messages",
 		"qwen3.8-max":         "openai",
@@ -29,6 +32,40 @@ func TestClassifyOpenCodeModel(t *testing.T) {
 		if got := classifyOpenCodeModel("opencode", model); got != want {
 			t.Errorf("classify(%s) = %s, want %s", model, got, want)
 		}
+	}
+	if got := classifyOpenCodeModel("opencode-go", "minimax-m3.1-flash"); got != "openai" {
+		t.Errorf("opencode-go/minimax-m3.1-flash = %s, want openai", got)
+	}
+	if got := classifyOpenCodeModel("opencode-go", "qwen3.8-max"); got != "messages" {
+		t.Errorf("opencode-go/qwen3.8-max = %s, want messages", got)
+	}
+}
+
+func TestOpenCodeMiniMaxFlashUsesOpenAI(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	p := newOpenCode("opencode-go", srv.URL, "key")
+	res, err := p.Chat(context.Background(), Request{Model: "minimax-m3.1-flash", MaxTokens: 65536}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/openai/v1/chat/completions" {
+		t.Fatalf("path = %s, want OpenAI chat completions", gotPath)
+	}
+	if res.Content != "ok" {
+		t.Fatalf("content = %q", res.Content)
+	}
+	if gotBody["max_tokens"] != float64(65536) {
+		t.Fatalf("max_tokens = %v", gotBody["max_tokens"])
 	}
 }
 

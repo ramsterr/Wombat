@@ -615,6 +615,7 @@ func (c *chat) rebuild(reset bool) error {
 		Compact:       true,
 		ContextWindow: tokens.WindowFor(c.provName, c.modelName),
 		NumCtx:        pc.NumCtx,
+		MaxTokens:     tokens.OpenCodeOutputLimitFor(c.provName, c.modelName),
 		Reasoning:     c.cfg.Reasoning,
 		ModeNote:      c.mode.Note(),
 	}

@@ -39,11 +39,14 @@ type Agent struct {
 	Compact       bool
 	ContextWindow int
 	NumCtx        int
-	SystemExtra   func() string
-	RunStart      func()
-	RunEnd        func()
-	Hooks         Hooks
-	Trace         *trace.Logger
+	// MaxTokens is the output ceiling sent to the provider. Zero leaves the
+	// provider default in place.
+	MaxTokens   int
+	SystemExtra func() string
+	RunStart    func()
+	RunEnd      func()
+	Hooks       Hooks
+	Trace       *trace.Logger
 
 	ModeNote     string
 	TmpNote      string
@@ -63,6 +66,10 @@ type Agent struct {
 	// visualPasses counts artifact-producing turns in the current run. It is
 	// used as a headless safety cap when there is no user to review the work.
 	visualPasses int
+	// emptyTurns counts consecutive responses with no text and no tool call.
+	// A truncated reasoning turn looks like this; nudge the model instead of
+	// silently ending the run.
+	emptyTurns int
 }
 
 func (a *Agent) toolDefs() []llm.Tool {
@@ -91,6 +98,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	}
 	a.markStarted()
 	a.visualPasses = 0
+	a.emptyTurns = 0
 	traceStart := time.Now()
 	traceUsage := a.Usage()
 	a.Trace.Emit("run_start", map[string]any{"model": a.Model, "max_steps": a.MaxSteps})
@@ -251,6 +259,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			"in":                 res.Usage.In,
 			"cached":             res.Usage.Cached,
 			"out":                res.Usage.Out,
+			"stop_reason":        res.StopReason,
 			"history_tokens":     stats.HistoryTokens,
 			"system_tokens":      stats.SystemTokens,
 			"tool_schema_tokens": stats.ToolSchemaTokens,
@@ -258,6 +267,24 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if a.Hooks.OnUsage != nil {
 			a.Hooks.OnUsage(res.Usage, a.historyTokens())
 		}
+		if len(res.ToolCalls) == 0 && strings.TrimSpace(res.Content) == "" {
+			a.emptyTurns++
+			if a.emptyTurns <= 2 {
+				reason := "Your last turn produced no answer and no tool call."
+				if strings.EqualFold(res.StopReason, "length") || strings.EqualFold(res.StopReason, "max_tokens") {
+					reason = "Your last turn hit the output limit before making a tool call."
+				}
+				a.Trace.Emit("turn_empty", map[string]any{"attempt": a.emptyTurns, "stop_reason": res.StopReason})
+				_ = a.Sess.Append(llm.Message{
+					Role: "user",
+					Content: reason + " Continue the task now with the next concrete tool call. " +
+						"Do not restart the plan and keep your reasoning brief.",
+				})
+				continue
+			}
+			return fmt.Errorf("model returned three empty turns in a row; the task is incomplete")
+		}
+		a.emptyTurns = 0
 		if len(res.ToolCalls) == 0 {
 			return nil
 		}
@@ -504,6 +531,7 @@ func (a *Agent) request(system string, tools []llm.Tool) llm.Request {
 		Messages:    a.requestMessages(),
 		Tools:       tools,
 		NumCtx:      a.NumCtx,
+		MaxTokens:   a.MaxTokens,
 		Reasoning:   a.Reasoning,
 		SessionID:   a.Sess.ID(),
 		OnReasoning: a.Hooks.OnReasoning,

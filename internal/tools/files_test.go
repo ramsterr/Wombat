@@ -191,3 +191,20 @@ func TestDenyOutsideBlocksWrites(t *testing.T) {
 		t.Fatal("file was written outside the workspace")
 	}
 }
+
+func TestWriteAcceptsFilePathAlias(t *testing.T) {
+	dir := t.TempDir()
+	env := testEnv(dir)
+	run(t, &Write{}, env, `{"file_path":"sub/alias.txt","content":"hi"}`)
+	data, err := os.ReadFile(filepath.Join(dir, "sub", "alias.txt"))
+	if err != nil || string(data) != "hi" {
+		t.Fatalf("alias write = %q, %v", data, err)
+	}
+}
+
+func TestWriteMissingPathExplainsTruncation(t *testing.T) {
+	err := runErr(t, &Write{}, testEnv(t.TempDir()), `{"content":"body without a path`)
+	if !strings.Contains(err.Error(), "incomplete") || !strings.Contains(err.Error(), "8 KB") {
+		t.Fatalf("missing-path error = %v", err)
+	}
+}

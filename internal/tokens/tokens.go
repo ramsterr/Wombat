@@ -47,6 +47,42 @@ var modelWindows = []struct {
 const DefaultWindow = 128000
 const OutputReserve = 16000
 
+// MaxOutputLimit caps an explicit max_tokens value. The catalogue often
+// publishes very large output windows; a 64K ceiling is enough for a turn
+// without inviting a runaway response.
+const MaxOutputLimit = 65536
+
+// OutputLimitFor returns the output token ceiling the provider catalogue
+// publishes for provider/model, capped at MaxOutputLimit. Zero means the
+// catalogue has no answer and the provider default should be used.
+func OutputLimitFor(provider, model string) int {
+	info, ok := modelinfo.Lookup(provider, model)
+	if !ok || info.Output <= 0 {
+		return 0
+	}
+	if info.Output > MaxOutputLimit {
+		return MaxOutputLimit
+	}
+	return info.Output
+}
+
+// OpenCodeOutputLimitFor is OutputLimitFor restricted to the OpenCode
+// gateways. Their OpenAI-compatible endpoint accepts max_tokens; direct
+// OpenAI models use a different parameter name, so they keep the provider
+// default.
+func OpenCodeOutputLimitFor(provider, model string) int {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "opencode", "opencode-go":
+		if n := OutputLimitFor(provider, model); n > 0 {
+			return n
+		}
+		// The catalogue is unavailable or stale. The gateway's default is
+		// often 8K, which a reasoning model can spend before it acts.
+		return 32768
+	}
+	return 0
+}
+
 // Capabilities describes what a model can accept. The provider catalogue is
 // the source of truth; the model name is only a fallback for local models and
 // offline machines. An unknown model gets conservative text-only defaults.

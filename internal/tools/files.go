@@ -59,9 +59,16 @@ func (t *Read) readImage(env *Env, path, mime string) (string, error) {
 }
 
 type readArgs struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset"`
-	Limit  int    `json:"limit"`
+	Path     string `json:"path"`
+	FilePath string `json:"file_path"`
+	Offset   int    `json:"offset"`
+	Limit    int    `json:"limit"`
+}
+
+func (a *readArgs) normalize() {
+	if strings.TrimSpace(a.Path) == "" {
+		a.Path = a.FilePath
+	}
 }
 
 func (t *Read) Name() string  { return "read" }
@@ -82,6 +89,7 @@ func (t *Read) Run(_ context.Context, raw json.RawMessage, env *Env) (string, er
 	if err != nil {
 		return "", fmt.Errorf("bad arguments: %w", err)
 	}
+	a.normalize()
 	if err := env.CheckPath("read", a.Path); err != nil {
 		return "", err
 	}
@@ -176,11 +184,25 @@ func isBinaryData(data []byte) bool {
 	return control*100/total > 10 || invalid*100/total > 30
 }
 
+func truncatedArgsError(tool string, raw json.RawMessage, contentField string) error {
+	if bytes.Contains(raw, []byte(`"`+contentField+`"`)) {
+		return fmt.Errorf("%s arguments were incomplete: the path is missing. The tool call was probably truncated by the model's output limit. Retry with path first and keep each write under about 8 KB.", tool)
+	}
+	return fmt.Errorf("%s needs a non-empty path", tool)
+}
+
 type Write struct{}
 
 type writeArgs struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path     string `json:"path"`
+	FilePath string `json:"file_path"`
+	Content  string `json:"content"`
+}
+
+func (a *writeArgs) normalize() {
+	if strings.TrimSpace(a.Path) == "" {
+		a.Path = a.FilePath
+	}
 }
 
 func (t *Write) Name() string  { return "write" }
@@ -198,7 +220,14 @@ func (t *Write) Schema() map[string]any {
 func (t *Write) Run(_ context.Context, raw json.RawMessage, env *Env) (string, error) {
 	a, err := decode[writeArgs](raw)
 	if err != nil {
+		if bytes.Contains(raw, []byte(`"content"`)) {
+			return "", truncatedArgsError("write", raw, "content")
+		}
 		return "", fmt.Errorf("bad arguments: %w", err)
+	}
+	a.normalize()
+	if strings.TrimSpace(a.Path) == "" {
+		return "", truncatedArgsError("write", raw, "content")
 	}
 	path, err := env.ResolvePath(a.Path)
 	if err != nil {
@@ -242,9 +271,16 @@ type Edit struct{}
 
 type editArgs struct {
 	Path       string `json:"path"`
+	FilePath   string `json:"file_path"`
 	OldString  string `json:"old_string"`
 	NewString  string `json:"new_string"`
 	ReplaceAll bool   `json:"replace_all"`
+}
+
+func (a *editArgs) normalize() {
+	if strings.TrimSpace(a.Path) == "" {
+		a.Path = a.FilePath
+	}
 }
 
 func (t *Edit) Name() string  { return "edit" }
@@ -264,7 +300,14 @@ func (t *Edit) Schema() map[string]any {
 func (t *Edit) Run(_ context.Context, raw json.RawMessage, env *Env) (string, error) {
 	a, err := decode[editArgs](raw)
 	if err != nil {
+		if bytes.Contains(raw, []byte(`"new_string"`)) {
+			return "", truncatedArgsError("edit", raw, "new_string")
+		}
 		return "", fmt.Errorf("bad arguments: %w", err)
+	}
+	a.normalize()
+	if strings.TrimSpace(a.Path) == "" {
+		return "", truncatedArgsError("edit", raw, "new_string")
 	}
 	if a.OldString == a.NewString {
 		return "", fmt.Errorf("old_string and new_string are identical")

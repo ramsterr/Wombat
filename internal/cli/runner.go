@@ -190,6 +190,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Compact:       true,
 		ContextWindow: tokens.WindowFor(providerName, model),
 		NumCtx:        pc.NumCtx,
+		MaxTokens:     tokens.OpenCodeOutputLimitFor(providerName, model),
 		Reasoning:     cfg.Reasoning,
 		ModeNote:      sessionMode.Note(),
 		ToolNote:      tools.CapabilityNote(caps),
