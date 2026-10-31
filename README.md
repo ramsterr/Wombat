@@ -684,6 +684,6 @@ limitations: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty
   harness-capability tasks, plus the efficiency investigation on branch
   `efficienty`.
 
-regards
-    ____
+
+
    
