@@ -290,7 +290,7 @@ Wombat different.
 | Parallel fleet | Lead plus scouts and writers in isolated git worktrees; changes are reviewed and three-way merged. |
 | Continuous plan scheduler | A dependency DAG where free slots start newly-ready work, slow steps do not block independent work, and interrupted steps resume. |
 | Resumable workers | A worker that needs a decision returns `needs_input` and can be resumed in the same session and worktree. |
-| Visual hand-off gate | After the first complete visual artifact, Wombat asks `Looks good` / `Needs changes` before another pass; headless runs stop after three visual passes. |
+| Visual hand-off gate | After the complete visual deliverable, Wombat asks `Looks good` / `Needs changes` at the end of the run; headless runs never stop mid-build for a review. |
 | Multi-preview system | Detects local servers, HTML, PDFs, images, and video; de-duplicates by origin or path; keeps an ordered left rail and a `/previews` picker. |
 | Source browser | `/sources` browses every site and file the session used, with counts and open/attach actions. |
 | Project references | `ctrl+r` / `/reference` keeps files, folders, and URLs in a per-project inspector list under `~/.wombat/references/`. |
