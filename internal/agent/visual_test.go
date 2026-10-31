@@ -62,16 +62,22 @@ func newVisualAgent(t *testing.T, answers ...string) (*Agent, *session.Session) 
 	return a, sess
 }
 
+func rememberPreview(a *Agent, path string) {
+	a.rememberVisualTurn(
+		[]llm.ToolCall{{Name: "write", Arguments: `{"path":"` + path + `"}`}},
+		[]toolResult{{content: "wrote " + path}},
+	)
+}
+
 func TestVisualReviewStopsOnApproval(t *testing.T) {
 	a, sess := newVisualAgent(t, "Looks good — ship it")
-	calls := []llm.ToolCall{{Name: "write", Arguments: `{"path":"index.html"}`}}
-	results := []toolResult{{content: "wrote index.html"}}
-	stop, err := a.visualReview(context.Background(), calls, results)
+	rememberPreview(a, "index.html")
+	stop, retry, err := a.finishVisualReview(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !stop {
-		t.Fatal("approval should stop the run")
+	if !stop || retry {
+		t.Fatalf("finish = stop %v retry %v, want approval to stop", stop, retry)
 	}
 	last := sess.Messages[len(sess.Messages)-1]
 	if last.Role != "user" || !strings.Contains(last.Content, "approved") {
@@ -81,31 +87,108 @@ func TestVisualReviewStopsOnApproval(t *testing.T) {
 
 func TestVisualReviewAsksForChanges(t *testing.T) {
 	a, sess := newVisualAgent(t, "Needs changes — I'll describe", "make the heading larger")
-	calls := []llm.ToolCall{{Name: "write", Arguments: `{"path":"index.html"}`}}
-	results := []toolResult{{content: "wrote index.html"}}
-	stop, err := a.visualReview(context.Background(), calls, results)
+	rememberPreview(a, "index.html")
+	stop, retry, err := a.finishVisualReview(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stop {
-		t.Fatal("feedback should continue the run")
+	if stop || !retry {
+		t.Fatalf("finish = stop %v retry %v, want feedback to continue", stop, retry)
 	}
 	last := sess.Messages[len(sess.Messages)-1]
 	if !strings.Contains(last.Content, "make the heading larger") {
 		t.Fatalf("feedback was not recorded: %+v", last)
 	}
+	if len(a.visualPending) == 0 {
+		t.Fatal("the preview should stay pending for the next pass")
+	}
 }
 
 func TestVisualReviewSkipsNonVisualTurn(t *testing.T) {
 	a, _ := newVisualAgent(t, "Looks good")
-	calls := []llm.ToolCall{{Name: "write", Arguments: `{"path":"main.go"}`}}
-	results := []toolResult{{content: "wrote main.go"}}
-	stop, err := a.visualReview(context.Background(), calls, results)
+	a.rememberVisualTurn(
+		[]llm.ToolCall{{Name: "write", Arguments: `{"path":"main.go"}`}},
+		[]toolResult{{content: "wrote main.go"}},
+	)
+	stop, retry, err := a.finishVisualReview(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stop {
-		t.Fatal("a normal source edit must not stop the run")
+	if stop || retry {
+		t.Fatalf("finish = stop %v retry %v, want no review for a source edit", stop, retry)
+	}
+}
+
+func TestVisualReviewHeadlessDoesNotAsk(t *testing.T) {
+	a, _ := newVisualAgent(t, "Looks good")
+	a.Env.AskUser = nil
+	rememberPreview(a, "index.html")
+	stop, retry, err := a.finishVisualReview(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop || retry {
+		t.Fatalf("finish = stop %v retry %v, want a clean headless finish", stop, retry)
+	}
+}
+
+type multiPageProvider struct {
+	calls int
+}
+
+func (p *multiPageProvider) Name() string                                 { return "multi-page-fake" }
+func (p *multiPageProvider) ListModels(context.Context) ([]string, error) { return nil, nil }
+func (p *multiPageProvider) Chat(_ context.Context, _ llm.Request, _ func(string)) (*llm.Result, error) {
+	p.calls++
+	pages := []string{"index.html", "features.html", "pricing.html"}
+	if p.calls <= len(pages) {
+		path := pages[p.calls-1]
+		return &llm.Result{
+			Content:   "building " + path,
+			ToolCalls: []llm.ToolCall{{ID: "w" + path, Name: "write", Arguments: `{"path":"` + path + `","content":"<h1>` + path + `</h1>"}`}},
+		}, nil
+	}
+	return &llm.Result{Content: "all pages built"}, nil
+}
+
+func TestAgentBuildsAllPagesBeforeReview(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	dir := t.TempDir()
+	sess, err := session.Create(dir, "multi-page-fake", "model", "multi-page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov := &multiPageProvider{}
+	askedAt := 0
+	a := &Agent{
+		Provider: prov,
+		Model:    "model",
+		Tools:    tools.Registry(),
+		Sess:     sess,
+		MaxSteps: 8,
+		Env: &tools.Env{
+			Dir:    dir,
+			Permit: func(string, string) tools.Decision { return tools.Decision{Allow: true} },
+			AskUser: func(q tools.Question) (string, error) {
+				askedAt = prov.calls
+				if q.ID != "visual-review" {
+					t.Fatalf("unexpected question %+v", q)
+				}
+				if !strings.Contains(q.Question, "3 previews") {
+					t.Fatalf("review question = %q, want three previews", q.Question)
+				}
+				return "Looks good — ship it", nil
+			},
+		},
+	}
+	if err := a.Run(context.Background(), "build three pages"); err != nil {
+		t.Fatal(err)
+	}
+	if prov.calls != 4 {
+		t.Fatalf("provider calls = %d, want 4 (three pages then final answer)", prov.calls)
+	}
+	if askedAt != 4 {
+		t.Fatalf("review asked after provider call %d, want after the final call", askedAt)
 	}
 }
 
@@ -154,7 +237,7 @@ func TestAgentStopsAtVisualHandoff(t *testing.T) {
 	if err := a.Run(context.Background(), "build a page"); err != nil {
 		t.Fatal(err)
 	}
-	if prov.calls != 1 {
-		t.Fatalf("provider was called %d times; approval should stop the run after the first visual turn", prov.calls)
+	if prov.calls != 2 {
+		t.Fatalf("provider was called %d times; the review should run after the model's final turn", prov.calls)
 	}
 }

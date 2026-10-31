@@ -120,7 +120,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Mode:          sessionMode.Label(),
 		DenyMutate:    !sessionMode.AllowsWrite(),
 	}
-	if p != nil {
+	if p != nil && p.tty && os.Getenv("WOMBAT_HEADLESS") != "1" {
 		env.AskUser = func(q tools.Question) (string, error) {
 			return p.AskUser(q)
 		}

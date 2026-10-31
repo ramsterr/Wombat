@@ -113,21 +113,20 @@ func detectVisualArtifact(tc llm.ToolCall, result string) (visualArtifact, bool)
 	return visualArtifact{}, false
 }
 
-// visualReview is the hard hand-off. After the first complete visual artifact,
-// the agent does not get another modelling step until the user has looked at
-// it. This is deliberately a harness rule, not a prompt suggestion.
-func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results []toolResult) (bool, error) {
+// rememberVisualTurn records previews from one tool batch. It deliberately
+// does not ask the user: a three-page site should finish all three pages before
+// the review prompt appears.
+func (a *Agent) rememberVisualTurn(calls []llm.ToolCall, results []toolResult) {
 	if a.Env == nil {
-		return false, nil
+		return
 	}
 	for _, tc := range calls {
 		if tc.Name == "question" {
-			// The model already handed the decision to the user.
-			return false, nil
+			return
 		}
 	}
-	var found []visualArtifact
 	seen := map[string]bool{}
+	var found []visualArtifact
 	for i, tc := range calls {
 		if i >= len(results) {
 			break
@@ -137,25 +136,30 @@ func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results 
 			found = append(found, art)
 		}
 	}
-	if len(found) == 0 {
-		return false, nil
-	}
-	a.visualPasses++
-	if a.Env.AskUser == nil {
-		// Headless runs have no eyes. Stop after a small budget instead of
-		// polishing into the void; the preview is still in the session.
-		if a.visualPasses >= 3 {
-			_ = a.Sess.Append(llm.Message{
-				Role:    "user",
-				Content: "Stopped after three visual passes without a review. Open the TUI to inspect the preview before continuing.",
-			})
-			return true, nil
+	for _, art := range found {
+		duplicate := false
+		for _, pending := range a.visualPending {
+			if pending.Ref == art.Ref {
+				duplicate = true
+				break
+			}
 		}
-		return false, nil
+		if !duplicate {
+			a.visualPending = append(a.visualPending, art)
+		}
 	}
-	what := found[0].Ref
-	if len(found) > 1 {
-		what = fmt.Sprintf("%d previews (newest: %s)", len(found), found[0].Ref)
+}
+
+// finishVisualReview is the end-of-run hand-off. A preview is ready only when
+// the model has stopped producing tool calls.
+func (a *Agent) finishVisualReview(ctx context.Context) (stop, retry bool, err error) {
+	if a.Env == nil || len(a.visualPending) == 0 || a.Env.AskUser == nil {
+		return false, false, nil
+	}
+	pending := append([]visualArtifact(nil), a.visualPending...)
+	what := pending[0].Ref
+	if len(pending) > 1 {
+		what = fmt.Sprintf("%d previews (newest: %s)", len(pending), pending[0].Ref)
 	}
 	answer, err := a.Env.AskUser(tools.Question{
 		ID:       "visual-review",
@@ -167,15 +171,16 @@ func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results 
 		},
 	})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	answer = strings.TrimSpace(answer)
 	lower := strings.ToLower(answer)
 
 	switch {
 	case answer == "", strings.HasPrefix(lower, "looks good"), strings.Contains(lower, "ship it"):
+		a.visualPending = nil
 		_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user approved the preview. Stop here; do not iterate further."})
-		return true, nil
+		return true, false, nil
 	case strings.HasPrefix(lower, "needs changes"):
 		follow, err := a.Env.AskUser(tools.Question{
 			ID:       "visual-changes",
@@ -183,17 +188,18 @@ func (a *Agent) visualReview(ctx context.Context, calls []llm.ToolCall, results 
 			Question: "What should change? Type the changes you want.",
 		})
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		follow = strings.TrimSpace(follow)
 		if follow == "" {
+			a.visualPending = nil
 			_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user did not specify changes. Stop here."})
-			return true, nil
+			return true, false, nil
 		}
 		_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + follow})
-		return false, nil
+		return false, true, nil
 	default:
 		_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + answer})
-		return false, nil
+		return false, true, nil
 	}
 }

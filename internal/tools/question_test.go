@@ -35,6 +35,26 @@ func TestQuestionAsksTheUser(t *testing.T) {
 	}
 }
 
+func TestQuestionRefusesPreviewFeedback(t *testing.T) {
+	asked := 0
+	env := &Env{
+		Dir: t.TempDir(),
+		AskUser: func(Question) (string, error) {
+			asked++
+			return "Looks good", nil
+		},
+	}
+	_, err := (&QuestionTool{}).Run(context.Background(), json.RawMessage(`{"questions":[
+		{"id":"visual-review","header":"preview ready","question":"The preview is ready. Does it look right?","options":[
+			{"label":"Looks good — ship it"},{"label":"Needs changes — I'll describe"}]}]}`), env)
+	if err == nil || !strings.Contains(err.Error(), "finish the complete deliverable") {
+		t.Fatalf("preview feedback question error = %v", err)
+	}
+	if asked != 0 {
+		t.Fatalf("the user was asked %d times; the harness should own this hand-off", asked)
+	}
+}
+
 func TestQuestionNeedsSomewhereToAsk(t *testing.T) {
 	env := &Env{Dir: t.TempDir()}
 	_, err := (&QuestionTool{}).Run(context.Background(), json.RawMessage(`{"questions":[
