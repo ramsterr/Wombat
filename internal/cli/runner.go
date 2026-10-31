@@ -30,6 +30,7 @@ type runOpts struct {
 	model    string
 	provider string
 	profile  string
+	research string
 	task     string
 	// agents lists the custom agents selected for this run.
 	agents []string
@@ -154,6 +155,13 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	interactive := p != nil && p.tty && os.Getenv("WOMBAT_HEADLESS") != "1"
 	keepMCP := strings.ToLower(strings.TrimSpace(cfg.Capabilities["mcp"])) != "off"
 	allTools = tools.FilterTools(fullTools, caps, interactive, keepMCP)
+	researchMode := opts.research
+	if researchMode == "" {
+		researchMode = cfg.ResearchMode
+	}
+	researchPolicy := tools.ResolveResearchPolicy(researchMode, opts.task)
+	env.SetResearchBudget(researchPolicy)
+	env.SetQuestionBudget(2)
 	env.SetCapabilityLoader(func(name string) ([]tools.Tool, error) {
 		return tools.ToolsForCapability(fullTools, name)
 	}, allTools)
@@ -185,6 +193,8 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		Reasoning:     cfg.Reasoning,
 		ModeNote:      sessionMode.Note(),
 		ToolNote:      tools.CapabilityNote(caps),
+		ResearchNote:  tools.ResearchNote(researchPolicy),
+		ClarifyNote:   agent.ClarifyNote(opts.task, interactive),
 		TrimReasoning: cfg.TrimReasoning,
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {

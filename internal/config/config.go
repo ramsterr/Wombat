@@ -60,6 +60,7 @@ type Config struct {
 	Mode                  string                `json:"mode"`
 	ToolProfile           string                `json:"tool_profile,omitempty"`
 	Capabilities          map[string]string     `json:"capabilities,omitempty"`
+	ResearchMode          string                `json:"research_mode,omitempty"`
 	Reasoning             string                `json:"reasoning,omitempty"`
 	ShowThinking          bool                  `json:"show_thinking"`
 	TrimReasoning         bool                  `json:"trim_reasoning,omitempty"`
@@ -163,6 +164,7 @@ func Defaults() *Config {
 		MaxParallelWriters: DefaultMaxParallelWriters,
 		Mode:               "create",
 		ToolProfile:        "auto",
+		ResearchMode:       "auto",
 		Capabilities: map[string]string{
 			"web":      "auto",
 			"semantic": "off",
@@ -215,6 +217,9 @@ func Load() (*Config, error) {
 	}
 	if c.ToolProfile == "" {
 		c.ToolProfile = "auto"
+	}
+	if c.ResearchMode == "" {
+		c.ResearchMode = "auto"
 	}
 	if c.Capabilities == nil {
 		c.Capabilities = map[string]string{}

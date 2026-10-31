@@ -154,6 +154,7 @@ func cmdRepl(args []string, resume bool) error {
 	cont := fs.Bool("c", false, "continue latest session")
 	quiet := fs.Bool("quiet", false, "suppress tool output")
 	profile := fs.String("profile", "", "tool profile: auto, minimal, coding, web, semantic, git, verify, media, orchestrator, full")
+	research := fs.String("research", "", "research mode: auto, off, quick, standard, deep")
 	var agentFlags stringList
 	fs.Var(&agentFlags, "agents", "custom agents to work with (comma-separated, repeatable)")
 	fs.Var(&agentFlags, "a", "custom agents to work with (comma-separated, repeatable)")
@@ -191,7 +192,7 @@ func cmdRepl(args []string, resume bool) error {
 
 	p := newPrompter(isTTY(os.Stdin), *yolo, cfg)
 	r := &renderer{cfg: cfg, sess: sess, quiet: *quiet}
-	opts := runOpts{model: *model, provider: *prov, profile: *profile, yolo: *yolo, agents: splitAgentFlags(agentFlags)}
+	opts := runOpts{model: *model, provider: *prov, profile: *profile, research: *research, yolo: *yolo, agents: splitAgentFlags(agentFlags)}
 
 	ag, err := buildAgent(cfg, opts, sess, p)
 	if err != nil {
@@ -303,6 +304,11 @@ func cmdRepl(args []string, resume bool) error {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		r.sp = startSpinner("thinking…")
 		r.textOpen = false
+		mode := currentResearchMode(cfg, &opts)
+		policy := tools.ResolveResearchPolicy(mode, line)
+		ag.Env.SetResearchBudget(policy)
+		ag.ResearchNote = tools.ResearchNote(policy)
+		ag.ClarifyNote = agent.ClarifyNote(line, p.tty)
 		err = ag.RunWithAttachments(ctx, line, atts)
 		r.sp.Stop()
 		stop()
@@ -315,6 +321,16 @@ func cmdRepl(args []string, resume bool) error {
 			}
 		}
 	}
+}
+
+func currentResearchMode(cfg *config.Config, opts *runOpts) string {
+	if opts != nil && strings.TrimSpace(opts.research) != "" {
+		return opts.research
+	}
+	if cfg != nil && strings.TrimSpace(cfg.ResearchMode) != "" {
+		return cfg.ResearchMode
+	}
+	return "auto"
 }
 
 func currentProfile(cfg *config.Config, opts *runOpts) string {
@@ -409,6 +425,24 @@ func handleCommand(line string, cfg *config.Config, ag *agent.Agent, sess *sessi
 				return false, nil, nil, err
 			}
 		}
+	case "/research":
+		if arg == "" {
+			fmt.Println("research: " + bold(currentResearchMode(cfg, opts)))
+			fmt.Println(dim("available: auto, off, quick, standard, deep"))
+			break
+		}
+		val := strings.ToLower(strings.TrimSpace(arg))
+		switch val {
+		case "auto", "off", "quick", "standard", "deep":
+		default:
+			return false, nil, nil, fmt.Errorf("unknown research mode %q", arg)
+		}
+		cfg.ResearchMode = val
+		opts.research = val
+		if err := cfg.Save(); err != nil {
+			return false, nil, nil, err
+		}
+		fmt.Println(dim("research: " + val))
 	case "/profile", "/profiles":
 		if arg == "" {
 			fmt.Println("profile: " + bold(currentProfile(cfg, opts)))

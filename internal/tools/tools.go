@@ -94,6 +94,12 @@ type Env struct {
 	// capState holds the optional-capability loader and any tools requested
 	// by the model during this session.
 	capState *capabilityState
+
+	// research enforces the current bounded research policy.
+	research *ResearchBudget
+
+	// questions bounds how many times the model can ask the user in one run.
+	questions *questionState
 }
 
 // mediaSink is a pointer so copying an Env (the orchestrator does that for
@@ -181,6 +187,8 @@ func (e *Env) Isolate() {
 	e.browser = nil
 	e.PermitPreview = nil
 	e.capState = nil
+	e.research = nil
+	e.questions = nil
 }
 
 // jobManagerInit guards the one-time construction of an Env's manager:
@@ -339,7 +347,7 @@ func Registry() []Tool {
 		&VerifySite{}, &Replace{},
 		&WebFetch{}, &WebSearch{},
 		&Jobs{}, &JobOutput{}, &JobKill{},
-		&ToolSearch{}, &RequestCapability{},
+		&ToolSearch{}, &RequestCapability{}, &RequestMoreResearch{},
 	}
 }
 

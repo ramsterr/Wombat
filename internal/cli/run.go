@@ -21,6 +21,7 @@ func cmdRun(args []string) error {
 	cont := fs.Bool("c", false, "continue latest session")
 	quiet := fs.Bool("quiet", false, "only print assistant text")
 	profile := fs.String("profile", "", "tool profile: auto, minimal, coding, web, semantic, git, verify, media, orchestrator, full")
+	research := fs.String("research", "", "research mode: auto, off, quick, standard, deep")
 	var images, files, videos, audios stringList
 	fs.Var(&images, "image", "attach an image (repeatable)")
 	fs.Var(&images, "i", "attach an image (repeatable)")
@@ -80,7 +81,7 @@ func cmdRun(args []string) error {
 	p := newPrompter(isTTY(os.Stdin), *yolo, cfg)
 	r := &renderer{cfg: cfg, sess: sess, quiet: *quiet}
 	ag, err := buildAgent(cfg, runOpts{
-		model: *model, provider: *prov, profile: *profile, task: task,
+		model: *model, provider: *prov, profile: *profile, research: *research, task: task,
 		yolo: *yolo, quiet: *quiet, agents: splitAgentFlags(agentFlags),
 	}, sess, p)
 	if err != nil {

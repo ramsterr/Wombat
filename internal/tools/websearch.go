@@ -67,7 +67,10 @@ func (t *WebSearch) Run(ctx context.Context, raw json.RawMessage, env *Env) (str
 	}
 	depth := strings.ToLower(strings.TrimSpace(a.Depth))
 	if depth == "" {
-		depth = "auto"
+		depth = env.ResearchDepth()
+		if depth == "" {
+			depth = "auto"
+		}
 	}
 	switch depth {
 	case "auto", "fast", "deep":
@@ -87,6 +90,9 @@ func (t *WebSearch) Run(ctx context.Context, raw json.RawMessage, env *Env) (str
 	}
 	if !validSearchCode(region, 8) {
 		return "", fmt.Errorf("invalid region code %q", a.Region)
+	}
+	if err := env.AllowSearch(); err != nil {
+		return "", err
 	}
 	if err := env.Check("network", strings.Join(queries, " | ")); err != nil {
 		return "", err

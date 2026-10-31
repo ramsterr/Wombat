@@ -45,9 +45,11 @@ type Agent struct {
 	Hooks         Hooks
 	Trace         *trace.Logger
 
-	ModeNote string
-	TmpNote  string
-	ToolNote string
+	ModeNote     string
+	TmpNote      string
+	ToolNote     string
+	ResearchNote string
+	ClarifyNote  string
 	// TrimReasoning drops the reasoning of older turns from the request.
 	// Some gateways require it to be passed back, so it is off by default.
 	TrimReasoning bool
@@ -151,6 +153,12 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		}
 	}
 	if note := strings.TrimSpace(a.ToolNote); note != "" {
+		system += "\n\n" + note
+	}
+	if note := strings.TrimSpace(a.ResearchNote); note != "" {
+		system += "\n\n" + note
+	}
+	if note := strings.TrimSpace(a.ClarifyNote); note != "" {
 		system += "\n\n" + note
 	}
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {

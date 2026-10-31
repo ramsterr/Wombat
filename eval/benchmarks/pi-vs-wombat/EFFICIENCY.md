@@ -181,15 +181,60 @@ The model requested the capability in one step and used the browser; no search
 loop. `tool_search` remains available when the model does not know which
 capability it needs.
 
+## Phase 3: bounded research and clarifying questions
+
+Implemented:
+
+- **Research modes:** `auto`, `off`, `quick`, `standard`, `deep`.
+- **Soft budget + hard ceiling:** quick is 2/1 soft (4/2 hard), standard 5/3
+  (8/4), deep 10/6 (15/8).
+- **`request_more_research`:** one small extension with a required reason,
+  capped by the hard ceiling.
+- **Answer-first guidance:** recommendations and opinions should use knowledge
+  first; web is for current facts or explicit verification.
+- **Fast depth by default:** `websearch` uses the policy depth unless the model
+  explicitly asks for `deep`.
+- **Clarify policy:** vague prompts ask one question with 2-3 options, one
+  round only; headless runs state assumptions instead of asking.
+- **Question budget:** at most 2 question calls per run.
+
+### Exact job prompt
+
+The same prompt that produced 13 searches and 4 fetches before:
+
+| | Old Wombat | `efficienty` before budget | `efficienty` with budget | Pi |
+|---|---:|---:|---:|---:|
+| Steps | 14 | 9 | **6** | 1 |
+| Web calls | 17 | 7 | **3** | 0 |
+| Input tokens | 345,936 | 80,300 | **42,600** | 3,410 |
+| Uncached | 103,440 | 26,400 | **13,700** | 3,090 |
+| Output | 5,794 | 2,000 | **1,500** | 2,241 |
+| Time | 114.6s | 65.4s | **21.1s** | ~20s |
+
+The budget run used 2 searches and 1 fetch; the second fetch was blocked with
+“research fetch soft budget reached (1/1); synthesize now.” The model then
+answered. It matched Pi’s time, but still used more tokens because it did live
+verification and carried tool results. That is the intended trade-off: quick
+research is a middle ground between Pi’s zero-research answer and the old
+13-search loop.
+
+For Pi-level token usage, use `research_mode=off` or a recommendation-only
+prompt; for research-heavy tasks, use `standard` or `deep`.
+
 ## What this means
 
 - **Time:** the worst-case search behavior is fixed. The lean run is 133.6s vs
-  Pi's 270.2s, with a 6.7s median vs 8.0s.
+  Pi's 270.2s, with a 6.7s median vs 8.0s. The exact job prompt dropped from
+  114.6s to 21.1s.
 - **Tokens:** the capability profile is the fix. The lean run is below Pi on
   total input and tied on uncached input. The default auto+orchestrator run is
   still 1.33×/1.60× because orchestration tools are loaded by default.
+- **Research:** the budget is adaptive, not a fixed hard cap. Quick/standard/
+  deep modes plus a hard ceiling prevent the 13-search loop without blocking
+  genuine research.
+- **Clarify:** vague prompts get one bounded question round; headless runs
+  never ask and state assumptions.
 - **Next lever:** make orchestration lazy, or default it off for simple tasks.
-  The capability architecture is already in place; this is a policy choice.
 
 ## Raw data
 
@@ -212,9 +257,15 @@ capability it needs.
 - `internal/tools/profiles_test.go` — profile/filter/search tests.
 - `internal/tools/capability.go` — request_capability and pending tools.
 - `internal/tools/toolsearch.go` — tool_search.
-- `internal/config/config.go` — tool_profile and capability settings.
-- `internal/cli/runner.go` — profile resolution, tool filtering, loader.
-- `internal/cli/run.go` — `--profile` and task-aware auto selection.
-- `internal/cli/repl.go` — `--profile` and `/profile`.
-- `internal/cli/configcmd.go` — `tool_profile` and `capabilities.*` settings.
+- `internal/tools/research.go` — research modes, budget, extension tool.
+- `internal/tools/research_test.go` — policy/budget/question tests.
+- `internal/tools/websearch.go`, `web.go` — enforce the research budget.
+- `internal/tools/question.go` — question budget.
+- `internal/agent/clarify.go` — vague-prompt heuristic and clarify note.
+- `internal/agent/clarify_test.go` — clarify tests.
+- `internal/config/config.go` — tool_profile, research_mode, capabilities.
+- `internal/cli/runner.go` — profile, research budget, notes, question budget.
+- `internal/cli/run.go` — `--profile` and `--research`.
+- `internal/cli/repl.go` — `--profile`, `--research`, `/profile`, `/research`.
+- `internal/cli/configcmd.go` — `tool_profile`, `research_mode`, `capabilities.*`.
 - `eval/benchmarks/pi-vs-wombat/EFFICIENCY.md` — this report.

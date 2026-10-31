@@ -92,6 +92,9 @@ func (t *QuestionTool) Run(ctx context.Context, raw json.RawMessage, env *Env) (
 	if env == nil || env.AskUser == nil {
 		return "", errors.New("the user cannot be asked here - do the work yourself or say what you need in your answer")
 	}
+	if err := env.AllowQuestion(); err != nil {
+		return "", err
+	}
 	answers := make([]map[string]any, 0, len(a.Questions))
 	for _, q := range a.Questions {
 		if err := ctx.Err(); err != nil {

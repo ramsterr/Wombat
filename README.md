@@ -570,6 +570,7 @@ wombat config set provider openai
 wombat config set model gpt-5
 wombat config set mode create
 wombat config set tool_profile auto
+wombat config set research_mode auto
 wombat config set capabilities.semantic off
 wombat config set fallback_models gpt-5-mini
 wombat config set scout_model gpt-5-mini
