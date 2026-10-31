@@ -135,14 +135,13 @@ input is **2.09× Pi**. That is expected because Phase 1 did not touch the
 Implemented:
 
 - Default `coding` profile: `read`, `write`, `edit`, `bash`, `glob`, `grep`,
-  `apply_patch`, `multi_edit`, plus `tool_search` and `request_capability`.
-- Optional capabilities: `web`, `semantic`, `git`, `verify`, `media`.
+  `apply_patch`, plus `tool_search` and `request_capability`.
+- Optional capabilities: `web`, `semantic`, `verify`, `media`.
 - `tool_search` returns compact capability matches; `request_capability` loads
   the chosen capability once and keeps it for the session.
 - Config and CLI: `tool_profile`, `capabilities.<name>`, `--profile`, and
   `/profile` in chat.
-- `imagegen` is excluded from all profiles. Git is reduced to `git_status` and
-  `git_diff`. Verification uses `bash` by default. Semantic tools are opt-in.
+- `imagegen` is excluded from all profiles. Git tools are removed; use `bash git`. Verification uses `bash` by default. Semantic tools are opt-in.
 - Orchestration tools are attached only when the orchestrator is enabled and
   the profile includes `orchestrate`; `minimal` never includes them.
 
@@ -180,6 +179,37 @@ Next request: 11 tools, 2,690 schema tokens
 The model requested the capability in one step and used the browser; no search
 loop. `tool_search` remains available when the model does not know which
 capability it needs.
+
+## Tool dedup
+
+The registry went from **34 tools to 18** (19 including `question`). The default
+`coding` profile is now **9 tools**:
+
+```text
+read, write, edit, bash, glob, grep,
+tool_search, request_capability, apply_patch
+```
+
+Removed from exposure:
+
+```text
+multi_edit, replace, rename, refactor, symbols,
+semantic_search, git_status, git_diff, git_log,
+git_show, git_blame, imagegen, verify_site, batch, jobs
+```
+
+Kept optional:
+
+```text
+lsp, browser, websearch, webfetch, request_more_research,
+verify, imagesearch, job_output, job_kill
+```
+
+The self-contained duplicate implementations were deleted. `rename`,
+`refactor`, and the `jobs` list were removed from the registry and their tests
+were removed; their implementations remain for one release as a soft cut.
+
+`TestRegistryDedup` locks the 18-tool registry and the 9-tool coding profile.
 
 ## Phase 3: bounded research and clarifying questions
 

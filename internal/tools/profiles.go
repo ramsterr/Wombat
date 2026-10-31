@@ -16,11 +16,9 @@ const (
 	CapEdit        Capability = "edit"
 	CapWeb         Capability = "web"
 	CapSemantic    Capability = "semantic"
-	CapGit         Capability = "git"
 	CapVerify      Capability = "verify"
 	CapMedia       Capability = "media"
 	CapJobs        Capability = "jobs"
-	CapBatch       Capability = "batch"
 	CapOrchestrate Capability = "orchestrate"
 	CapFull        Capability = "full"
 )
@@ -30,14 +28,12 @@ var capabilityTools = map[Capability][]string{
 		"read", "write", "edit", "bash", "glob", "grep",
 		"tool_search", "request_capability",
 	},
-	CapEdit:     {"apply_patch", "multi_edit"},
-	CapWeb:      {"browser", "websearch", "webfetch"},
-	CapSemantic: {"lsp", "symbols", "semantic_search"},
-	CapGit:      {"git_status", "git_diff"},
-	CapVerify:   {"verify", "verify_site"},
+	CapEdit:     {"apply_patch"},
+	CapWeb:      {"browser", "websearch", "webfetch", "request_more_research"},
+	CapSemantic: {"lsp"},
+	CapVerify:   {"verify"},
 	CapMedia:    {"imagesearch"},
-	CapJobs:     {"jobs", "job_output", "job_kill"},
-	CapBatch:    {"batch"},
+	CapJobs:     {"job_output", "job_kill"},
 	CapFull:     nil,
 }
 
@@ -46,14 +42,13 @@ var profileCapabilities = map[string][]Capability{
 	"coding":       {CapCore, CapEdit},
 	"web":          {CapCore, CapEdit, CapWeb},
 	"semantic":     {CapCore, CapEdit, CapSemantic},
-	"git":          {CapCore, CapEdit, CapGit},
 	"verify":       {CapCore, CapEdit, CapVerify},
 	"media":        {CapCore, CapEdit, CapMedia},
 	"orchestrator": {CapCore, CapEdit},
 	"full":         {CapFull},
 }
 
-var optionalCapabilities = []Capability{CapWeb, CapSemantic, CapGit, CapVerify, CapMedia}
+var optionalCapabilities = []Capability{CapWeb, CapSemantic, CapVerify, CapMedia}
 
 type CapabilityMatch struct {
 	Name        Capability `json:"name"`
@@ -62,17 +57,15 @@ type CapabilityMatch struct {
 }
 
 var capabilityCatalog = []CapabilityMatch{
-	{CapWeb, "Browser, web search, and page fetch for URLs, pages, screenshots, and current facts.", []string{"browser", "websearch", "webfetch"}},
-	{CapSemantic, "LSP, symbols, and semantic search for definitions, references, and code navigation.", []string{"lsp", "symbols", "semantic_search"}},
-	{CapGit, "Git status and diff for commits, branches, merges, and working-tree review.", []string{"git_status", "git_diff"}},
-	{CapVerify, "Project verification for tests, build, lint, typecheck, and local site checks.", []string{"verify", "verify_site"}},
+	{CapWeb, "Browser, web search, page fetch, and bounded research for URLs, pages, screenshots, and current facts.", []string{"browser", "websearch", "webfetch", "request_more_research"}},
+	{CapSemantic, "Language-server symbols, definitions, references, diagnostics, and completions for code navigation.", []string{"lsp"}},
+	{CapVerify, "Project verification for tests, build, lint, and typecheck.", []string{"verify"}},
 	{CapMedia, "Image search for finding image references and downloadable assets.", []string{"imagesearch"}},
 }
 
 var capabilityTriggers = map[Capability][]string{
 	CapWeb:      {"http://", "https://", "url", "browser", "page", "website", "web", "screenshot", "fetch", "search", "docs", "latest", "current"},
 	CapSemantic: {"symbol", "definition", "reference", "references", "lsp", "semantic", "where is", "call graph"},
-	CapGit:      {"git", "commit", "branch", "diff", "merge", "rebase", "stash", "checkout"},
 	CapVerify:   {"verify", "verify site", "typecheck"},
 	CapMedia:    {"image", "logo", "asset", "assets", "icon", "photo", "picture"},
 }
@@ -161,7 +154,7 @@ func HasCapability(caps []Capability, cap Capability) bool {
 }
 
 // FilterTools keeps only the tools in the chosen capabilities, plus MCP tools
-// when keepMCP is set. The imagegen tool is never exposed by a profile.
+// when keepMCP is set.
 func FilterTools(all []Tool, caps []Capability, interactive, keepMCP bool) []Tool {
 	allowed := map[string]bool{}
 	for _, cap := range caps {
@@ -176,9 +169,6 @@ func FilterTools(all []Tool, caps []Capability, interactive, keepMCP bool) []Too
 			continue
 		}
 		name := strings.ToLower(t.Name())
-		if name == "imagegen" {
-			continue
-		}
 		if name == "question" {
 			if interactive {
 				out = append(out, t)

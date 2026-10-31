@@ -168,7 +168,6 @@ func Defaults() *Config {
 		Capabilities: map[string]string{
 			"web":      "auto",
 			"semantic": "off",
-			"git":      "off",
 			"verify":   "off",
 			"media":    "off",
 			"mcp":      "auto",

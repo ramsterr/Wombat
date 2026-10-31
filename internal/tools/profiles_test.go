@@ -35,11 +35,31 @@ func TestResolveCapabilitiesAuto(t *testing.T) {
 	}
 }
 
+func TestRegistryDedup(t *testing.T) {
+	all := names(Registry())
+	if len(all) != 18 {
+		t.Fatalf("registry has %d tools, want 18: %v", len(all), all)
+	}
+	for _, removed := range []string{
+		"multi_edit", "replace", "rename", "refactor", "symbols",
+		"semantic_search", "git_status", "git_diff", "git_log",
+		"git_show", "git_blame", "imagegen", "verify_site", "batch", "jobs",
+	} {
+		if all[removed] {
+			t.Errorf("registry still contains removed tool %q", removed)
+		}
+	}
+	coding := names(FilterTools(Registry(), []Capability{CapCore, CapEdit}, false, false))
+	if len(coding) != 9 {
+		t.Fatalf("coding profile has %d tools, want 9: %v", len(coding), coding)
+	}
+}
+
 func TestFilterTools(t *testing.T) {
 	all := RegistryWithQuestion()
 	coding := FilterTools(all, []Capability{CapCore, CapEdit}, false, true)
 	got := names(coding)
-	for _, want := range []string{"read", "write", "edit", "bash", "glob", "grep", "apply_patch", "multi_edit", "tool_search", "request_capability"} {
+	for _, want := range []string{"read", "write", "edit", "bash", "glob", "grep", "apply_patch", "tool_search", "request_capability"} {
 		if !got[want] {
 			t.Errorf("coding profile missing %q", want)
 		}
@@ -78,7 +98,7 @@ func TestToolsForCapability(t *testing.T) {
 
 func TestCapabilityNote(t *testing.T) {
 	note := CapabilityNote([]Capability{CapCore, CapEdit})
-	for _, want := range []string{"web", "semantic", "git", "verify", "media", "request_capability"} {
+	for _, want := range []string{"web", "semantic", "verify", "media", "request_capability"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("note missing %q: %s", want, note)
 		}
@@ -91,7 +111,7 @@ func TestCapabilityNote(t *testing.T) {
 func TestSearchCapabilities(t *testing.T) {
 	for query, want := range map[string]Capability{
 		"browser": CapWeb,
-		"commit":  CapGit,
+		"verify":  CapVerify,
 		"symbol":  CapSemantic,
 		"image":   CapMedia,
 	} {

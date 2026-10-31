@@ -225,30 +225,6 @@ func (j *Job) StartSummary() string {
 	return fmt.Sprintf("started background job %d (pid %d, %s)\n%s", j.ID, j.PID, status, out)
 }
 
-type Jobs struct{}
-
-func (t *Jobs) Name() string  { return "jobs" }
-func (t *Jobs) Class() string { return "read" }
-func (t *Jobs) Description() string {
-	return "List background jobs started with bash background=true, with their status, pid, and command."
-}
-func (t *Jobs) Schema() map[string]any {
-	return obj(map[string]any{})
-}
-
-func (t *Jobs) Run(_ context.Context, _ json.RawMessage, env *Env) (string, error) {
-	jobs := env.JobManager().List()
-	if len(jobs) == 0 {
-		return "no background jobs", nil
-	}
-	var b strings.Builder
-	for _, j := range jobs {
-		_, _, _, _, _ = j.state()
-		fmt.Fprintf(&b, "#%d  %-14s  pid %-7d  %s\n", j.ID, jobStatus(j), j.PID, j.Command)
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
-}
-
 type JobOutput struct{}
 
 type jobOutputArgs struct {

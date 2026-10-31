@@ -342,11 +342,10 @@ type Tool interface {
 
 func Registry() []Tool {
 	return []Tool{
-		&Bash{}, &Read{}, &Write{}, &Edit{}, &MultiEdit{}, &ApplyPatch{}, &Rename{}, &Refactor{},
-		&Glob{}, &Grep{}, &GitStatus{}, &GitDiff{}, &GitLog{}, &GitShow{}, &GitBlame{}, &Batch{}, &Symbols{}, &LSP{}, &SemanticSearch{}, &Browser{}, &ImageGen{}, &ImageSearch{}, &Verify{},
-		&VerifySite{}, &Replace{},
+		&Bash{}, &Read{}, &Write{}, &Edit{}, &ApplyPatch{},
+		&Glob{}, &Grep{}, &LSP{}, &Browser{}, &ImageSearch{}, &Verify{},
 		&WebFetch{}, &WebSearch{},
-		&Jobs{}, &JobOutput{}, &JobKill{},
+		&JobOutput{}, &JobKill{},
 		&ToolSearch{}, &RequestCapability{}, &RequestMoreResearch{},
 	}
 }
