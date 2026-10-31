@@ -683,8 +683,6 @@ limitations: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty
 - [Wombat vs Pi](eval/benchmarks/pi-vs-wombat/README.md) — 18
   harness-capability tasks, plus the efficiency investigation on branch
   `efficienty`.
-- [Wombat vs OpenCode](eval/benchmarks/opencode-vs-wombat/README.md) — 15
-  mixed coding, research, browser, MCP, and server tasks.
 
 regards
     ____
