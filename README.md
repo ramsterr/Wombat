@@ -24,7 +24,8 @@ optional: build it once and Wombat loads it automatically.
 
 ### Classic TUI (default)
 
-<img width="3340" height="1928" alt="image" src="https://github.com/user-attachments/assets/511e8dc5-c520-4082-9563-0609813acff9" />
+<img width="3352" height="1934" alt="image" src="https://github.com/user-attachments/assets/1ddcfdc1-5b73-45f7-922f-fd7462cf4350" />
+
 
 
 Without the optional frontend build, this is what you get from the normal
