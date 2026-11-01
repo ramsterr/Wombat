@@ -22,7 +22,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { BridgeClient } from "./bridge.js"
-import { mixHex, wordmarkLarge, wombatFigure } from "./ascii.js"
+import { wordmarkLarge, wombatFigure } from "./ascii.js"
 import { Markdown } from "./markdown.js"
 import type {
   Attachment,
@@ -44,12 +44,6 @@ import type {
 } from "./protocol.js"
 import { fallbackTheme, resolveTheme, themeColors } from "./theme.js"
 import { clip, contextBar, contextPercent, formatDuration, humanTokens, oneLine, shortPath } from "./util.js"
-
-function waveColor(accent: string, accent2: string, index: number, total: number): string {
-  const at = total <= 1 ? 0.5 : index / (total - 1)
-  const wave = 1 - Math.abs(at * 2 - 1)
-  return mixHex(accent, accent2, wave * 0.92)
-}
 
 const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -178,7 +172,7 @@ function Welcome(props: {
                 <For each={wordmarkLarge}>
                   {(line, index) => (
                     <text
-                      fg={waveColor(props.colors().accent, props.colors().accent2, index(), wordmarkLarge.length)}
+                      fg={props.colors().accent}
                       attributes={TextAttributes.BOLD}
                       wrapMode="none"
                       selectable
@@ -201,7 +195,7 @@ function Welcome(props: {
           <For each={artLines()}>
             {(line, index) => (
               <text
-                fg={waveColor(props.colors().accent, props.colors().accent2, index(), artLines().length)}
+                fg={props.colors().accent}
                 attributes={TextAttributes.BOLD}
                 wrapMode="none"
                 selectable
@@ -876,9 +870,17 @@ export function App() {
     const value = promptText().trimStart()
     if (!value.startsWith("/") || value.includes(" ") || value.includes("\n")) return []
     const query = value.toLowerCase()
-    return commands().filter((command) => command.name.startsWith(query)).slice(0, 12)
+    return commands().filter((command) => command.name.startsWith(query))
   })
   const paletteOpen = () => filteredCommands().length > 0 && !permission() && !question() && !overlay()
+  const paletteLimit = createMemo(() => Math.max(4, Math.min(9, dims().height - 20)))
+  const paletteTop = createMemo(() => {
+    const total = filteredCommands().length
+    const limit = paletteLimit()
+    const maxTop = Math.max(0, total - limit)
+    return Math.max(0, Math.min(maxTop, paletteIndex() - Math.floor(limit / 2)))
+  })
+  const commandColumn = createMemo(() => Math.max(22, Math.min(42, Math.floor(columnWidth() * 0.4))))
 
   const fileQuery = createMemo(() => {
     const value = promptText()
@@ -2097,43 +2099,52 @@ export function App() {
                     <text fg={colors().accent2} attributes={TextAttributes.BOLD}>commands</text>
                     <text fg={colors().faint}>  {filteredCommands().length} matches</text>
                     <box flexGrow={1} />
-                    <text fg={colors().faint}>enter run · tab complete</text>
+                    <text fg={colors().faint} wrapMode="none">
+                      {paletteIndex() + 1}/{filteredCommands().length} · enter run · tab complete
+                    </text>
                   </box>
-                  <For each={filteredCommands().slice(0, 9)}>
-                    {(command, index) => (
-                      <box
-                        flexDirection="row"
-                        gap={1}
-                        paddingLeft={1}
-                        paddingRight={1}
-                        backgroundColor={index() === paletteIndex() ? colors().accent : undefined}
-                        onMouseUp={() => {
-                          setPaletteIndex(index())
-                          const item = filteredCommands()[index()]
-                          if (item) {
-                            textarea?.setText(item.name + " ")
-                            setPromptText(item.name + " ")
-                            textarea?.focus()
-                          }
-                        }}
-                      >
-                        <text fg={index() === paletteIndex() ? colors().ink : colors().faint}>
-                          {index() === paletteIndex() ? "›" : " "}
-                        </text>
-                        <text
-                          fg={index() === paletteIndex() ? colors().ink : colors().accent}
-                          attributes={TextAttributes.BOLD}
+                  <For each={filteredCommands().slice(paletteTop(), paletteTop() + paletteLimit())}>
+                    {(command, index) => {
+                      const absolute = () => paletteTop() + index()
+                      const selected = () => absolute() === paletteIndex()
+                      const label = () => command.name + (command.args ? " " + command.args : "")
+                      return (
+                        <box
+                          flexDirection="row"
+                          gap={1}
+                          paddingLeft={1}
+                          paddingRight={1}
+                          backgroundColor={selected() ? colors().accent : undefined}
+                          onMouseUp={() => {
+                            setPaletteIndex(absolute())
+                            const item = filteredCommands()[absolute()]
+                            if (item) {
+                              textarea?.setText(item.name + " ")
+                              setPromptText(item.name + " ")
+                              textarea?.focus()
+                            }
+                          }}
                         >
-                          {command.name}
-                          <span style={{ fg: index() === paletteIndex() ? colors().ink : colors().faint }}>
-                            {command.args ? " " + command.args : ""}
-                          </span>
-                        </text>
-                        <text fg={index() === paletteIndex() ? colors().ink : colors().faint} wrapMode="none" truncate>
-                          {command.summary}
-                        </text>
-                      </box>
-                    )}
+                          <text fg={selected() ? colors().ink : colors().faint} wrapMode="none">
+                            {selected() ? "›" : " "}
+                          </text>
+                          <box width={commandColumn()} flexShrink={0}>
+                            <text
+                              fg={selected() ? colors().ink : colors().accent}
+                              attributes={TextAttributes.BOLD}
+                              wrapMode="none"
+                            >
+                              {clip(label(), commandColumn())}
+                            </text>
+                          </box>
+                          <box flexGrow={1} minWidth={0}>
+                            <text fg={selected() ? colors().ink : colors().faint} wrapMode="none" truncate>
+                              {command.summary}
+                            </text>
+                          </box>
+                        </box>
+                      )
+                    }}
                   </For>
                   <text fg={colors().faint}>↑↓ select · tab complete · enter run · esc dismiss</text>
                 </box>

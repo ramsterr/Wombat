@@ -1146,6 +1146,7 @@ func (b *bridge) openSession(id string) {
 	b.mu.Unlock()
 	b.send(map[string]any{"type": "clear"})
 	b.send(map[string]any{"type": "history", "items": b.historyEntries()})
+	b.send(map[string]any{"type": "usage", "in": 0, "out": 0, "cached": 0, "history": 0, "window": b.window})
 	b.emitState()
 	b.emitTodos()
 }
@@ -1163,6 +1164,7 @@ func (b *bridge) newSession() {
 	b.opts.agents = nil
 	b.mu.Unlock()
 	b.send(map[string]any{"type": "clear"})
+	b.send(map[string]any{"type": "usage", "in": 0, "out": 0, "cached": 0, "history": 0, "window": b.window})
 	b.emitState()
 	b.emitTodos()
 }
