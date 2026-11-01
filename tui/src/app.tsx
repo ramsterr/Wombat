@@ -339,7 +339,7 @@ function AssistantView(props: {
           paddingLeft={2}
           marginBottom={hasText() ? 1 : 0}
         >
-          <text fg={props.colors().faint} attributes={TextAttributes.ITALIC}>
+          <text fg={props.colors().warn} attributes={TextAttributes.BOLD}>
             {props.thinking ? "thinking" : "thinking…"}
           </text>
           <Show when={props.thinking}>

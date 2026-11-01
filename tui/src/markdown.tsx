@@ -4,7 +4,7 @@ import type { ThemeColors } from "./protocol.js"
 
 type InlineToken = { text: string; kind: "plain" | "code" | "bold" | "italic" | "link" }
 
-const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g
+const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s)]+)/g
 
 function inlineTokens(value: string): InlineToken[] {
   const out: InlineToken[] = []
@@ -16,6 +16,7 @@ function inlineTokens(value: string): InlineToken[] {
     if (token.startsWith("`")) out.push({ text: token.slice(1, -1), kind: "code" })
     else if (token.startsWith("**")) out.push({ text: token.slice(2, -2), kind: "bold" })
     else if (token.startsWith("*")) out.push({ text: token.slice(1, -1), kind: "italic" })
+    else if (token.startsWith("http")) out.push({ text: token, kind: "link" })
     else {
       const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token)
       out.push({ text: link?.[1] ?? token, kind: "link" })
@@ -76,7 +77,7 @@ function CodeBlock(props: { lines: string[]; lang: string; colors: ThemeColors }
       marginTop={1}
       marginBottom={1}
     >
-      <text fg={props.colors.faint} attributes={TextAttributes.BOLD}>
+      <text fg={props.colors.accent2} attributes={TextAttributes.BOLD}>
         {props.lang || "code"}
       </text>
       <For each={props.lines}>
@@ -169,36 +170,63 @@ function splitRow(line: string): string[] {
     .map((cell) => cell.trim())
 }
 
+function plainCell(value: string): string {
+  return value
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+}
+
 function Table(props: { rows: string[][]; colors: ThemeColors }) {
   const cols = createMemo(() => Math.max(...props.rows.map((row) => row.length), 1))
   const widths = createMemo(() => {
-    const out = Array.from({ length: cols() }, () => 0)
+    const out = Array.from({ length: cols() }, () => 1)
     for (const row of props.rows) {
       for (let i = 0; i < out.length; i++) {
-        out[i] = Math.max(out[i] ?? 0, Array.from(row[i] ?? "").length)
+        out[i] = Math.max(out[i] ?? 1, Array.from(plainCell(row[i] ?? "")).length)
       }
     }
     return out
   })
-  return (
-    <box flexDirection="column" marginTop={1} marginBottom={1}>
-      <For each={props.rows}>
-        {(row, index) => (
-          <text wrapMode="none" truncate fg={index() === 0 ? props.colors.text : props.colors.dim}>
-            <span style={{ fg: props.colors.faint }}>│ </span>
-            <For each={row}>
-              {(cell, cellIndex) => (
-                <>
-                  <span style={{ fg: index() === 0 ? props.colors.accent : props.colors.text }}>{cell}</span>
-                  <span style={{ fg: props.colors.faint }}>
-                    {(cellIndex() < cols() - 1 ? " ".repeat(Math.max(1, (widths()[cellIndex()] ?? 0) - Array.from(cell).length + 2)) + "│ " : "")}
-                  </span>
-                </>
-              )}
-            </For>
-          </text>
+  const borderLine = (left: string, middle: string, right: string) => (
+    <text fg={props.colors.border} wrapMode="none">
+      {left + widths().map((width) => "─".repeat(width + 2)).join(middle) + right}
+    </text>
+  )
+  const row = (cells: string[], header: boolean) => (
+    <text
+      wrapMode="none"
+      truncate
+      fg={props.colors.text}
+      attributes={header ? TextAttributes.BOLD : undefined}
+    >
+      <span style={{ fg: props.colors.border }}>│</span>
+      <For each={cells}>
+        {(cell, index) => (
+          <>
+            <span> </span>
+            <Inline value={cell} colors={props.colors} />
+            <span style={{ fg: props.colors.border }}>
+              {" ".repeat(Math.max(1, (widths()[index()] ?? 1) - Array.from(plainCell(cell)).length + 1))}│
+            </span>
+          </>
         )}
       </For>
+    </text>
+  )
+  return (
+    <box flexDirection="column" marginTop={1} marginBottom={1}>
+      {borderLine("┌", "┬", "┐")}
+      <For each={props.rows}>
+        {(cells, index) => (
+          <>
+            {row(cells, index() === 0)}
+            <Show when={index() === 0}>{borderLine("├", "┼", "┤")}</Show>
+          </>
+        )}
+      </For>
+      {borderLine("└", "┴", "┘")}
     </box>
   )
 }
@@ -213,7 +241,7 @@ export function Markdown(props: { text: string; colors: ThemeColors; streaming?:
             case "blank":
               return <text> </text>
             case "rule":
-              return <text fg={props.colors.faint}>{"─".repeat(40)}</text>
+              return <text fg={props.colors.border}>{"─".repeat(48)}</text>
             case "code":
               return <CodeBlock lines={block.lines} lang={block.lang} colors={props.colors} />
             case "table":
@@ -229,16 +257,17 @@ export function Markdown(props: { text: string; colors: ThemeColors; streaming?:
                   selectionFg={props.colors.ink}
                   fg={
                     heading
-                      ? heading <= 2
-                        ? props.colors.text
-                        : props.colors.accent2
+                      ? props.colors.warn
                       : block.quote
                         ? props.colors.dim
                         : props.colors.text
                   }
-                  attributes={heading ? TextAttributes.BOLD : undefined}
+                  attributes={heading ? TextAttributes.BOLD : block.quote ? TextAttributes.ITALIC : undefined}
                   paddingLeft={block.quote ? 1 : 0}
                 >
+                  <Show when={heading > 0}>
+                    <span style={{ fg: props.colors.faint }}>{"#".repeat(heading)}{" "}</span>
+                  </Show>
                   <Show when={block.bullet}>
                     <span style={{ fg: props.colors.accent }}>• </span>
                   </Show>
@@ -246,7 +275,7 @@ export function Markdown(props: { text: string; colors: ThemeColors; streaming?:
                     <span style={{ fg: props.colors.accent }}>{block.number} </span>
                   </Show>
                   <Show when={block.quote}>
-                    <span style={{ fg: props.colors.border }}>│ </span>
+                    <span style={{ fg: props.colors.accent2 }}>│ </span>
                   </Show>
                   <Inline value={block.text} colors={props.colors} />
                   <Show when={props.streaming && last()}>
