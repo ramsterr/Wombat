@@ -16,6 +16,12 @@
 Wombat is a general purpose agent.
 Can do anything and beyond than your standard agent harness , that too for lesser tokens at times.
 
+## Note: 
+wombat is being improved everyday , so keep updating wombat from time to time. 
+
+     curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
+
+
 
 ## How it looks
 
@@ -23,7 +29,7 @@ Wombat works out of the box with the classic TUI. The new opentui UI is
 optional: build it once and Wombat loads it automatically.
 
 ### Classic TUI (default)
-
+prefer this if you want more simplicity
 <img width="3352" height="1934" alt="image" src="https://github.com/user-attachments/assets/1ddcfdc1-5b73-45f7-922f-fd7462cf4350" />
 
 
@@ -33,6 +39,7 @@ install, `go install`, or a fresh clone. There is nothing extra to build, and
 every Wombat feature works.
 
 ### New opentui UI (optional)
+made for better navigation and control , prefer this over the classic UI
 
 <p align="center">
   <img width="100%" alt="Wombat opentui terminal interface" src="docs/assets/new-ui.png">
