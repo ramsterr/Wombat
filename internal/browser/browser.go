@@ -160,7 +160,7 @@ func launch(ctx context.Context, root string) (*Session, error) {
 }
 
 func waitForPort(ctx context.Context, dir string, done <-chan error) (int, error) {
-	deadline := time.NewTimer(20 * time.Second)
+	deadline := time.NewTimer(30 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -192,7 +192,7 @@ type targetInfo struct {
 
 func pageTarget(ctx context.Context, port int) (string, error) {
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	list := func() ([]targetInfo, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/json/list", nil)
 		if err != nil {
@@ -209,38 +209,39 @@ func pageTarget(ctx context.Context, port int) (string, error) {
 		}
 		return targets, nil
 	}
-	targets, err := list()
-	if err != nil {
-		return "", err
-	}
-	for _, target := range targets {
-		if target.Type == "page" && target.WebSocketDebuggerURL != "" {
-			return target.WebSocketDebuggerURL, nil
-		}
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, base+"/json/new?about:blank", nil)
-	if err == nil {
-		if resp, err := client.Do(req); err == nil {
-			_ = resp.Body.Close()
-		}
-	}
-	deadline := time.NewTimer(5 * time.Second)
+	deadline := time.NewTimer(15 * time.Second)
 	defer deadline.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
+	newTab := false
+	var lastErr error
 	for {
-		targets, err = list()
+		targets, err := list()
 		if err == nil {
 			for _, target := range targets {
 				if target.Type == "page" && target.WebSocketDebuggerURL != "" {
 					return target.WebSocketDebuggerURL, nil
 				}
 			}
+			if !newTab {
+				newTab = true
+				req, err := http.NewRequestWithContext(ctx, http.MethodPut, base+"/json/new?about:blank", nil)
+				if err == nil {
+					if resp, err := client.Do(req); err == nil {
+						_ = resp.Body.Close()
+					}
+				}
+			}
+		} else {
+			lastErr = err
 		}
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-deadline.C:
+			if lastErr != nil {
+				return "", fmt.Errorf("browser did not expose a page target: %w", lastErr)
+			}
 			return "", errors.New("browser did not expose a page target")
 		case <-ticker.C:
 		}

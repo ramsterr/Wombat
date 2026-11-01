@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -90,5 +94,38 @@ func TestBrowserInteractionAndScreenshot(t *testing.T) {
 	}
 	if !bytes.HasPrefix(full, []byte("\x89PNG\r\n\x1a\n")) || len(full) < 100 {
 		t.Fatalf("full screenshot = %d bytes", len(full))
+	}
+}
+
+func TestPageTargetRetriesTransientHTTPErrors(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/json/list" {
+			http.NotFound(w, r)
+			return
+		}
+		if requests.Add(1) == 1 {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `[{"type":"page","webSocketDebuggerUrl":"ws://127.0.0.1:1/devtools"}]`)
+	}))
+	defer server.Close()
+
+	u, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := pageTarget(context.Background(), port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "ws://127.0.0.1:1/devtools" {
+		t.Fatalf("target = %q", target)
 	}
 }
