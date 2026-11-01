@@ -101,18 +101,19 @@ function FooterMeta(props: {
 
   return (
     <box flexDirection="row" alignItems="center" gap={2} flexGrow={1} minWidth={0}>
-      <text fg={props.colors().dim} wrapMode="none">{spent()} tok</text>
+      <text fg={props.colors().dim} wrapMode="none">{spent()} spent</text>
 
-      <Show when={hasWindow() && props.width >= 70}>
+      <Show when={props.width >= 40}>
+        <text fg={props.colors().faint} wrapMode="none">│</text>
+      </Show>
+
+      <Show when={hasWindow() && props.width >= 44}>
         <text fg={props.colors().faint} wrapMode="none">
-          <Show when={props.width >= 100}>
-            <span style={{ fg: props.colors().accent2 }}>{contextBar(props.usage.history, props.usage.window)}</span>{" "}
-          </Show>
-          {humanTokens(props.usage.history)}/{humanTokens(props.usage.window)} · {percent()}%
+          ctx {humanTokens(props.usage.history)}/{humanTokens(props.usage.window)} · {percent()}%
         </text>
       </Show>
-      <Show when={hasWindow() && props.width < 70}>
-        <text fg={props.colors().faint} wrapMode="none">{percent()}%</text>
+      <Show when={hasWindow() && props.width < 44}>
+        <text fg={props.colors().faint} wrapMode="none">ctx {percent()}%</text>
       </Show>
 
       <Show when={props.state.missing_key && props.width >= 84}>
@@ -123,12 +124,12 @@ function FooterMeta(props: {
       </Show>
 
       <box flexGrow={1} />
-      <Show when={props.state.model && props.width >= 34}>
+      <Show when={props.state.model && props.width >= 66}>
         <text fg={props.colors().dim} wrapMode="none">
-          {clip(model(), Math.max(10, Math.min(46, props.width - 26)))}
+          {clip(model(), Math.max(10, Math.min(46, props.width - 40)))}
         </text>
       </Show>
-      <Show when={props.state.mode && props.width >= 44}>
+      <Show when={props.state.mode && props.width >= 80}>
         <text fg={props.colors().ink} bg={props.colors().accent} attributes={TextAttributes.BOLD} wrapMode="none">
           {" "}{props.state.mode}{" "}
         </text>
