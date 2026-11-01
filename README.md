@@ -722,9 +722,8 @@ limitations: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty
 
 ### Other comparisons
 
-- [Wombat vs Pi](eval/benchmarks/pi-vs-wombat/README.md) — 18
-  harness-capability tasks, plus the efficiency investigation on branch
-  `efficienty`.
+- [Wombat vs Pi](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md) — the
+  10-task efficiency run with per-task data, method, and limitations.
 
 
 
