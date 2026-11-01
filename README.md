@@ -1,5 +1,5 @@
 
-  <img width="100%" alt="Wombat classic terminal interface" src="https://github.com/user-attachments/assets/3af03a01-9cce-4fe6-b60e-9105f41f4796">
+  <img width="100%" alt="Wombat terminal interface" src="docs/assets/new-ui.png">
 </p>
  
   <a href="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
@@ -16,164 +16,32 @@
 Wombat is a general purpose agent.
 Can do anything and beyond than your standard agent harness , that too for lesser tokens at times.
 
-## Note: 
-wombat is being improved everyday , so keep updating wombat from time to time. 
-
-     curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
-
-
-
-## How it looks
-
-Wombat works out of the box with the classic TUI. The new opentui UI is
-optional: build it once and Wombat loads it automatically.
-
-### Classic TUI (default)
-prefer this if you want more simplicity
-<img width="3352" height="1934" alt="image" src="https://github.com/user-attachments/assets/1ddcfdc1-5b73-45f7-922f-fd7462cf4350" />
-
-
-
-Without the optional frontend build, this is what you get from the normal
-install, `go install`, or a fresh clone. There is nothing extra to build, and
-every Wombat feature works.
-
-### New opentui UI (optional)
-made for better navigation and control , prefer this over the classic UI
-
-<p align="center">
-  <img width="100%" alt="Wombat opentui terminal interface" src="docs/assets/new-ui.png">
-</p>
-
-**Don't want the old UI? Build it once:**
-
-```bash
-git clone https://github.com/ramsterr/Wombat.git
-cd Wombat/tui
-npm install
-npm run build
-cd ..
-wombat
-```
-
-Use `./wombat` instead if you built the repo binary. Node **26.4+** is required.
-Run Wombat from that checkout and the new UI loads automatically.
-
-If you skip this step, `wombat` keeps using the classic TUI. The agent, tools,
-sessions, and every feature work exactly the same; only the interface differs.
-
-Switch back anytime with `wombat classic` (or `WOMBAT_CLASSIC=1 wombat`).
-
 ## Quick start
 
-**macOS / Linux — latest release.** Install, configure, and start:
+Requires Go 1.26.3+ and Node 26.4+.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
 wombat setup
 wombat
 ```
 
-**Current `main` — newest features.** The tagged release can lag behind this
-branch. With Go 1.26.3+:
+This builds the latest `main`, installs `wombat` to `~/.local/bin`, and puts the
+UI in `~/.wombat/ui`. Rerun the same command to update.
 
-```sh
-go install github.com/ramsterr/Wombat/cmd/wombat@main
-wombat setup
-wombat
-```
-
-`go install` writes `wombat` to `$(go env GOPATH)/bin`; add that directory to
-`PATH` if the command is not found. Update a release build with `wombat upgrade`;
-rerun the `go install` command to update a `main` build (upgrade switches it to
-the latest tagged release).
-
-**Windows** — install WSL2 and Ubuntu (`wsl --install`), then run the
-macOS/Linux command inside Ubuntu. Git Bash works for the native Windows build,
-but Wombat's `bash` tool needs a POSIX `sh`; native PowerShell/cmd is not fully
-supported.
-
-`wombat setup` runs automatically on first launch and saves your provider,
-model, and API key in `~/.wombat/config.json`.
-
-## Install
-
-The release installers below install the latest tagged release. Use the source
-build when you want the current `main` features.
-
-### Build from source (current main)
-
-You only need Go 1.26.3+ and git. This fetches only the latest `main` commit and no old tags; omit the flags if you need full repository history.
-
-```sh
-git clone --depth 1 --single-branch --no-tags https://github.com/ramsterr/Wombat.git
-cd Wombat
-go build -o wombat ./cmd/wombat
-./wombat version
-./wombat setup
-./wombat
-```
-
-Already have the checkout? Update it and rebuild the binary:
-
-```sh
-git pull
-go build -o wombat ./cmd/wombat
-./wombat
-```
-
-Install it somewhere on your PATH:
-
-```sh
-go build -o /usr/local/bin/wombat ./cmd/wombat
-```
-
-Requirements: Go 1.26.3+ for building from source. The core agent has no runtime
-dependencies. Optional features use standard tools: a Chromium browser for
-`browser`, a language server for `lsp`, git for isolated workers,
-and `sh` for `bash`.
-
-### Release installers
-
-The one-line installer, Homebrew, and `go install ...@latest` install the
-latest **tagged release**, not unreleased changes on `main`.
-
-**macOS or Linux**
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/install.sh | bash
-```
-
-If `wombat` is not found:
+If `wombat` is not found, add `~/.local/bin` to your `PATH`:
 
 ```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-**Homebrew**
-
-```sh
-brew tap ramsterr/wombat
-brew install ramsterr/wombat/wombat
-```
-
-**Go**
-
-```sh
-go install github.com/ramsterr/Wombat/cmd/wombat@latest
-```
-
-**Windows — WSL2**
-
-Install Ubuntu from PowerShell with `wsl --install`, then run the macOS/Linux
-installer inside Ubuntu. If `wombat` is not found, add `~/.local/bin` to your
-`PATH` as shown above.
+**Windows** — install WSL2 and Ubuntu (`wsl --install`), then run the command
+above inside Ubuntu.
 
 ## First run
 
 ```sh
-wombat setup       # choose a provider, paste an API key, choose a model
 wombat doctor      # check config, permissions, and connectivity
 wombat             # open the chat UI
 ```
@@ -209,37 +77,16 @@ runs.
 | `wombat mcp login/logout` | sign in to an OAuth MCP server |
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
-| `wombat upgrade` | install the latest stable release |
 | `wombat version` | print the version |
 
-## Inside the chat (new UI)
+## Inside the chat
 
-These shortcuts apply to the new opentui UI. If you skipped the optional build,
-`wombat` starts the classic TUI instead; run `/help` there for its key map.
-
-Type a request and press Enter. Useful shortcuts:
-
-- `enter` — send; `shift+enter` — new line
-- `esc` — stop the current run, close an overlay
-- `ctrl+c` — quit
-- `/` — command palette
-- `@` — file picker with tab completion
-- `ctrl+o` — open the live preview
-- `ctrl+g` or `?` — help and key map
-- `ctrl+t` — cycle colour themes
-- `ctrl+p` / `ctrl+n` — prompt history
-- `ctrl+r` — project references
-- `ctrl+y` — copy the last reply; `/copy` opens the picker; `/copy all` copies
-  the whole transcript
-- `alt+2/3/4/5` — sessions, models, usage, doctor
-- `pgup` / `pgdn` or `ctrl+up/down` — scroll the transcript
-- click and drag — select text; the selection is copied automatically
+Type a request and press Enter.
 
 Common slash commands:
 
 ```text
-/help          keyboard map and every command
-/keys          alias for /help
+/help          every command
 /reference     keep files and links for this project
 /sources       browse the sites and files the session used
 /preview [n]   open a preview; /previews lists them all
@@ -268,17 +115,16 @@ example:
 
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
-`iceberg`, `nightfox`, `onedark`, and `github`. Pick one with `/theme`, or cycle
-with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The opentui
-interface uses a high-contrast dark treatment with a bright accent on the prompt.
+`iceberg`, `nightfox`, `onedark`, and `github`. Pick one with `/theme`; the
+choice is saved in `~/.wombat/config.json`. The interface uses a high-contrast
+dark treatment with a bright accent on the prompt.
 The home screen shows the original wombat ASCII at its native character grid
 (never stretched). The footer follows Pi's usage style: cumulative input,
 output, and cache tokens when present, then context percentage/window with
-auto-compaction, followed by the model and mode. The classic interface still tints the terminal background while
-Wombat is open (`wombat config set paint_background false` disables this).
+auto-compaction, followed by the model and mode.
 
 **References** are project-scoped notes you can keep handy for a session.
-Press `ctrl+r` to add a path or URL, or use `/reference add <path|url>`. Remove
+Use `/reference add <path|url>` to add a path or URL. Remove
 them with `/reference rm <n>` or clear the list with `/reference clear`. They are
 stored under `~/.wombat/references/`, never in your repository.
 
@@ -287,14 +133,14 @@ stored under `~/.wombat/references/`, never in your repository.
 **Previews** are collected as the agent works: local dev servers, HTML pages,
 PDFs, images, and video. They are de-duplicated by site origin or file path, the
 newest is shown above the prompt, and `/previews` keeps the ordered
-list. Use `ctrl+o` to open the newest or `/previews` to choose from all of them.
+list. Use `/previews` to open any of them.
 
 Wombat inherits your terminal's font; a terminal UI cannot install a font.
 For the intended look and complete glyph set, use a Nerd Font such as JetBrains
 Mono, Berkeley Mono, or MesloLGS NF in your terminal profile.
 
 When the agent starts a local web server, a highlighted **preview ready** bar
-appears above the prompt. Use `/preview` to open it, and `esc` to stop when it
+appears above the prompt. Use `/preview` to open it, and stop the run when it
 looks right. For a new site, the agent builds the complete first version, checks
 one desktop and one mobile view, then waits for your feedback before iterating.
 Browser screenshots stay in memory and are not saved in the project.
@@ -323,7 +169,7 @@ Wombat different.
 | Checkpoints | Shadow-git snapshots with list and restore. |
 | Permissions | Per-class gates for bash, writes, edits, network, sensitive reads, and each MCP server. |
 | Providers | OpenAI-compatible APIs, Anthropic, OpenCode, and local model servers. |
-| TUI basics | Command palette, file picker, history, copy, themes, and scrollback. |
+| Interface basics | Command palette, file picker, history, copy, themes, and scrollback. |
 
 ### Unique
 
@@ -335,16 +181,16 @@ Wombat different.
 | Visual hand-off gate | After the complete visual deliverable, Wombat asks `Looks good` / `Needs changes` at the end of the run; headless runs never stop mid-build for a review. |
 | Multi-preview system | Detects local servers, HTML, PDFs, images, and video; de-duplicates by origin or path; shows the newest above the prompt and keeps a `/previews` picker. |
 | Source browser | `/sources` browses every site and file the session used, with counts and open/attach actions. |
-| Project references | `ctrl+r` / `/reference` keeps files, folders, and URLs in a per-project reference list under `~/.wombat/references/`. |
+| Project references | `/reference` keeps files, folders, and URLs in a per-project reference list under `~/.wombat/references/`. |
 | Centered chat | A calm, opencode-style conversation column with the wombat art centred on the welcome screen and a live status footer. |
 | Search ranking | Merges Brave, Serper, Exa, Tavily, Bing RSS, DuckDuckGo, and Mojeek; boosts trusted docs, engine position, and cross-engine hits; filters adult/SEO spam; caps domains. |
 | Image search | Finds direct image URLs via Google Images (Serper), Brave, DuckDuckGo, and Openverse, and downloads them into the workspace. |
 | Provider setup | `/configure` opens a base URL/API-key form; unconfigured models stay selectable but show `no key` and are blocked from chat. |
 | Reasoning picker | After selecting a reasoning model, choose `off`, `low`, `medium`, `high`, or `max`; `/reasoning` reopens it. |
-| Themes | Fifteen palettes, a live picker, `ctrl+t` cycling, and a reclaimed terminal background in the classic interface. |
-| Copy | `ctrl+y` for the last reply and `/copy` for any user, agent, or tool output, with an OSC 52 fallback. |
+| Themes | Fifteen palettes and a live picker. |
+| Copy | `/copy` for any user, agent, or tool output, with an OSC 52 fallback. |
 | File picker | `@` path completion with directory navigation and quoted paths for spaces. |
-| Built to be driven | Headless `wombat run`, scriptable sessions, and a TUI designed around a centred chat, a live footer, and keyboard flow. |
+| Built to be driven | Headless `wombat run`, scriptable sessions, and an interface designed around a centred chat, a live footer, and keyboard flow. |
 
 ## Coming next
 
@@ -430,12 +276,11 @@ markdown files in `~/.wombat/skills/<name>.md` or `.wombat/skills/<name>.md`
 | `max_steps` | Per-run step budget (0 uses the session default). |
 | `readonly` | Blocks writes, edits, and mutating commands. |
 
-Select agents in the TUI with `/agents`. The picker is a multi-select list
-with a **Create a new agent…** row (also `c`). Create opens a sectioned
+Select agents with `/agents`. The picker is a multi-select list
+with a **Create a new agent…** row. Create opens a sectioned
 builder for basics, system prompt, tools, MCP servers, permissions, skills,
 and options, then writes the definition file and returns to the picker.
-`space` toggles an agent, `a` selects all or none, and `enter` applies the
-selection. Power users can also use `/agents math-research,design`, `/agents
+You can also use `/agents math-research,design`, `/agents
 clear`, or `/agents list`. Selections are saved on the session and restored
 by `wombat resume`. Headless runs take the same selection:
 
@@ -448,10 +293,9 @@ Chat mode forces every selected agent read-only. `max_parallel_agents`
 (default 5) caps how many custom agents run at once.
 
 Skills are reusable instruction files. `/skill` (or `/skills`) opens the
-skills browser, with `enter` expanding the selected skill, `/skill <name>`
-printing it in full, and `/skill list` printing every installed skill with
-its source and the agents that enable it. Enable skills per agent with the
-builder's Skills section or the `skills` field.
+skills browser, `/skill <name>` prints it in full, and `/skill list` prints
+every installed skill with its source and the agents that enable it. Enable
+skills per agent with the builder's Skills section or the `skills` field.
 
 A planning example: the default agent plans `research` (agent: math-research)
 → `design` (agent: design, depends_on: research) → assembles the deck itself.
@@ -647,11 +491,6 @@ still fails, check your network, proxy, or VPN and retry.
 
 The preview bar only appears after a tool reports a local URL such as
 `http://localhost:5173`.
-
-**An upgrade replaced my source build**
-
-`wombat upgrade` installs the latest tagged release. Rebuild from source to
-stay on the current `main`.
 
 ## Uninstall
 
