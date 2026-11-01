@@ -20,7 +20,7 @@ Can do anything and beyond than your standard agent harness , that too for lesse
 
 ## Quick start
 
-Requires Go 1.26.3+ and Node 26.4+.
+Requires Go 1.26.3+, Node 26.4+, and git.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
