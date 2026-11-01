@@ -107,14 +107,6 @@ Common slash commands:
 /exit          quit
 ```
 
-# whats preview first?
-agents are notorious for iterating for multiple minutes in the name of "improvement" and "polishing" without even making any considerable improvements.
-
-wombat gives the user the power to review fast and feed back faster.
-example:
-<img width="766" height="194" alt="image" src="https://github.com/user-attachments/assets/c8ab105b-8a81-4054-b054-e7f661a5e682" />
-
-
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
 `iceberg`, `nightfox`, `onedark`, and `github`. Pick one with `/theme`; the
@@ -132,75 +124,13 @@ stored under `~/.wombat/references/`, never in your repository.
 
 **Sources** (`/sources`) lists every site and file the session has used.
 
-**Previews** are collected as the agent works: local dev servers, HTML pages,
-PDFs, images, and video. They are de-duplicated by site origin or file path, the
-newest is shown above the prompt, and `/previews` keeps the ordered
-list. Use `/previews` to open any of them.
-
 Wombat inherits your terminal's font; a terminal UI cannot install a font.
 For the intended look and complete glyph set, use a Nerd Font such as JetBrains
 Mono, Berkeley Mono, or MesloLGS NF in your terminal profile.
 
-When the agent starts a local web server, a highlighted **preview ready** bar
-appears above the prompt. Use `/preview` to open it, and stop the run when it
-looks right. For a new site, the agent builds the complete first version, checks
-one desktop and one mobile view, then waits for your feedback before iterating.
-Browser screenshots stay in memory and are not saved in the project.
+## Features
 
-## See other features
-
-The features you expect from a serious coding agent, and the parts that make
-Wombat different.
-
-### Standard
-
-| Feature | What it does |
-|---|---|
-| Code editing | Read, write, edit, and atomic multi-file patches. |
-| Shell and jobs | Run commands, manage background jobs, run tests and builds. |
-| Git | Use `bash git` for status, diff, log, and commits. |
-| Verification | `verify`, browser assertions, and project checks. |
-| Code intelligence | Language-server definitions, references, diagnostics, and completions. |
-| Search | Glob and grep. |
-| Web | Search and fetch with caching, retries, readable-text extraction, and page excerpts. |
-| MCP | Add local stdio or remote HTTP/SSE Model Context Protocol servers, with interactive OAuth; their tools appear as `mcp__<server>__<tool>`. |
-| Browser | Local and web automation, screenshots, clicks, typing, scrolling, and JS evaluation. |
-| Media | Read images, video, audio, and documents; search images when enabled. |
-| Sessions | Resumable sessions, browsing, continuation, and JSONL transcripts. |
-| Context | Automatic pruning, summarization, compaction, and token accounting. |
-| Checkpoints | Shadow-git snapshots with list and restore. |
-| Permissions | Per-class gates for bash, writes, edits, network, sensitive reads, and each MCP server. |
-| Providers | OpenAI-compatible APIs, Anthropic, OpenCode, and local model servers. |
-| Interface basics | Command palette, file picker, history, copy, themes, and scrollback. |
-
-### Unique
-
-| Feature | What it does |
-|---|---|
-| Parallel fleet | Lead plus scouts and writers in isolated git worktrees; changes are reviewed and three-way merged. |
-| Continuous plan scheduler | A dependency DAG where free slots start newly-ready work, slow steps do not block independent work, and interrupted steps resume. |
-| Resumable workers | A worker that needs a decision returns `needs_input` and can be resumed in the same session and worktree. |
-| Visual hand-off gate | After the complete visual deliverable, Wombat asks `Looks good` / `Needs changes` at the end of the run; headless runs never stop mid-build for a review. |
-| Multi-preview system | Detects local servers, HTML, PDFs, images, and video; de-duplicates by origin or path; shows the newest above the prompt and keeps a `/previews` picker. |
-| Source browser | `/sources` browses every site and file the session used, with counts and open/attach actions. |
-| Project references | `/reference` keeps files, folders, and URLs in a per-project reference list under `~/.wombat/references/`. |
-| Centered chat | A calm, opencode-style conversation column with the wombat art centred on the welcome screen and a live status footer. |
-| Search ranking | Merges Brave, Serper, Exa, Tavily, Bing RSS, DuckDuckGo, and Mojeek; boosts trusted docs, engine position, and cross-engine hits; filters adult/SEO spam; caps domains. |
-| Image search | Finds direct image URLs via Google Images (Serper), Brave, DuckDuckGo, and Openverse, and downloads them into the workspace. |
-| Provider setup | `/configure` opens a base URL/API-key form; unconfigured models stay selectable but show `no key` and are blocked from chat. |
-| Reasoning picker | After selecting a reasoning model, choose `off`, `low`, `medium`, `high`, or `max`; `/reasoning` reopens it. |
-| Themes | Fifteen palettes and a live picker. |
-| Copy | `/copy` for any user, agent, or tool output, with an OSC 52 fallback. |
-| File picker | `@` path completion with directory navigation and quoted paths for spaces. |
-| Built to be driven | Headless `wombat run`, scriptable sessions, and an interface designed around a centred chat, a live footer, and keyboard flow. |
-
-## Coming next
-
-- Images in the terminal
-- Premade environments for specific kinds of tasks
-- Agent observability
-- Source tracking
-- Personalisation
+See [`features.md`](features.md) for the full feature catalogue.
 
 ## Parallel agents
 
@@ -517,55 +447,15 @@ are welcome.
 
 ## Benchmarks
 
-Every benchmark uses the same model, instructions, skill content, MCP server,
-and workspace for both agents. Raw data, task definitions, and chart generators
-live under [`eval/benchmarks/`](eval/benchmarks).
+Wombat and Pi ran the same model and the same tasks. The 10-task run is the
+latest; the 18-task suite is the earlier baseline.
 
-### Wombat vs Pi: 10-task efficiency run
+![Summary](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/summary.png)
 
-Both agents ran the same 4 simple and 6 multi-step tasks on
-`deepseek-v4.1-flash`.
+![Wall time by task](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/per-task-time.png)
 
-![Wombat vs Pi summary](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/summary.svg)
+![Per-task results](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/per-task-table.png)
 
-| Metric | Wombat | Pi |
-|---|---:|---:|
-| Tasks passed | **10/10** | **9/10** |
-| Input tokens | 498,144 | 836,303 |
-| Output tokens | 17,711 | 16,246 |
-| Tool calls | 66 | 74 |
-| Model steps | 61 | 64 |
-| Wall time | 275.9s | 424.9s |
+![Cumulative wall time](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/cumulative-time.png)
 
-Wombat finished the bounded research task; Pi has no native search tool, made
-35 bash calls, accumulated 612k input tokens, and timed out at 300s without
-writing `answer.md`. That one failure skews the totals.
-
-On the nine non-research tasks, Pi was the leaner harness:
-
-| Ordinary tasks only | Wombat | Pi |
-|---|---:|---:|
-| Input tokens | 376,592 | 224,267 |
-| Output tokens | 7,386 | 4,708 |
-| Tool calls | 57 | 38 |
-| Wall time | 139.1s | 124.9s |
-
-![Prompt tokens by ordinary task](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/per-task-input.svg)
-
-![Wall time by ordinary task](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/per-task-time.svg)
-
-![Research task comparison](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/research-focus.svg)
-
-![Cumulative wall time](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/cumulative-time.svg)
-
-The full write-up has the task list, per-task table, method, raw data, and
-limitations: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md).
-
-### Other comparisons
-
-- [Wombat vs Pi](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md) — the
-  10-task efficiency run with per-task data, method, and limitations.
-
-
-
-   
+Full report: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md).
