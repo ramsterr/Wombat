@@ -22,6 +22,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { BridgeClient } from "./bridge.js"
+import { mixHex, wordmarkLarge, wombatFigure } from "./ascii.js"
 import { Markdown } from "./markdown.js"
 import type {
   Attachment,
@@ -44,11 +45,11 @@ import type {
 import { fallbackTheme, resolveTheme, themeColors } from "./theme.js"
 import { clip, contextBar, contextPercent, formatDuration, humanTokens, oneLine, shortPath } from "./util.js"
 
-const wordmark = [
-  "█ █ █▀█ █▀▄▀█ █▀▄ █▀█ ▀█▀",
-  "█ █ █ █ █ █ █ █▄▀ █▀█  █",
-  "▀▀▀ ▀▀▀ ▀   ▀ ▀ ▀ ▀ ▀  ▀",
-]
+function waveColor(accent: string, accent2: string, index: number, total: number): string {
+  const at = total <= 1 ? 0.5 : index / (total - 1)
+  const wave = 1 - Math.abs(at * 2 - 1)
+  return mixHex(accent, accent2, wave * 0.92)
+}
 
 const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
@@ -92,6 +93,41 @@ function KeyHint(props: { key: string; label: string; colors: () => ReturnType<t
   )
 }
 
+function FooterMeta(props: {
+  colors: () => ReturnType<typeof themeColors>
+  usage: UsageStats
+  state: SessionState
+  width: number
+}) {
+  const label = () => {
+    const model = props.state.provider ? `${props.state.provider}/${props.state.model}` : props.state.model
+    return model
+  }
+  return (
+    <box flexDirection="row" gap={1} alignItems="center" flexShrink={1} minWidth={0}>
+      <text fg={props.colors().dim} wrapMode="none">
+        {humanTokens(props.usage.in + props.usage.out)} tok
+      </text>
+      <Show when={props.state.model && props.width >= 34}>
+        <text fg={props.colors().dim} wrapMode="none">
+          {clip(label(), Math.max(10, Math.min(40, props.width - 26)))}
+        </text>
+      </Show>
+      <Show when={props.state.mode && props.width >= 44}>
+        <text fg={props.colors().ink} bg={props.colors().accent} attributes={TextAttributes.BOLD} wrapMode="none">
+          {" "}{props.state.mode}{" "}
+        </text>
+      </Show>
+      <Show when={props.state.missing_key && props.width >= 72}>
+        <text fg={props.colors().warn} wrapMode="none">no key</text>
+      </Show>
+      <Show when={props.state.auto && props.width >= 82}>
+        <text fg={props.colors().warn} wrapMode="none">yolo</text>
+      </Show>
+    </box>
+  )
+}
+
 function Welcome(props: {
   colors: () => ReturnType<typeof themeColors>
   height: number
@@ -99,38 +135,69 @@ function Welcome(props: {
   version: string
 }) {
   const compact = () => props.width < 48
+  const exact = () => !compact() && props.width >= 89 && props.height >= 48
+  const artLines = createMemo(() => (exact() ? wombatFigure.map((line) => line.trimEnd()) : []))
+  const artWidth = createMemo(() => Math.max(1, ...artLines().map((line) => Array.from(line).length)))
+
   return (
-    <box flexGrow={1} justifyContent="flex-end" alignItems="center" flexDirection="column" gap={1} minHeight={0} paddingBottom={2}>
+    <box flexGrow={1} justifyContent="center" alignItems="center" flexDirection="column" minHeight={0}>
       <Show
-        when={!compact()}
+        when={exact()}
         fallback={
-          <text
-            fg={props.colors().accent}
-            attributes={TextAttributes.BOLD}
-            selectable
-            selectionBg={props.colors().accent}
-            selectionFg={props.colors().ink}
-          >
-            wombat
-          </text>
+          <box flexDirection="column" alignItems="center" gap={1} minHeight={0}>
+            <Show
+              when={!compact()}
+              fallback={
+                <text
+                  fg={props.colors().accent}
+                  attributes={TextAttributes.BOLD}
+                  selectable
+                  selectionBg={props.colors().accent}
+                  selectionFg={props.colors().ink}
+                >
+                  wombat
+                </text>
+              }
+            >
+              <box flexDirection="column" width={47} alignItems="flex-start" alignSelf="center">
+                <For each={wordmarkLarge}>
+                  {(line, index) => (
+                    <text
+                      fg={waveColor(props.colors().accent, props.colors().accent2, index(), wordmarkLarge.length)}
+                      attributes={TextAttributes.BOLD}
+                      wrapMode="none"
+                      selectable
+                      selectionBg={props.colors().accent}
+                      selectionFg={props.colors().ink}
+                    >
+                      {line || " "}
+                    </text>
+                  )}
+                </For>
+              </box>
+            </Show>
+            <Show when={props.height > 12 && !compact()}>
+              <text fg={props.colors().faint}>ask anything · / for commands · @ for files</text>
+            </Show>
+          </box>
         }
       >
-        <For each={wordmark}>
-          {(line, index) => (
-            <text
-              fg={index() === 1 ? props.colors().accent2 : props.colors().accent}
-              attributes={TextAttributes.BOLD}
-              selectable
-              selectionBg={props.colors().accent}
-              selectionFg={props.colors().ink}
-            >
-              {line}
-            </text>
-          )}
-        </For>
-      </Show>
-      <Show when={props.height > 12 && !compact()}>
-        <text fg={props.colors().faint}>ask anything · / for commands · @ for files</text>
+        <box flexDirection="column" width={artWidth()} alignItems="flex-start">
+          <For each={artLines()}>
+            {(line, index) => (
+              <text
+                fg={waveColor(props.colors().accent, props.colors().accent2, index(), artLines().length)}
+                attributes={TextAttributes.BOLD}
+                wrapMode="none"
+                selectable
+                selectionBg={props.colors().accent}
+                selectionFg={props.colors().ink}
+              >
+                {line || " "}
+              </text>
+            )}
+          </For>
+        </box>
       </Show>
     </box>
   )
@@ -614,7 +681,7 @@ function OverlayView(props: {
                     <text fg={selected() ? props.colors().ink : props.colors().text} attributes={TextAttributes.BOLD}>{theme.label}</text>
                     <text fg={selected() ? props.colors().ink : props.colors().faint} wrapMode="none" truncate>{theme.blurb}</text>
                     <box flexGrow={1} />
-                    <text fg={selected() ? props.colors().ink : theme.colors.accent}>{"━".repeat(6)}</text>
+                    <text fg={selected() ? props.colors().ink : themeColors(theme).accent}>{"━".repeat(6)}</text>
                   </box>
                 )
               }}
@@ -784,6 +851,8 @@ export function App() {
     if (width < 40) return Math.max(18, width - 2)
     return Math.max(40, Math.min(100, width - 6))
   })
+  const promptWidth = createMemo(() => Math.max(24, dims().width - 4))
+  const transcriptWidth = createMemo(() => Math.max(24, Math.min(dims().width - 4, 128)))
   const isStreaming = () => state.streaming
   const hasEntries = () => entries.list.length > 0
   const home = () => !hasEntries() && !permission() && !question() && !overlay()
@@ -1899,9 +1968,12 @@ export function App() {
 
           <Show when={!home()}>
             <Show when={overlay()} fallback={
+              <box flexGrow={1} flexShrink={1} flexBasis={0} minHeight={0} width={transcriptWidth()} alignSelf="center">
               <scrollbox
                 ref={(el: any) => (transcript = el)}
                 flexGrow={1}
+                flexShrink={1}
+                flexBasis={0}
                 minHeight={0}
                 scrollbarOptions={{ visible: false }}
                 scrollX={false}
@@ -1920,6 +1992,7 @@ export function App() {
                 </For>
                 </box>
               </scrollbox>
+              </box>
             }>
               <OverlayView
                 overlay={overlay()!}
@@ -1948,7 +2021,7 @@ export function App() {
             </Show>
           </Show>
 
-          <box flexDirection="column" width={columnWidth()} alignSelf="center" flexShrink={0}>
+          <box flexDirection="column" width={promptWidth()} alignSelf="center" flexShrink={0}>
             <Show when={!overlay()}>
               <Show when={previews.list.length > 0}>
                 <PreviewBar previews={previews.list} colors={colors} />
@@ -1961,15 +2034,18 @@ export function App() {
               </Show>
 
               <Show when={permission()}>
+                <box width={columnWidth()} alignSelf="center">
                 <PermissionCard
                   request={permission()!}
                   colors={colors}
                   feedback={permissionFeedback()}
                   onFeedbackRef={(input) => (permissionInput = input)}
                 />
+                </box>
               </Show>
 
               <Show when={question()}>
+                <box width={columnWidth()} alignSelf="center">
                 <QuestionCard
                   request={question()!}
                   colors={colors}
@@ -1982,11 +2058,14 @@ export function App() {
                     if (option) answerQuestion(option.label)
                   }}
                 />
+                </box>
               </Show>
 
               <Show when={paletteOpen()}>
                 <box
                   flexDirection="column"
+                  width={columnWidth()}
+                  alignSelf="center"
                   border
                   borderStyle="rounded"
                   borderColor={colors().border}
@@ -2044,6 +2123,8 @@ export function App() {
               <Show when={fileOpen()}>
                 <box
                   flexDirection="column"
+                  width={columnWidth()}
+                  alignSelf="center"
                   border
                   borderStyle="rounded"
                   borderColor={colors().border}
@@ -2089,8 +2170,8 @@ export function App() {
                   flexDirection="column"
                   border
                   borderStyle="rounded"
-                  borderColor={colors().border}
-                  backgroundColor={colors().panel}
+                  borderColor={colors().accent}
+                  backgroundColor={colors().surface}
                   paddingLeft={1}
                   paddingRight={1}
                 >
@@ -2103,12 +2184,12 @@ export function App() {
                       }}
                       flexGrow={1}
                       height={promptHeight()}
-                      placeholder={state.mode === "chat" ? "ask about the code, or /help" : "describe what to build, or /help"}
-                      placeholderColor={colors().faint}
+                      placeholder={state.mode === "chat" ? "Ask about the code, or /help" : "Describe what to build, or /help"}
+                      placeholderColor={colors().dim}
                       textColor={colors().text}
                       focusedTextColor={colors().text}
-                      backgroundColor={colors().panel}
-                      focusedBackgroundColor={colors().panel}
+                      backgroundColor={colors().surface}
+                      focusedBackgroundColor={colors().surface}
                       cursorColor={colors().accent}
                       selectionBg={colors().accent}
                       selectionFg={colors().ink}
@@ -2127,120 +2208,34 @@ export function App() {
               </Show>
             </Show>
 
-            <box flexDirection="row" paddingTop={1} paddingLeft={1} paddingRight={1}>
+            <box flexDirection="row" paddingLeft={1} paddingRight={1} flexShrink={0} gap={2}>
+              <Show when={dims().width >= 96 && (isStreaming() || busy() || permission() || question())}>
                 <Show
                   when={permission() || question()}
                   fallback={
                     <Show
                       when={isStreaming()}
                       fallback={
-                        <Show
-                          when={busy()}
-                          fallback={
-                        <Show
-                          when={overlay()}
-                          fallback={
-                            <box flexDirection="row" gap={2}>
-                              <KeyHint key="enter" label="send" colors={colors} />
-                              <Show when={dims().width >= 100}>
-                                <KeyHint key="shift+enter" label="newline" colors={colors} />
-                              </Show>
-                              <Show when={dims().width >= 64}>
-                                <KeyHint key="/" label="commands" colors={colors} />
-                              </Show>
-                              <Show when={dims().width >= 78}>
-                                <KeyHint key="@" label="files" colors={colors} />
-                              </Show>
-                              <Show when={dims().width >= 130}>
-                                <KeyHint key="ctrl+g" label="help" colors={colors} />
-                              </Show>
-                            </box>
-                          }
-                        >
-                          <box flexDirection="row" gap={2}>
-                            <Show when={overlay()?.kind === "list"} fallback={
-                              <Show when={overlay()?.kind === "theme"} fallback={
-                                <Show when={overlay()?.kind === "form"} fallback={
-                                  <KeyHint key="esc" label="close" colors={colors} />
-                                }>
-                                  <KeyHint key="tab" label="next" colors={colors} />
-                                  <KeyHint key="enter" label="save" colors={colors} />
-                                  <KeyHint key="esc" label="cancel" colors={colors} />
-                                </Show>
-                              }>
-                                <KeyHint key="↑↓" label="preview" colors={colors} />
-                                <KeyHint key="enter" label="apply" colors={colors} />
-                                <KeyHint key="esc" label="restore" colors={colors} />
-                              </Show>
-                            }>
-                              <KeyHint key="↑↓" label="choose" colors={colors} />
-                              <KeyHint key="enter" label="select" colors={colors} />
-                              <KeyHint key="esc" label="close" colors={colors} />
-                            </Show>
-                          </box>
-                        </Show>
-                          }
-                        >
-                          <box flexDirection="row" gap={1}>
-                            <Spinner colors={colors} />
-                            <text fg={colors().warn} wrapMode="none">{clip(busy(), Math.max(12, dims().width - 20))}</text>
-                          </box>
-                        </Show>
+                        <box flexDirection="row" gap={1}>
+                          <Spinner colors={colors} />
+                          <text fg={colors().warn} wrapMode="none">{clip(busy(), Math.max(10, dims().width - 30))}</text>
+                        </box>
                       }
                     >
-                      <box flexDirection="row" gap={2}>
+                      <box flexDirection="row" gap={1}>
                         <Spinner colors={colors} />
-                        <text fg={colors().warn}>working {hintText()}</text>
-                        <KeyHint key="esc" label="interrupt" colors={colors} />
+                        <text fg={colors().warn} wrapMode="none">working {hintText()}</text>
                       </box>
                     </Show>
                   }
                 >
-                  <text fg={colors().warn}>
+                  <text fg={colors().warn} wrapMode="none">
                     {permission() ? "waiting for permission" : "waiting for your answer"}
                   </text>
                 </Show>
-                <box flexGrow={1} />
-                <Show when={usage.window > 0 && dims().width >= 120}>
-                  <text fg={colors().faint} wrapMode="none">
-                    <span style={{ fg: contextPercent(usage.history, usage.window) > 85 ? colors().red : colors().accent2 }}>
-                      {contextBar(usage.history, usage.window)}
-                    </span>{" "}
-                    {contextPercent(usage.history, usage.window)}%
-                  </text>
-                  <text fg={colors().faint}>  </text>
-                </Show>
-                <Show when={state.model && dims().width >= 60}>
-                  <text fg={colors().dim} wrapMode="none">
-                    {clip(state.provider ? `${state.provider}/${state.model}` : state.model, dims().width > 100 ? 44 : 24)}
-                  </text>
-                </Show>
-                <Show when={state.mode && dims().width >= 72}>
-                  <text fg={colors().ink} bg={colors().accent} attributes={TextAttributes.BOLD} wrapMode="none">
-                    {" "}{state.mode}{" "}
-                  </text>
-                </Show>
-              </box>
-
-              <box flexDirection="row" paddingLeft={1} paddingRight={1} paddingTop={0}>
-                <text fg={colors().faint} wrapMode="none" truncate>
-                  {clip(shortPath(state.cwd, dims().width > 100 ? 52 : 28), Math.max(10, dims().width - 30))}
-                  <Show when={state.branch && dims().width >= 50}>{"  ⎇ "}{clip(state.branch, 18)}</Show>
-                </text>
-                <box flexGrow={1} />
-                <Show when={state.auto}>
-                  <text fg={colors().warn}>yolo  </text>
-                </Show>
-                <Show when={state.missing_key}>
-                  <text fg={colors().warn}>no key  </text>
-                </Show>
-                <text fg={colors().accent} attributes={TextAttributes.BOLD} selectable selectionBg={colors().accent} selectionFg={colors().ink}>
-                  wombat
-                </text>
-                <Show when={appVersion()}>
-                  <text fg={colors().faint}> {appVersion()}</text>
-                </Show>
-              </box>
+              </Show>
+              <FooterMeta colors={colors} usage={usage} state={state} width={dims().width - 6} />
+            </box>
           </box>
         </Show>
       </Show>

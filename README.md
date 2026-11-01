@@ -234,9 +234,11 @@ example:
 Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 `rosepine`, `dracula`, `everforest`, `kanagawa`, `solarized`, `monokai`,
 `iceberg`, `nightfox`, `onedark`, and `github`. Pick one with `/theme`, or cycle
-with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The home screen
-uses a compact wombat wordmark, and the wordmark anchors the bottom-right corner
-of the chat. The classic interface still tints the terminal background while
+with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The opentui
+interface uses a high-contrast dark treatment with a bright accent on the prompt.
+The home screen shows the original wombat ASCII at its native character grid
+(never stretched). The footer shows tokens spent, the active model, and the
+mode. The classic interface still tints the terminal background while
 Wombat is open (`wombat config set paint_background false` disables this).
 
 **References** are project-scoped notes you can keep handy for a session.
