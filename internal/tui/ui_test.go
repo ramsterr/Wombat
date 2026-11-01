@@ -655,6 +655,15 @@ func TestPreviewBarSitsAbovePrompt(t *testing.T) {
 	}
 }
 
+func TestContextUsageReadout(t *testing.T) {
+	if got := stripANSI(contextUsage(120300, 1_000_000)); got != "120.3K (12%)" {
+		t.Fatalf("contextUsage = %q", got)
+	}
+	if got := stripANSI(contextUsage(0, 0)); got != "ctx —" {
+		t.Fatalf("empty contextUsage = %q", got)
+	}
+}
+
 func TestFooterShowsWombatMark(t *testing.T) {
 	c := testChat(t)
 	c.resize(140, 40)

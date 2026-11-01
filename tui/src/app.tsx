@@ -95,31 +95,18 @@ function FooterMeta(props: {
 }) {
   const model = () =>
     props.state.provider ? `${props.state.provider}/${props.state.model}` : props.state.model
-  const contextPercent = () =>
-    props.usage.window > 0
-      ? ((props.usage.history / props.usage.window) * 100).toFixed(1)
-      : "?"
+  const pct = () => contextPercent(props.usage.history, props.usage.window)
   const contextColor = () => {
     if (props.usage.window <= 0) return props.colors().faint
-    const pct = (props.usage.history / props.usage.window) * 100
-    if (pct > 90) return props.colors().red
-    if (pct > 70) return props.colors().warn
+    if (pct() > 90) return props.colors().red
+    if (pct() > 70) return props.colors().warn
     return props.colors().faint
   }
 
   return (
     <box flexDirection="row" alignItems="center" gap={1} flexGrow={1} minWidth={0}>
-      <Show when={props.usage.in - props.usage.cached > 0}>
-        <text fg={props.colors().dim} wrapMode="none">↑{humanTokens(props.usage.in - props.usage.cached)}</text>
-      </Show>
-      <Show when={props.usage.out > 0}>
-        <text fg={props.colors().dim} wrapMode="none">↓{humanTokens(props.usage.out)}</text>
-      </Show>
-      <Show when={props.usage.cached > 0}>
-        <text fg={props.colors().dim} wrapMode="none">R{humanTokens(props.usage.cached)}</text>
-      </Show>
       <text fg={contextColor()} wrapMode="none">
-        {contextPercent()}%/{props.usage.window > 0 ? humanTokens(props.usage.window) + " (auto)" : "?"}
+        {props.usage.window > 0 ? `${humanTokens(props.usage.history)} (${pct()}%)` : "?"}
       </text>
 
       <Show when={props.state.missing_key && props.width >= 84}>
@@ -778,6 +765,7 @@ function HelpLines(props: {
     ["ctrl+r", "references"],
     ["ctrl+t", "cycle theme"],
     ["ctrl+y", "copy last reply"],
+    ["ctrl+v", "paste an image"],
     ["ctrl+p/n", "prompt history"],
     ["alt+2/3/5", "sessions · models · doctor"],
     ["pgup/pgdn", "scroll transcript"],
@@ -1569,6 +1557,38 @@ export function App() {
     if (text.trim()) copyText(text)
   })
 
+  async function pasteImageFromClipboard() {
+    let result
+    try {
+      result = await clipboard.read({
+        preferredTypes: ["image/png", "image/jpeg", "image/webp", "image/gif"],
+        selection: "clipboard",
+        signal: AbortSignal.timeout(3000),
+      })
+    } catch {
+      showToast("could not read the clipboard", true)
+      return
+    }
+    if (result.status !== "read") {
+      showToast("no image in clipboard", true)
+      return
+    }
+    const mime = result.representation.mimeType
+    if (!mime.startsWith("image/")) {
+      showToast("clipboard does not contain an image", true)
+      return
+    }
+    const ext = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : mime === "image/gif" ? "gif" : "png"
+    const file = path.join(os.tmpdir(), `wombat-paste-${Date.now()}.${ext}`)
+    try {
+      fs.writeFileSync(file, result.representation.bytes)
+    } catch {
+      showToast("could not save the pasted image", true)
+      return
+    }
+    bridge?.send({ type: "command", line: `/attach ${file}` })
+  }
+
   useKeyboard((key) => {
     if (!ready()) {
       if (key.ctrl && key.name === "c") quit(0)
@@ -1825,6 +1845,11 @@ export function App() {
       key.preventDefault()
       if (isStreaming()) bridge?.send({ type: "interrupt" })
       else quit(0)
+      return
+    }
+    if ((key.ctrl || key.meta) && key.name === "v") {
+      key.preventDefault()
+      void pasteImageFromClipboard()
       return
     }
     if (key.name === "escape") {

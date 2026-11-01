@@ -175,12 +175,8 @@ func (c *chat) footerMeta() string {
 	if c.w >= 72 {
 		parts = append(parts, modeBadge(c.modeLabel()))
 	}
-	if c.window > 0 && c.w >= 56 {
-		if c.w >= 96 {
-			parts = append(parts, contextGaugeTokens(c.history, c.window))
-		} else {
-			parts = append(parts, contextGauge(c.history, c.window))
-		}
+	if c.window > 0 && c.w >= 40 {
+		parts = append(parts, contextUsage(c.history, c.window))
 	}
 	if v := versionLabel(c.opt.Version); v != "" && c.w >= 110 {
 		parts = append(parts, styleFaint.Render(v))

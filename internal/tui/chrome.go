@@ -51,33 +51,6 @@ func statusDot(color lipgloss.TerminalColor, label string) string {
 	return dot + " " + styleDim.Render(label)
 }
 
-// miniBar renders a small horizontal progress bar.
-func miniBar(used, total, cells int) string {
-	if total <= 0 || cells <= 0 {
-		return styleFaint.Render(strings.Repeat("▱", max(0, cells)))
-	}
-	pct := used * 100 / total
-	if pct > 100 {
-		pct = 100
-	}
-	if pct < 0 {
-		pct = 0
-	}
-	fill := pct * cells / 100
-	if fill == 0 && used > 0 {
-		fill = 1
-	}
-	color := styleGood
-	switch {
-	case pct >= 90:
-		color = styleBad
-	case pct >= 70:
-		color = styleWarn
-	}
-	return color.Render(strings.Repeat("▰", fill)) +
-		styleFaint.Render(strings.Repeat("▱", cells-fill))
-}
-
 // shortPath collapses the user's home directory and clips long paths from
 // the left, which keeps the interesting part of a deep path visible.
 func shortPath(path string, width int) string {
@@ -128,8 +101,8 @@ func gitBranch(dir string) string {
 	return ""
 }
 
-// contextGauge renders a tiny usage meter for the status line.
-func contextGauge(used, total int) string {
+// contextUsage renders the opencode-style context readout.
+func contextUsage(used, total int) string {
 	if total <= 0 {
 		return styleFaint.Render("ctx —")
 	}
@@ -140,25 +113,17 @@ func contextGauge(used, total int) string {
 	if pct < 0 {
 		pct = 0
 	}
-	bar := miniBar(used, total, 8)
-	return styleFaint.Render("ctx ") + bar + " " + styleFaint.Render(fmt.Sprintf("%d%%", pct))
+	return styleDim.Render(humanContext(used)) + styleFaint.Render(fmt.Sprintf(" (%d%%)", pct))
 }
 
-// contextGaugeTokens is the wider status gauge with absolute token counts.
-func contextGaugeTokens(used, total int) string {
-	if total <= 0 {
-		return styleFaint.Render("context —")
+func humanContext(n int) string {
+	if n >= 1_000_000 {
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1_000_000), ".0") + "M"
 	}
-	pct := used * 100 / total
-	if pct > 100 {
-		pct = 100
+	if n >= 1_000 {
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1_000), ".0") + "K"
 	}
-	if pct < 0 {
-		pct = 0
-	}
-	return styleFaint.Render("ctx ") + miniBar(used, total, 8) + " " +
-		styleDim.Render(humanN(used)+"/"+humanN(total)) + " " +
-		styleFaint.Render(fmt.Sprintf("%d%%", pct))
+	return fmt.Sprintf("%d", n)
 }
 
 // modeBadge is the small mode chip used in the header.
