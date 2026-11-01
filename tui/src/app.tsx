@@ -93,28 +93,34 @@ function FooterMeta(props: {
   state: SessionState
   width: number
 }) {
-  const spent = () => humanTokens(props.usage.in + props.usage.out)
   const model = () =>
     props.state.provider ? `${props.state.provider}/${props.state.model}` : props.state.model
-  const percent = () => contextPercent(props.usage.history, props.usage.window)
-  const hasWindow = () => props.usage.window > 0
+  const contextPercent = () =>
+    props.usage.window > 0
+      ? ((props.usage.history / props.usage.window) * 100).toFixed(1)
+      : "?"
+  const contextColor = () => {
+    if (props.usage.window <= 0) return props.colors().faint
+    const pct = (props.usage.history / props.usage.window) * 100
+    if (pct > 90) return props.colors().red
+    if (pct > 70) return props.colors().warn
+    return props.colors().faint
+  }
 
   return (
-    <box flexDirection="row" alignItems="center" gap={2} flexGrow={1} minWidth={0}>
-      <text fg={props.colors().dim} wrapMode="none">{spent()} spent</text>
-
-      <Show when={props.width >= 40}>
-        <text fg={props.colors().faint} wrapMode="none">│</text>
+    <box flexDirection="row" alignItems="center" gap={1} flexGrow={1} minWidth={0}>
+      <Show when={props.usage.in > 0}>
+        <text fg={props.colors().dim} wrapMode="none">↑{humanTokens(props.usage.in)}</text>
       </Show>
-
-      <Show when={hasWindow() && props.width >= 44}>
-        <text fg={props.colors().faint} wrapMode="none">
-          ctx {humanTokens(props.usage.history)}/{humanTokens(props.usage.window)} · {percent()}%
-        </text>
+      <Show when={props.usage.out > 0}>
+        <text fg={props.colors().dim} wrapMode="none">↓{humanTokens(props.usage.out)}</text>
       </Show>
-      <Show when={hasWindow() && props.width < 44}>
-        <text fg={props.colors().faint} wrapMode="none">ctx {percent()}%</text>
+      <Show when={props.usage.cached > 0}>
+        <text fg={props.colors().dim} wrapMode="none">R{humanTokens(props.usage.cached)}</text>
       </Show>
+      <text fg={contextColor()} wrapMode="none">
+        {contextPercent()}%/{props.usage.window > 0 ? humanTokens(props.usage.window) + " (auto)" : "?"}
+      </text>
 
       <Show when={props.state.missing_key && props.width >= 84}>
         <text fg={props.colors().warn} wrapMode="none">no key</text>
@@ -124,12 +130,12 @@ function FooterMeta(props: {
       </Show>
 
       <box flexGrow={1} />
-      <Show when={props.state.model && props.width >= 66}>
+      <Show when={props.state.model && props.width >= 76}>
         <text fg={props.colors().dim} wrapMode="none">
-          {clip(model(), Math.max(10, Math.min(46, props.width - 40)))}
+          {clip(model(), Math.max(10, Math.min(42, props.width - 48)))}
         </text>
       </Show>
-      <Show when={props.state.mode && props.width >= 80}>
+      <Show when={props.state.mode && props.width >= 96}>
         <text fg={props.colors().ink} bg={props.colors().accent} attributes={TextAttributes.BOLD} wrapMode="none">
           {" "}{props.state.mode}{" "}
         </text>
