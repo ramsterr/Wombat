@@ -7,7 +7,7 @@
   <a href="https://github.com/ramsterr/Wombat/blob/main/go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/ramsterr/Wombat?style=flat-square"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/ramsterr/Wombat?style=flat-square"></a>
 </p>
- https://wombat-agent.vercel.app/
+ https://wombat-site-pi.vercel.app/
  
 (wombat's site is made by wombat itself)
 
