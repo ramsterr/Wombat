@@ -128,6 +128,21 @@ Wombat inherits your terminal's font; a terminal UI cannot install a font.
 For the intended look and complete glyph set, use a Nerd Font such as JetBrains
 Mono, Berkeley Mono, or MesloLGS NF in your terminal profile.
 
+## Benchmarks
+
+Wombat and Pi ran the same model and the same tasks. The 10-task run is the
+latest; the 18-task suite is the earlier baseline.
+
+![Summary](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/summary.png)
+
+![Wall time by task](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/per-task-time.png)
+
+![Per-task results](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/per-task-table.png)
+
+![Cumulative wall time](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/cumulative-time.png)
+
+Full report: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md).
+
 ## Features
 
 See [`features.md`](features.md) for the full feature catalogue.
@@ -444,18 +459,3 @@ go build -o /tmp/wombat ./cmd/wombat
 
 CI runs on the default branch and on pull requests. Issues and pull requests
 are welcome.
-
-## Benchmarks
-
-Wombat and Pi ran the same model and the same tasks. The 10-task run is the
-latest; the 18-task suite is the earlier baseline.
-
-![Summary](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/summary.png)
-
-![Wall time by task](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/per-task-time.png)
-
-![Per-task results](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/per-task-table.png)
-
-![Cumulative wall time](eval/benchmarks/pi-vs-wombat/efficienty-10/assets/readme/cumulative-time.png)
-
-Full report: [`efficienty-10/README.md`](eval/benchmarks/pi-vs-wombat/efficienty-10/README.md).
