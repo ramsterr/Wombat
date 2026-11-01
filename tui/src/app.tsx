@@ -99,30 +99,45 @@ function FooterMeta(props: {
   state: SessionState
   width: number
 }) {
-  const label = () => {
-    const model = props.state.provider ? `${props.state.provider}/${props.state.model}` : props.state.model
-    return model
-  }
+  const spent = () => humanTokens(props.usage.in + props.usage.out)
+  const model = () =>
+    props.state.provider ? `${props.state.provider}/${props.state.model}` : props.state.model
+  const percent = () => contextPercent(props.usage.history, props.usage.window)
+  const hasWindow = () => props.usage.window > 0
+
   return (
-    <box flexDirection="row" gap={1} alignItems="center" flexShrink={1} minWidth={0}>
-      <text fg={props.colors().dim} wrapMode="none">
-        {humanTokens(props.usage.in + props.usage.out)} tok
-      </text>
+    <box flexDirection="row" alignItems="center" gap={2} flexGrow={1} minWidth={0}>
+      <text fg={props.colors().dim} wrapMode="none">{spent()} tok</text>
+
+      <Show when={hasWindow() && props.width >= 70}>
+        <text fg={props.colors().faint} wrapMode="none">
+          <Show when={props.width >= 100}>
+            <span style={{ fg: props.colors().accent2 }}>{contextBar(props.usage.history, props.usage.window)}</span>{" "}
+          </Show>
+          {humanTokens(props.usage.history)}/{humanTokens(props.usage.window)} · {percent()}%
+        </text>
+      </Show>
+      <Show when={hasWindow() && props.width < 70}>
+        <text fg={props.colors().faint} wrapMode="none">{percent()}%</text>
+      </Show>
+
+      <Show when={props.state.missing_key && props.width >= 84}>
+        <text fg={props.colors().warn} wrapMode="none">no key</text>
+      </Show>
+      <Show when={props.state.auto && props.width >= 92}>
+        <text fg={props.colors().warn} wrapMode="none">yolo</text>
+      </Show>
+
+      <box flexGrow={1} />
       <Show when={props.state.model && props.width >= 34}>
         <text fg={props.colors().dim} wrapMode="none">
-          {clip(label(), Math.max(10, Math.min(40, props.width - 26)))}
+          {clip(model(), Math.max(10, Math.min(46, props.width - 26)))}
         </text>
       </Show>
       <Show when={props.state.mode && props.width >= 44}>
         <text fg={props.colors().ink} bg={props.colors().accent} attributes={TextAttributes.BOLD} wrapMode="none">
           {" "}{props.state.mode}{" "}
         </text>
-      </Show>
-      <Show when={props.state.missing_key && props.width >= 72}>
-        <text fg={props.colors().warn} wrapMode="none">no key</text>
-      </Show>
-      <Show when={props.state.auto && props.width >= 82}>
-        <text fg={props.colors().warn} wrapMode="none">yolo</text>
       </Show>
     </box>
   )
@@ -135,7 +150,7 @@ function Welcome(props: {
   version: string
 }) {
   const compact = () => props.width < 48
-  const exact = () => !compact() && props.width >= 89 && props.height >= 48
+  const exact = () => !compact() && props.width >= 89 && props.height >= 47
   const artLines = createMemo(() => (exact() ? wombatFigure.map((line) => line.trimEnd()) : []))
   const artWidth = createMemo(() => Math.max(1, ...artLines().map((line) => Array.from(line).length)))
 
@@ -1337,7 +1352,10 @@ export function App() {
         batch(() => {
           setReady(true)
           setVersion(event.version ?? "")
-          if (event.state) setState(event.state)
+          if (event.state) {
+            setState(event.state)
+            if (event.state.window > 0) setUsage("window", event.state.window)
+          }
           if (Array.isArray(event.commands)) setCommands(event.commands)
           if (Array.isArray(event.themes) && event.themes.length > 0) setThemes(event.themes)
           if (event.state?.theme) setThemeName(event.state.theme)
@@ -1352,6 +1370,7 @@ export function App() {
         if (event.state) {
           const previousTheme = state.theme
           setState(event.state)
+          if (event.state.window > 0) setUsage("window", event.state.window)
           if (event.state.theme && event.state.theme !== previousTheme) setThemeName(event.state.theme)
         }
         return
@@ -1945,7 +1964,7 @@ export function App() {
   })
 
   return (
-    <box flexGrow={1} flexDirection="column" backgroundColor={colors().surface} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={0}>
+    <box flexGrow={1} flexDirection="column" backgroundColor={colors().surface} paddingLeft={2} paddingRight={2} paddingTop={0} paddingBottom={0}>
       <Show when={fatal()}>
         <box flexGrow={1} justifyContent="center" alignItems="center" flexDirection="column" gap={1}>
           <text fg={colors().red} attributes={TextAttributes.BOLD}>{fatal()}</text>

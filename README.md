@@ -237,8 +237,8 @@ Themes ship with the app: `wombat`, `tokyo`, `catppuccin`, `gruvbox`, `nord`,
 with `ctrl+t`; the choice is saved in `~/.wombat/config.json`. The opentui
 interface uses a high-contrast dark treatment with a bright accent on the prompt.
 The home screen shows the original wombat ASCII at its native character grid
-(never stretched). The footer shows tokens spent, the active model, and the
-mode. The classic interface still tints the terminal background while
+(never stretched). The footer shows tokens spent, context used/total with a
+percentage, the active model, and the mode. The classic interface still tints the terminal background while
 Wombat is open (`wombat config set paint_background false` disables this).
 
 **References** are project-scoped notes you can keep handy for a session.
