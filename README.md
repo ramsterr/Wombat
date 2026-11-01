@@ -1,9 +1,3 @@
-
-  <img width="2456" height="1192" alt="image" src="https://github.com/user-attachments/assets/3af03a01-9cce-4fe6-b60e-9105f41f4796" />
-
-
-
-
 <p align="center">
   <a href="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
   <a href="https://github.com/ramsterr/Wombat/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/ramsterr/Wombat?style=flat-square"></a>
@@ -19,6 +13,46 @@
 Wombat is a general purpose agent.
 Can do anything and beyond than your standard agent harness , that too for lesser tokens at times.
 
+
+## How it looks
+
+Wombat works out of the box with the classic TUI. The new opentui UI is
+optional: build it once and Wombat loads it automatically.
+
+### Classic TUI (default)
+
+<p align="center">
+  <img width="100%" alt="Wombat classic terminal interface" src="https://github.com/user-attachments/assets/3af03a01-9cce-4fe6-b60e-9105f41f4796">
+</p>
+
+Without the optional frontend build, this is what you get from the normal
+install, `go install`, or a fresh clone. There is nothing extra to build, and
+every Wombat feature works.
+
+### New opentui UI (optional)
+
+<p align="center">
+  <img width="100%" alt="Wombat opentui terminal interface" src="docs/assets/new-ui.png">
+</p>
+
+**Don't want the old UI? Build it once:**
+
+```bash
+git clone https://github.com/ramsterr/Wombat.git
+cd Wombat/tui
+npm install
+npm run build
+cd ..
+wombat
+```
+
+Use `./wombat` instead if you built the repo binary. Node **26.4+** is required.
+Run Wombat from that checkout and the new UI loads automatically.
+
+If you skip this step, `wombat` keeps using the classic TUI. The agent, tools,
+sessions, and every feature work exactly the same; only the interface differs.
+
+Switch back anytime with `wombat classic` (or `WOMBAT_CLASSIC=1 wombat`).
 
 ## Quick start
 
@@ -168,19 +202,10 @@ runs.
 | `wombat upgrade` | install the latest stable release |
 | `wombat version` | print the version |
 
-## Inside the chat
+## Inside the chat (new UI)
 
-The default interface is built with [opentui](https://opentui.com) and
-SolidJS, the same stack opencode uses. The agent, tools, sessions, and
-permissions stay in the Go process; the frontend talks to it over a small
-JSON bridge.
-
-```bash
-cd tui && npm install && npm run build
-```
-
-Node 26.4 or newer is required. `WOMBAT_CLASSIC=1 wombat` (or
-`wombat classic`) still opens the original Bubble Tea interface.
+These shortcuts apply to the new opentui UI. If you skipped the optional build,
+`wombat` starts the classic TUI instead; run `/help` there for its key map.
 
 Type a request and press Enter. Useful shortcuts:
 
