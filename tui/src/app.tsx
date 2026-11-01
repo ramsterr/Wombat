@@ -920,6 +920,7 @@ export function App() {
     renderer.requestRender()
   }
   createEffect(() => {
+    ready()
     overlay()
     entries.list.length
     queueMicrotask(() => forceRepaint())
