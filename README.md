@@ -1,4 +1,7 @@
-<p align="center">
+
+  <img width="100%" alt="Wombat classic terminal interface" src="https://github.com/user-attachments/assets/3af03a01-9cce-4fe6-b60e-9105f41f4796">
+</p>
+ 
   <a href="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
   <a href="https://github.com/ramsterr/Wombat/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/ramsterr/Wombat?style=flat-square"></a>
   <a href="https://github.com/ramsterr/Wombat/blob/main/go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/ramsterr/Wombat?style=flat-square"></a>
@@ -21,9 +24,8 @@ optional: build it once and Wombat loads it automatically.
 
 ### Classic TUI (default)
 
-<p align="center">
-  <img width="100%" alt="Wombat classic terminal interface" src="https://github.com/user-attachments/assets/3af03a01-9cce-4fe6-b60e-9105f41f4796">
-</p>
+<img width="3340" height="1928" alt="image" src="https://github.com/user-attachments/assets/511e8dc5-c520-4082-9563-0609813acff9" />
+
 
 Without the optional frontend build, this is what you get from the normal
 install, `go install`, or a fresh clone. There is nothing extra to build, and
