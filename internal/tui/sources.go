@@ -44,7 +44,7 @@ func (c *chat) loadSources() []sourceItem {
 	return out
 }
 
-// refreshSourceCounts updates the inspector without opening the browser.
+// refreshSourceCounts updates the footer counters without opening the browser.
 func (c *chat) refreshSourceCounts() {
 	_ = c.loadSources()
 }

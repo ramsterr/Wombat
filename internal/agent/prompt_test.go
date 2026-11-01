@@ -36,6 +36,8 @@ func TestCraftStandardInPrompt(t *testing.T) {
 		"before you claim it works",
 		"never loop",
 		"Looks good",
+		"task plan",
+		"end of the run",
 		"action=script",
 		"apply_patch",
 		"lsp",

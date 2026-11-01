@@ -17,6 +17,7 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/todo"
 )
 
 type Meta struct {
@@ -32,6 +33,9 @@ type Meta struct {
 	// Agents lists the custom agents selected for this session, so resuming
 	// restores the same team.
 	Agents []string `json:"agents,omitempty"`
+	// Todos is the task plan, persisted so a resumed session keeps its
+	// progress and the preview gate still sees incomplete work.
+	Todos []todo.Item `json:"todos,omitempty"`
 }
 
 type record struct {
@@ -304,6 +308,22 @@ func safeAttachmentName(name string) string {
 		out = out[len(out)-80:]
 	}
 	return out
+}
+
+// Todos returns a copy of the session's task plan.
+func (s *Session) Todos() []todo.Item {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]todo.Item(nil), s.Meta.Todos...)
+}
+
+// SetTodos replaces the session's task plan and persists it.
+func (s *Session) SetTodos(items []todo.Item) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Meta.Todos = append([]todo.Item(nil), items...)
+	s.Meta.Updated = time.Now()
+	return s.flushLocked()
 }
 
 func (s *Session) Append(m llm.Message) error {

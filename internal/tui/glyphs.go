@@ -37,7 +37,7 @@ func toolGlyph(name string) (string, lipgloss.Style) {
 		return "⑂", styleSandbox
 	case "resume_worker":
 		return "↻", styleSandbox
-	case "update_plan", "run_plan", "plan":
+	case "update_plan", "run_plan", "plan", "todowrite", "todo", "todos":
 		return "☰", styleAccent2
 	case "question", "ask":
 		return "?", styleWarn

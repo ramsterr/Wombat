@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ramsterr/Wombat/internal/commands"
 )
@@ -241,7 +240,6 @@ func (c *chat) helpLines(width int) []string {
 		{"/", "command palette"},
 		{"@", "file picker"},
 		{"ctrl+v", "attach an image"},
-		{"ctrl+b", "inspector panel"},
 		{"ctrl+o", "open the preview"},
 		{"ctrl+g", "this help"},
 		{"ctrl+r", "add a reference"},
@@ -271,7 +269,7 @@ func (c *chat) helpLines(width int) []string {
 	out = append(out,
 		" "+styleAccent.Render("/")+"  command palette, options appear inline",
 		" "+styleAccent.Render("@")+"  attach a file; tab completes the path",
-		" "+styleAccent.Render("/reference")+"  keep paths and links in the inspector",
+		" "+styleAccent.Render("/reference")+"  keep paths and links for this project",
 		" "+styleAccent.Render("!")+"  shell commands stay in the agent loop",
 		"",
 		sectionLabel("commands"),
@@ -431,5 +429,5 @@ func (c *chat) modalView() string {
 	}
 	w := c.mainWidth()
 	h := c.vp.Height
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, card)
+	return centerBlockIn(w, h, card)
 }

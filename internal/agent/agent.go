@@ -13,6 +13,7 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
@@ -66,6 +67,12 @@ type Agent struct {
 	// visualPending holds artifacts the user has not seen yet. The review runs
 	// when the model has finished the run, not after the first page.
 	visualPending []visualArtifact
+	visualNudges  int
+
+	// Plan returns the current task plan. The orchestrator sets this to the
+	// ledger so the preview gate sees the same steps the model sees.
+	Plan func() []todo.Item
+
 	// emptyTurns counts consecutive responses with no text and no tool call.
 	// A truncated reasoning turn looks like this; nudge the model instead of
 	// silently ending the run.
@@ -98,6 +105,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 	}
 	a.markStarted()
 	a.visualPending = nil
+	a.visualNudges = 0
 	a.emptyTurns = 0
 	traceStart := time.Now()
 	traceUsage := a.Usage()
@@ -180,9 +188,15 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if maxSteps > 0 && step == maxSteps-1 {
 			defs = nil
 		}
-		stats := a.promptStats(system, defs, baseSystem, modeNote, tmpNote, extra)
+		stepSystem := system
+		if a.Env != nil {
+			if note := strings.TrimSpace(a.Env.TodoNote()); note != "" {
+				stepSystem += "\n\n" + note
+			}
+		}
+		stats := a.promptStats(stepSystem, defs, baseSystem, modeNote, tmpNote, extra)
 		a.Trace.Emit("prompt", stats.Fields(step+1))
-		res, err := a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
+		res, err := a.Provider.Chat(ctx, a.request(stepSystem, defs), a.Hooks.OnText)
 		if err != nil && llm.InvalidRequest(err) {
 			// The provider rejected the request itself. The history is the
 			// problem, so repair it and try again: otherwise every later
@@ -213,7 +227,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 					break
 				}
 				_ = a.Sess.Append(llm.Message{Role: "user", Content: note})
-				res, err = a.Provider.Chat(ctx, a.request(system, defs), a.Hooks.OnText)
+				res, err = a.Provider.Chat(ctx, a.request(stepSystem, defs), a.Hooks.OnText)
 			}
 		}
 		if err != nil {

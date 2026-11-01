@@ -11,6 +11,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/agents"
 	"github.com/ramsterr/Wombat/internal/config"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/worktree"
 )
@@ -255,6 +256,17 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 			return nil, errors.New("orchestrator: lead agent is already attached")
 		}
 	}
+	// The ledger is the plan when orchestration is on. Keeping todowrite too
+	// would give the model two competing lists and the preview gate the wrong
+	// one.
+	leadTools := make([]tools.Tool, 0, len(ag.Tools))
+	for _, t := range ag.Tools {
+		if t.Name() == "todowrite" {
+			continue
+		}
+		leadTools = append(leadTools, t)
+	}
+	ag.Tools = leadTools
 	cfg = cfg.withDefaults()
 	seenTeam := map[string]bool{}
 	for _, member := range cfg.Team {
@@ -280,6 +292,11 @@ func Attach(ag *agent.Agent, cfg Config) (*Orchestrator, error) {
 		ledgerPath:  path,
 		loadWarning: warning,
 		resumables:  make(map[string]*resumableWorker),
+	}
+	ag.Plan = func() []todo.Item {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		return o.todoItemsLocked()
 	}
 	for _, t := range ag.Tools {
 		// The workers read, search, reach the web, and run bash commands that
@@ -379,6 +396,26 @@ func (o *Orchestrator) Ledger() LedgerView {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.ledger.View()
+}
+
+// todoItemsLocked maps the ledger to the plan shape the agent and TUI use.
+// A blocked or failed step is still unfinished work, so it stays pending.
+func (o *Orchestrator) todoItemsLocked() []todo.Item {
+	if o.ledger == nil {
+		return nil
+	}
+	items := make([]todo.Item, 0, len(o.ledger.Steps))
+	for _, step := range o.ledger.Steps {
+		status := todo.Pending
+		switch step.Status {
+		case StepInProgress:
+			status = todo.InProgress
+		case StepCompleted:
+			status = todo.Completed
+		}
+		items = append(items, todo.Item{Content: step.Title, Status: status, Priority: todo.Medium})
+	}
+	return items
 }
 
 func (o *Orchestrator) systemPrompt() string {

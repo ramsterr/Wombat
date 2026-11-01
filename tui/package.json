@@ -1,0 +1,24 @@
+{
+  "name": "@wombat/tui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "0.8.1",
+    "@opentui/solid": "0.8.1",
+    "solid-js": "1.9.17"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.27.1",
+    "babel-preset-solid": "1.9.16",
+    "esbuild": "0.27.1",
+    "typescript": "5.9.3",
+    "@types/node": "24.12.2"
+  }
+}

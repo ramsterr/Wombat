@@ -14,6 +14,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/images"
 	"github.com/ramsterr/Wombat/internal/lsp"
 	"github.com/ramsterr/Wombat/internal/mcp"
+	"github.com/ramsterr/Wombat/internal/todo"
 )
 
 type Checkpointer interface {
@@ -100,6 +101,14 @@ type Env struct {
 
 	// questions bounds how many times the model can ask the user in one run.
 	questions *questionState
+
+	// todoList is the current plan. It is a pointer so copied Envs do not
+	// share a mutex by value; Isolate gives workers their own empty list.
+	todoList *todoState
+
+	// OnTodosChanged persists a changed todo list. The CLI points it at the
+	// session so a resumed session keeps its plan.
+	OnTodosChanged func([]todo.Item)
 }
 
 // mediaSink is a pointer so copying an Env (the orchestrator does that for
@@ -189,6 +198,8 @@ func (e *Env) Isolate() {
 	e.capState = nil
 	e.research = nil
 	e.questions = nil
+	e.todoList = nil
+	e.OnTodosChanged = nil
 }
 
 // jobManagerInit guards the one-time construction of an Env's manager:
@@ -346,7 +357,7 @@ func Registry() []Tool {
 		&Glob{}, &Grep{}, &LSP{}, &Browser{}, &ImageSearch{}, &Verify{},
 		&WebFetch{}, &WebSearch{},
 		&JobOutput{}, &JobKill{},
-		&ToolSearch{}, &RequestCapability{}, &RequestMoreResearch{},
+		&TodoWrite{}, &ToolSearch{}, &RequestCapability{}, &RequestMoreResearch{},
 	}
 }
 

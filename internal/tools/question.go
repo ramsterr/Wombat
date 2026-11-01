@@ -128,6 +128,9 @@ func decodeInto(raw json.RawMessage, v any) error {
 	return nil
 }
 
+// previewFeedbackQuestion catches the model trying to hand off a preview
+// review itself. The harness owns that hand-off so it can wait for the whole
+// deliverable instead of stopping after the first page.
 func previewFeedbackQuestion(q Question) bool {
 	if strings.EqualFold(strings.TrimSpace(q.ID), "visual-review") {
 		return true
@@ -141,7 +144,10 @@ func previewFeedbackQuestion(q Question) bool {
 		text.WriteString(o.Label)
 	}
 	lower := strings.ToLower(text.String())
-	for _, marker := range []string{"looks good", "needs changes", "look right", "looks right", "preview feedback", "review the preview", "ship it"} {
+	for _, marker := range []string{
+		"looks good", "needs changes", "look right", "looks right",
+		"preview feedback", "review the preview", "ship it",
+	} {
 		if strings.Contains(lower, marker) {
 			return true
 		}

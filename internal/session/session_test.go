@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/todo"
 )
 
 func TestSessionRoundtrip(t *testing.T) {
@@ -313,6 +314,29 @@ func TestCreateAtUsesProvidedHome(t *testing.T) {
 	}
 	if _, err := os.Stat(s.Path()); err != nil {
 		t.Fatalf("session file missing: %v", err)
+	}
+}
+
+func TestSessionTodosRoundtrip(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	s, err := Create(t.TempDir(), "p", "m", "todo task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := []todo.Item{
+		{Content: "inspect", Status: todo.Completed},
+		{Content: "fix", Status: todo.InProgress, Priority: todo.High},
+	}
+	if err := s.SetTodos(items); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Open(s.ID(), s.Meta.Cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := got.Todos()
+	if len(stored) != 2 || stored[1].Content != "fix" || stored[1].Status != todo.InProgress {
+		t.Fatalf("todos not persisted: %+v", stored)
 	}
 }
 

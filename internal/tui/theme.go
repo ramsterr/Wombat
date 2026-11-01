@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -574,6 +575,33 @@ func themeEntries() []theme {
 	return out
 }
 
+// ThemeInfo is the frontend-facing view of a theme. The opentui client asks
+// the Go bridge for this so the two interfaces cannot drift apart.
+type ThemeInfo struct {
+	Name   string            `json:"name"`
+	Label  string            `json:"label"`
+	Blurb  string            `json:"blurb"`
+	Colors map[string]string `json:"colors"`
+}
+
+// ThemeCatalog exposes every palette with plain hex colours.
+func ThemeCatalog() []ThemeInfo {
+	out := make([]ThemeInfo, 0, len(themeOrder))
+	for _, name := range themeOrder {
+		t := themeCatalog[name]
+		colors := map[string]string{
+			"ink": colorHex(t.ink), "surface": colorHex(t.surface), "panel": colorHex(t.panel),
+			"border": colorHex(t.border), "text": colorHex(t.text), "dim": colorHex(t.dim),
+			"faint": colorHex(t.faint), "accent": colorHex(t.accent), "accent2": colorHex(t.accent2),
+			"green": colorHex(t.green), "red": colorHex(t.red), "warn": colorHex(t.warn),
+			"link": colorHex(t.link), "code": colorHex(t.code), "sandbox": colorHex(t.sandbox),
+			"outside": colorHex(t.outside),
+		}
+		out = append(out, ThemeInfo{Name: name, Label: t.label, Blurb: t.blurb, Colors: colors})
+	}
+	return out
+}
+
 // swatches renders a compact colour strip for a theme picker.
 func swatches(t theme) string {
 	colors := []lipgloss.TerminalColor{t.accent, t.accent2, t.green, t.warn, t.red, t.link}
@@ -590,4 +618,36 @@ func colorHex(c lipgloss.TerminalColor) string {
 		return s
 	}
 	return "#F5B86B"
+}
+
+// mixHex blends two hex colours. It keeps the mascot art in theme colours
+// without pulling in another colour package.
+func mixHex(a, b string, at float64) lipgloss.Color {
+	ar, ag, ab, ok := parseHex(a)
+	br, bg, bb, ok2 := parseHex(b)
+	if !ok || !ok2 {
+		return lipgloss.Color(a)
+	}
+	if at < 0 {
+		at = 0
+	}
+	if at > 1 {
+		at = 1
+	}
+	mix := func(x, y int) int {
+		return int(float64(x) + (float64(y)-float64(x))*at + 0.5)
+	}
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", mix(ar, br), mix(ag, bg), mix(ab, bb)))
+}
+
+func parseHex(s string) (int, int, int, bool) {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "#")
+	if len(s) != 6 {
+		return 0, 0, 0, false
+	}
+	n, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return int(n>>16) & 0xff, int(n>>8) & 0xff, int(n) & 0xff, true
 }

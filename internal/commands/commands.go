@@ -55,7 +55,8 @@ var List = []Command{
 	{Name: "/skill", Group: "Skills", Args: "[name|list]", Summary: "browse the skills installed for custom agents"},
 	{Name: "/mcp", Group: "Tools", Summary: "MCP servers and their tools"},
 	{Name: "/sources", Group: "Context", Summary: "browse the sites and files used"},
-	{Name: "/reference", Group: "Context", Args: "[add|rm|clear] <path|url>", Summary: "keep project references in the inspector"},
+	{Name: "/todos", Group: "Context", Summary: "show the task plan"},
+	{Name: "/reference", Group: "Context", Args: "[add|rm|clear] <path|url>", Summary: "keep project references for this session"},
 	{Name: "/usage", Group: "Context", Summary: "activity charts across sessions"},
 	{Name: "/history", Group: "Context", Summary: "the messages in this session"},
 	{Name: "/sessions", Group: "Session", Summary: "browse past sessions"},
@@ -74,7 +75,6 @@ var List = []Command{
 		{Value: "all", Summary: "remove every pending attachment"},
 	}},
 	{Name: "/mouse", Group: "Appearance", Summary: "toggle mouse: wheel scroll or text selection"},
-	{Name: "/panel", Summary: "toggle the inspector panel", Group: "Appearance"},
 	{Name: "/keys", Summary: "keyboard shortcuts and commands", Group: "Help"},
 	{Name: "/theme", Group: "Appearance", Args: "[name]", Summary: "switch the color theme", Options: []Option{
 		{Value: "wombat", Summary: "warm amber on charcoal"},

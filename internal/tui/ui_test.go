@@ -24,7 +24,6 @@ func testChat(t *testing.T) *chat {
 	cfg.Provider = "openai"
 	cfg.Model = "gpt-5"
 	cfg.Theme = "wombat"
-	cfg.Panel = true
 	c, err := newChat(Options{Version: "test", Cwd: t.TempDir(), Cfg: cfg})
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +74,7 @@ func TestViewFitsTerminal(t *testing.T) {
 		w, h int
 		set  func(*chat)
 	}{
-		{"welcome with inspector", 120, 34, func(c *chat) {}},
+		{"welcome", 120, 34, func(c *chat) {}},
 		{"narrow welcome", 62, 20, func(c *chat) {}},
 		{"short welcome", 80, 13, func(c *chat) {}},
 		{"transcript", 130, 36, func(c *chat) {
@@ -149,21 +148,25 @@ func TestViewFitsTerminal(t *testing.T) {
 	}
 }
 
-func TestInspectorLayout(t *testing.T) {
+func TestConversationColumnLayout(t *testing.T) {
 	c := testChat(t)
-	c.resize(120, 34)
-	if !c.panelVisible() {
-		t.Fatal("the inspector should be visible at 120 columns")
+	c.resize(160, 40)
+	if got := c.columnWidth(); got > maxColumn || got > c.w {
+		t.Fatalf("columnWidth = %d at 160 columns", got)
 	}
-	if got := c.mainWidth() + c.panelWidth() + 1; got != c.w {
-		t.Errorf("panes take %d columns, want %d", got, c.w)
+	if got := c.mainWidth(); got != c.columnWidth() {
+		t.Fatalf("mainWidth = %d, column = %d", got, c.columnWidth())
 	}
 	c.resize(80, 24)
-	if c.panelVisible() {
-		t.Fatal("the inspector must not squeeze a narrow terminal")
+	if c.columnWidth() > c.w {
+		t.Fatalf("the column is wider than the terminal")
 	}
-	if c.mainWidth() != c.w {
-		t.Errorf("mainWidth = %d, want %d", c.mainWidth(), c.w)
+	view := stripANSI(c.view())
+	if strings.Contains(view, "INSPECTOR") {
+		t.Error("the inspector should be gone")
+	}
+	if !strings.Contains(view, "WOMBAT") {
+		t.Error("the footer should carry the WOMBAT mark")
 	}
 }
 
@@ -628,49 +631,67 @@ func TestPaletteShowsThemeOptions(t *testing.T) {
 	}
 }
 
-func TestPreviewRailLayout(t *testing.T) {
+func TestPreviewBarSitsAbovePrompt(t *testing.T) {
 	c := testChat(t)
 	c.resize(140, 40)
-	c.panel = true
 	c.previews = []preview{
 		{Ref: "http://localhost:5173/", Kind: "site", Label: "http://localhost:5173/"},
 		{Ref: "report.pdf", Kind: "pdf", Label: "report.pdf"},
 	}
-	if !c.previewRailVisible() {
-		t.Fatal("the preview rail should be visible at 140 columns")
-	}
-	total := c.previewRailWidth() + 1 + c.mainWidth() + 1 + c.panelWidth()
-	if total != c.w {
-		t.Errorf("panes take %d columns, want %d", total, c.w)
-	}
+	c.previewURL = c.previews[0].Ref
 	c.layout()
 	c.refresh()
-	view := c.view()
-	if !strings.Contains(view, "PREVIEWS") {
-		t.Error("the view is missing the preview rail")
+	view := stripANSI(c.view())
+	if !strings.Contains(view, "preview ready") {
+		t.Error("the view is missing the preview bar")
+	}
+	if strings.Contains(view, "PREVIEWS") {
+		t.Error("the old preview rail should be gone")
 	}
 	for _, line := range strings.Split(view, "\n") {
 		if got := lipgloss.Width(line); got > c.w {
 			t.Errorf("line is %d wide, terminal %d", got, c.w)
 		}
 	}
-	c.resize(100, 34)
-	if c.previewRailVisible() {
-		t.Error("the preview rail should wait for 120 columns")
+}
+
+func TestFooterShowsWombatMark(t *testing.T) {
+	c := testChat(t)
+	c.resize(140, 40)
+	c.layout()
+	view := stripANSI(c.footerView())
+	if !strings.Contains(view, "█") {
+		t.Errorf("the footer is missing the WOMBAT mark:\n%s", view)
 	}
-	if !c.panelVisible() {
-		t.Error("the inspector should stay visible at 100 columns")
+	if !strings.Contains(view, "test") {
+		t.Errorf("the footer is missing the version:\n%s", view)
+	}
+	c.resize(80, 24)
+	c.layout()
+	short := stripANSI(c.footerView())
+	if !strings.Contains(short, "WOMBAT") {
+		t.Errorf("the short footer is missing the WOMBAT mark:\n%s", short)
 	}
 }
 
-func TestInspectorShowsMascot(t *testing.T) {
+func TestWelcomeCentresWombatArt(t *testing.T) {
 	c := testChat(t)
-	c.resize(140, 40)
-	c.panel = true
+	c.resize(140, 60)
 	c.layout()
-	view := stripANSI(c.panelView())
-	if !strings.Contains(view, "█") {
-		t.Errorf("the inspector is missing the WOMBAT mark:\n%s", view)
+	c.refresh()
+	full := stripANSI(c.welcome())
+	if !strings.Contains(full, "@@@@") {
+		t.Errorf("the tall welcome is missing the full art:\n%s", full)
+	}
+	c.resize(120, 34)
+	c.layout()
+	c.refresh()
+	scaled := stripANSI(c.welcome())
+	if !strings.Contains(scaled, "█") {
+		t.Errorf("the scaled welcome is missing the art:\n%s", scaled)
+	}
+	if strings.Contains(scaled, "INSPECTOR") {
+		t.Error("the welcome still mentions the inspector")
 	}
 }
 

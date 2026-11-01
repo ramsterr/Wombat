@@ -1,5 +1,7 @@
 package tui
 
+import "github.com/charmbracelet/lipgloss"
+
 // Wombat figure from the session banner.
 var wombatFigure = []string{
 	"             z@@@@@r+_",
@@ -47,7 +49,7 @@ var wombatFigure = []string{
 	"                                                     `~~~~~~~~``",
 }
 
-// Compact WOMBAT wordmark for the inspector footer.
+// Compact WOMBAT wordmark for the chat footer.
 var wombatWordmark = []string{
 	"\u2588 \u2588 \u2588\u2580\u2588 \u2588\u2580\u2584\u2580\u2588 \u2588\u2580\u2584 \u2588\u2580\u2588 \u2580\u2588\u2580",
 	"\u2588 \u2588 \u2588 \u2588 \u2588 \u2588 \u2588 \u2588\u2584\u2580 \u2588\u2580\u2588  \u2588",
@@ -63,11 +65,18 @@ var wombatWordmarkLarge = []string{
 	"\u2588   \u2588  \u2588\u2588\u2588  \u2588   \u2588 \u2588\u2588\u2588\u2588  \u2588   \u2588   \u2588",
 }
 
-// wombatColored renders a block of mascot art in the active theme accent.
-func wombatColored(lines []string) []string {
+// wombatGradient paints mascot art from the first accent into the second, so
+// the large welcome plate and the footer mark pick up both signature colours.
+func wombatGradient(lines []string) []string {
 	out := make([]string, len(lines))
+	from := colorHex(cAccent)
+	to := colorHex(cAccent2)
 	for i, line := range lines {
-		out[i] = styleAccent.Render(line)
+		at := 0.0
+		if len(lines) > 1 {
+			at = float64(i) / float64(len(lines)-1)
+		}
+		out[i] = lipgloss.NewStyle().Foreground(mixHex(from, to, at)).Render(line)
 	}
 	return out
 }

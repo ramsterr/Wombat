@@ -36,6 +36,7 @@ import (
 	"github.com/ramsterr/Wombat/internal/mode"
 	"github.com/ramsterr/Wombat/internal/orchestrator"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tokens"
 	"github.com/ramsterr/Wombat/internal/tools"
 	"github.com/ramsterr/Wombat/internal/trace"
@@ -240,7 +241,7 @@ type chat struct {
 	showBanner bool
 
 	// previewURL is the newest preview the agent produced. previews keeps the
-	// full, de-duplicated list shown in the inspector and /previews.
+	// full, de-duplicated list shown in /previews.
 	previewURL string
 	previews   []preview
 	previewSel int
@@ -252,9 +253,6 @@ type chat struct {
 	history, window          int
 
 	send func(tea.Msg)
-
-	// panel is the right-hand inspector.
-	panel bool
 
 	// live run status
 	runStart time.Time
@@ -271,7 +269,7 @@ type chat struct {
 	histIdx   int
 	histDraft string
 
-	// project references shown in the inspector
+	// project references available from /reference
 	refs     []reference
 	refInput textinput.Model
 
@@ -333,7 +331,6 @@ func newChat(opt Options) (*chat, error) {
 		opt:    opt,
 		cfg:    opt.Cfg,
 		mouse:  opt.Mouse,
-		panel:  opt.Cfg.Panel,
 		always: map[string]bool{},
 		follow: true,
 	}
@@ -428,9 +425,14 @@ func (c *chat) applyThemeStyles() {
 // name without changing anything.
 // updatePlaceholder keeps the input hint in step with the current mode.
 func (c *chat) updatePlaceholder() {
+	narrow := c.w > 0 && c.w < 48
 	switch {
+	case c.mode == mode.Chat && narrow:
+		c.ta.Placeholder = "Ask or /help"
 	case c.mode == mode.Chat:
 		c.ta.Placeholder = "Ask about the code, or /help"
+	case c.mode == mode.Create && narrow:
+		c.ta.Placeholder = "Build something, or /help"
 	case c.mode == mode.Create:
 		c.ta.Placeholder = "Describe what to build, or /help"
 	default:
@@ -573,6 +575,8 @@ func (c *chat) rebuild(reset bool) error {
 		Mode:          c.mode.Label(),
 	}
 	env.AskUser = c.askUser
+	env.SetTodos(c.sess.Todos())
+	env.OnTodosChanged = func(items []todo.Item) { _ = c.sess.SetTodos(items) }
 	env.Embeddings = embeddings.FromConfig(c.cfg)
 	env.IndexDir = filepath.Join(config.Home(), "index")
 	if c.cfg.Checkpoints {
@@ -1135,12 +1139,13 @@ func (c *chat) layout() {
 	if c.w <= 0 || c.h <= 0 {
 		return
 	}
-	inner := c.w - 4
-	if inner < 20 {
-		inner = 20
+	inner := c.columnWidth() - 4
+	if inner < 8 {
+		inner = max(8, c.w-4)
 	}
-	c.ta.SetWidth(inner - 2)
-	c.permInput.Width = inner - 2
+	c.ta.SetWidth(max(4, inner-2))
+	c.permInput.Width = max(4, inner-2)
+	c.updatePlaceholder()
 	lines := 1
 	if c.perm != nil {
 		lines = 3
@@ -1155,23 +1160,55 @@ func (c *chat) layout() {
 	}
 	c.inputLines = lines
 	c.ta.SetHeight(lines)
-	extra := 0
-	if len(c.pending) > 0 {
-		extra++
-	}
-	if c.previewURL != "" {
-		extra++
-	}
 	overlay := 0
 	if c.modal == modalNone {
 		overlay = c.commandOverlayRows() + c.fileOverlayRows()
 	}
-	vh := c.h - 2 - (lines + 2) - 1 - extra - overlay
+	vh := c.h - c.inputBoxHeight() - c.footerHeight() - c.chromeRows() - overlay
 	if vh < 3 {
 		vh = 3
 	}
-	c.vp.Width = c.contentWidth()
+	c.vp.Width = max(1, c.contentWidth())
 	c.vp.Height = vh
+}
+
+// inputBoxHeight is the rendered height of the prompt card, which grows for a
+// permission prompt or a question with options.
+func (c *chat) inputBoxHeight() int {
+	switch {
+	case c.question != nil:
+		n := 2 + 1 + len(c.question.Options) + 1
+		if c.question.Header != "" {
+			n++
+		}
+		if c.questionTyping {
+			n++
+		}
+		return n
+	case c.perm != nil:
+		return 5
+	default:
+		return c.inputLines + 2
+	}
+}
+
+// chromeRows counts the one-line cards that sit between the transcript and
+// the prompt. Modal overlays keep the chat clean by hiding them.
+func (c *chat) chromeRows() int {
+	if c.modal != modalNone {
+		return 0
+	}
+	n := 0
+	if c.previewURL != "" {
+		n++
+	}
+	if c.todoBarVisible() {
+		n++
+	}
+	if len(c.pending) > 0 {
+		n++
+	}
+	return n
 }
 
 // commandOverlayRows estimates the height the slash palette adds below the
@@ -1250,7 +1287,7 @@ func (c *chat) refresh() {
 		return
 	}
 	var blocks []string
-	if c.showBanner {
+	if c.showBanner && len(c.entries) == 0 {
 		if banner := c.welcome(); banner != "" {
 			blocks = append(blocks, banner)
 		}
@@ -1357,6 +1394,16 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// showTodos prints the full task plan in the transcript.
+func (c *chat) showTodos() {
+	items := c.todos()
+	if len(items) == 0 {
+		c.note("no todos yet", false)
+		return
+	}
+	c.note(todo.Format(items), false)
 }
 
 func (c *chat) note(text string, isErr bool) {
@@ -1478,6 +1525,7 @@ func (c *chat) submit(text string) tea.Cmd {
 	c.layout()
 	c.entries = append(c.entries, &chatEntry{kind: entryUser, text: text, atts: atts})
 	c.entries = append(c.entries, &chatEntry{kind: entryAssistant, streaming: true})
+	c.showBanner = false
 	c.streaming = true
 	c.runStart = time.Now()
 	c.runTools = 0
@@ -1618,8 +1666,6 @@ func (c *chat) command(line string) tea.Cmd {
 		return exit("quit", "")
 	case "/help", "/keys":
 		return c.openHelp()
-	case "/panel":
-		c.togglePanel()
 	case "/model":
 		if busy() {
 			return nil
@@ -1716,6 +1762,8 @@ func (c *chat) command(line string) tea.Cmd {
 		return openScreen(scrDoctor)
 	case "/usage":
 		return openScreen(scrUsage)
+	case "/todos":
+		c.showTodos()
 	case "/new":
 		if busy() {
 			return nil
@@ -1897,6 +1945,7 @@ func (c *chat) command(line string) tea.Cmd {
 		c.notePre(c.historyView())
 	case "/clear":
 		c.entries = nil
+		c.showBanner = true
 	case "/setup":
 		if busy() {
 			return nil
@@ -2203,9 +2252,6 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 	switch msg.String() {
-	case "ctrl+b":
-		c.togglePanel()
-		return nil
 	case "ctrl+y":
 		return c.copyLastReply(false)
 	case "ctrl+o":
@@ -2378,46 +2424,6 @@ func openLocalURL(url string) error {
 	return cmd.Start()
 }
 
-func (c *chat) header() string {
-	left := styleBrand.Render("◈ WOMBAT")
-	if c.opt.Version != "" {
-		left += " " + styleFaint.Render(clip(c.opt.Version, 18))
-	}
-	if c.streaming {
-		left += " " + c.sp.View()
-		if d := c.runDuration(); d > 0 && c.w >= 90 {
-			left += " " + styleWarn.Render(elapsedLabel(d))
-		}
-	}
-	cwd := shortPath(c.opt.Cwd, max(12, c.w/3))
-	if c.w >= 62 {
-		left += "  " + styleDim.Render("in ") + styleDim.Render(cwd)
-	}
-	if c.branch != "" && c.w >= 120 {
-		left += "  " + styleFaint.Render("⎇ "+clip(c.branch, 18))
-	}
-	model := c.provName + "/" + c.modelName
-	mode := modeBadge(c.modeLabel())
-	right := styleDim.Render(clip(model, 28))
-	if c.missingKey != "" {
-		right += "  " + styleWarn.Render("no key")
-	}
-	if c.auto {
-		right += "  " + styleWarn.Render("yolo")
-	}
-	right += "  " + mode
-	if badge := c.agentsBadge(); badge != "" && c.w >= 100 {
-		right += "  " + styleFaint.Render(badge)
-	}
-	if c.w >= 110 {
-		right += "  " + styleFaint.Render(clip(c.sessionID(), 18))
-	}
-	if c.w < 52 {
-		right = mode
-	}
-	return chromeLine(left, right, c.w) + "\n" + accentRule(c.w)
-}
-
 func (c *chat) hint() string {
 	var left string
 	switch {
@@ -2456,27 +2462,21 @@ func (c *chat) hint() string {
 		}
 		left += "   " + keyHint("esc", "interrupt")
 	default:
-		left = keyHint("enter", "send") + "   " + keyHint("/", "commands") + "   " +
-			keyHint("ctrl+y", "copy") + "   " + keyHint("ctrl+g", "help")
-		if c.w >= 112 {
+		left = keyHint("enter", "send")
+		if c.w >= 64 {
+			left += "   " + keyHint("/", "commands")
+		}
+		if c.w >= 96 {
+			left += "   " + keyHint("ctrl+g", "help")
+		}
+		if c.w >= 132 {
+			left += "   " + keyHint("ctrl+y", "copy")
+		}
+		if c.w >= 168 {
 			left += "   " + keyHint("/mouse", "select")
 		}
 	}
-	right := ""
-	if c.window > 0 {
-		if c.w >= 104 {
-			right = contextGaugeTokens(c.history, c.window)
-		} else {
-			right = contextGauge(c.history, c.window)
-		}
-	}
-	if c.w <= 0 {
-		return " " + left
-	}
-	if lipgloss.Width(left)+lipgloss.Width(right)+4 > c.w {
-		right = ""
-	}
-	return chromeLine(left, right, c.w)
+	return left
 }
 
 func (c *chat) permView() string {
@@ -2540,45 +2540,62 @@ func (c *chat) view() string {
 	if c.w <= 0 || c.h <= 0 {
 		return ""
 	}
+	boxW := c.columnWidth() - 4
+	if boxW < 8 {
+		boxW = max(1, c.w-4)
+	}
 	var box string
 	switch {
 	case c.question != nil:
-		box = styleInputBox.BorderForeground(cAccent).Width(c.w - 4).Render(c.questionView())
+		box = styleInputBox.BorderForeground(cAccent).Width(boxW).Render(c.questionView())
 	case c.perm != nil:
-		box = styleInputIdle.BorderForeground(permColor(c.perm.perm)).Width(c.w - 4).Render(c.permView())
+		box = styleInputIdle.BorderForeground(permColor(c.perm.perm)).Width(boxW).Render(c.permView())
 	case c.streaming:
-		box = styleInputBusy.Width(c.w - 4).Render(c.ta.View())
+		box = styleInputBusy.Width(boxW).Render(c.ta.View())
 	default:
-		box = styleInputBox.Width(c.w - 4).Render(c.ta.View())
+		style := styleInputBox
+		if !c.ta.Focused() || c.modal != modalNone {
+			style = styleInputIdle
+		}
+		box = style.Width(boxW).Render(c.ta.View())
 	}
 	body := c.bodyView()
 	if c.modal != modalNone {
 		body = c.modalView()
 	}
-	if c.previewRailVisible() {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, c.previewRailView(), inspectorGutter(), body)
+	center := func(block string) string {
+		if block == "" {
+			return ""
+		}
+		return centerBlock(c.w, block)
 	}
-	if c.panelVisible() {
-		body = lipgloss.JoinHorizontal(lipgloss.Top, body, inspectorGutter(), c.panelView())
-	}
-	parts := []string{c.header()}
-	if bar := c.previewBar(); bar != "" {
-		parts = append(parts, bar)
-	}
-	parts = append(parts, body)
-	if line := c.pendingView(); line != "" {
-		parts = append(parts, line)
-	}
+	parts := []string{center(body)}
 	if c.modal == modalNone {
+		if bar := c.previewBar(); bar != "" {
+			parts = append(parts, center(bar))
+		}
+		if bar := c.todoBar(); bar != "" {
+			parts = append(parts, center(bar))
+		}
+		if line := c.pendingView(); line != "" {
+			parts = append(parts, center(line))
+		}
 		if pal := c.paletteView(); pal != "" {
-			parts = append(parts, pal)
+			parts = append(parts, center(pal))
 		}
 		if files := c.filePaletteView(); files != "" {
-			parts = append(parts, files)
+			parts = append(parts, center(files))
 		}
 	}
-	parts = append(parts, box, c.hint())
-	return strings.Join(parts, "\n")
+	parts = append(parts, center(box), c.footerView())
+	lines := strings.Split(strings.Join(parts, "\n"), "\n")
+	for i := range lines {
+		lines[i] = clipANSI(lines[i], c.w)
+	}
+	if len(lines) > c.h {
+		lines = lines[:c.h]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // paletteEntry is one row of the command palette: a command, or one of the
@@ -2782,8 +2799,12 @@ func (c *chat) pendingView() string {
 		parts = append(parts, styleKey.Render(fmt.Sprintf(" %d ", i+1))+
 			" "+styleDim.Render(a.Kind)+" "+clip(a.Name, 28))
 	}
-	return " " + styleDim.Render("attached:") + " " + strings.Join(parts, "  ") +
+	line := " " + styleDim.Render("attached:") + " " + strings.Join(parts, "  ") +
 		styleFaint.Render("  · /detach")
+	if w := c.columnWidth(); w > 0 {
+		line = clipANSI(line, w)
+	}
+	return line
 }
 
 func (c *chat) entryLines(e *chatEntry) []string {

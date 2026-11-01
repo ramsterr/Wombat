@@ -27,3 +27,7 @@
 /assets/
 /comparison-pi.md
 /faultsrv
+
+/tui/node_modules/
+/tui/dist/
+/tui/native/

@@ -8,10 +8,11 @@ import (
 	"strings"
 
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/todo"
 	"github.com/ramsterr/Wombat/internal/tools"
 )
 
-// visualArtifact is something a person has to look at before another pass.
+// visualArtifact is something a person should see before the run is handed back.
 type visualArtifact struct {
 	Kind string
 	Ref  string
@@ -122,6 +123,7 @@ func (a *Agent) rememberVisualTurn(calls []llm.ToolCall, results []toolResult) {
 	}
 	for _, tc := range calls {
 		if tc.Name == "question" {
+			// The model already handed the decision to the user.
 			return
 		}
 	}
@@ -136,27 +138,40 @@ func (a *Agent) rememberVisualTurn(calls []llm.ToolCall, results []toolResult) {
 			found = append(found, art)
 		}
 	}
-	for _, art := range found {
-		duplicate := false
-		for _, pending := range a.visualPending {
-			if pending.Ref == art.Ref {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
-			a.visualPending = append(a.visualPending, art)
-		}
+	if len(found) == 0 {
+		return
 	}
+	a.rememberVisual(found)
 }
 
 // finishVisualReview is the end-of-run hand-off. A preview is ready only when
-// the model has stopped producing tool calls.
+// the model has stopped producing tool calls. If the plan still has work, the
+// model is told to finish it instead of the user being interrupted mid-build.
 func (a *Agent) finishVisualReview(ctx context.Context) (stop, retry bool, err error) {
-	if a.Env == nil || len(a.visualPending) == 0 || a.Env.AskUser == nil {
+	if a.Env == nil || len(a.visualPending) == 0 {
 		return false, false, nil
 	}
-	pending := append([]visualArtifact(nil), a.visualPending...)
+	plan := a.planItems()
+	if todo.Incomplete(plan) && a.visualNudges < 2 {
+		a.visualNudges++
+		if a.Sess != nil {
+			_ = a.Sess.Append(llm.Message{
+				Role: "user",
+				Content: "The preview is ready, but the task plan still has pending or in-progress items. " +
+					"Finish the whole deliverable and mark the remaining items completed with the plan tool before handing it back.",
+			})
+		}
+		return false, true, nil
+	}
+	a.visualNudges = 0
+	if a.Env.AskUser == nil {
+		return false, false, nil
+	}
+	return a.askVisualReview(ctx, append([]visualArtifact(nil), a.visualPending...))
+}
+
+// askVisualReview asks for the final verdict after the full deliverable exists.
+func (a *Agent) askVisualReview(ctx context.Context, pending []visualArtifact) (stop, retry bool, err error) {
 	what := pending[0].Ref
 	if len(pending) > 1 {
 		what = fmt.Sprintf("%d previews (newest: %s)", len(pending), pending[0].Ref)
@@ -179,7 +194,9 @@ func (a *Agent) finishVisualReview(ctx context.Context) (stop, retry bool, err e
 	switch {
 	case answer == "", strings.HasPrefix(lower, "looks good"), strings.Contains(lower, "ship it"):
 		a.visualPending = nil
-		_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user approved the preview. Stop here; do not iterate further."})
+		if a.Sess != nil {
+			_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user approved the preview. Stop here; do not iterate further."})
+		}
 		return true, false, nil
 	case strings.HasPrefix(lower, "needs changes"):
 		follow, err := a.Env.AskUser(tools.Question{
@@ -193,13 +210,46 @@ func (a *Agent) finishVisualReview(ctx context.Context) (stop, retry bool, err e
 		follow = strings.TrimSpace(follow)
 		if follow == "" {
 			a.visualPending = nil
-			_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user did not specify changes. Stop here."})
+			if a.Sess != nil {
+				_ = a.Sess.Append(llm.Message{Role: "user", Content: "The user did not specify changes. Stop here."})
+			}
 			return true, false, nil
 		}
-		_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + follow})
+		if a.Sess != nil {
+			_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + follow})
+		}
 		return false, true, nil
 	default:
-		_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + answer})
+		if a.Sess != nil {
+			_ = a.Sess.Append(llm.Message{Role: "user", Content: "Preview feedback: " + answer})
+		}
 		return false, true, nil
+	}
+}
+
+// planItems returns the orchestrator ledger when one is attached, otherwise
+// the session's todowrite plan.
+func (a *Agent) planItems() []todo.Item {
+	if a.Plan != nil {
+		return a.Plan()
+	}
+	if a.Env != nil {
+		return a.Env.Todos()
+	}
+	return nil
+}
+
+func (a *Agent) rememberVisual(found []visualArtifact) {
+	for _, art := range found {
+		duplicate := false
+		for _, pending := range a.visualPending {
+			if pending.Ref == art.Ref {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			a.visualPending = append(a.visualPending, art)
+		}
 	}
 }
