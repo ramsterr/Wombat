@@ -1,5 +1,5 @@
+<img width="2456" height="1192" alt="image" src="https://github.com/user-attachments/assets/66fd322b-62ab-441b-8db8-eaf25a5383c9" />
 
-  <img width="100%" alt="Wombat terminal interface" src="docs/assets/new-ui.png">
 </p>
  
   <a href="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
@@ -10,6 +10,8 @@
  https://wombat-agent.vercel.app/
  
 (wombat's site is made by wombat itself)
+
+  <img width="100%" alt="Wombat terminal interface" src="docs/assets/new-ui.png">
 
 
 
