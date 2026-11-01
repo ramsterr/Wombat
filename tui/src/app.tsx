@@ -109,8 +109,8 @@ function FooterMeta(props: {
 
   return (
     <box flexDirection="row" alignItems="center" gap={1} flexGrow={1} minWidth={0}>
-      <Show when={props.usage.in > 0}>
-        <text fg={props.colors().dim} wrapMode="none">↑{humanTokens(props.usage.in)}</text>
+      <Show when={props.usage.in - props.usage.cached > 0}>
+        <text fg={props.colors().dim} wrapMode="none">↑{humanTokens(props.usage.in - props.usage.cached)}</text>
       </Show>
       <Show when={props.usage.out > 0}>
         <text fg={props.colors().dim} wrapMode="none">↓{humanTokens(props.usage.out)}</text>
