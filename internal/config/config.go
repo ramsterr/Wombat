@@ -93,6 +93,7 @@ var Presets = []Preset{
 	{Name: "groq", Kind: "openai", Base: "https://api.groq.com/openai/v1", KeyEnv: "GROQ_API_KEY"},
 	{Name: "xai", Kind: "openai", Base: "https://api.x.ai/v1", KeyEnv: "XAI_API_KEY"},
 	{Name: "mistral", Kind: "openai", Base: "https://api.mistral.ai/v1", KeyEnv: "MISTRAL_API_KEY"},
+	{Name: "gemini", Kind: "google", Base: "https://generativelanguage.googleapis.com", KeyEnv: "GEMINI_API_KEY"},
 	{Name: "opencode", Kind: "opencode", Base: "https://opencode.ai/inference", KeyEnv: "OPENCODE_API_KEY"},
 	{Name: "opencode-go", Kind: "opencode", Base: "https://opencode.ai/inference/go", KeyEnv: "OPENCODE_API_KEY"},
 	{Name: "ollama", Kind: "ollama", Base: "http://127.0.0.1:11434", Local: true},
@@ -315,6 +316,11 @@ func (c *Config) APIKey(name string, p *Provider) string {
 		return os.Getenv("ANTHROPIC_API_KEY")
 	case "openai":
 		return os.Getenv("OPENAI_API_KEY")
+	case "google":
+		if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+			return key
+		}
+		return os.Getenv("GOOGLE_API_KEY")
 	default:
 		return ""
 	}

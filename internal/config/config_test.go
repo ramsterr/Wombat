@@ -145,6 +145,41 @@ func TestAPIKeyResolution(t *testing.T) {
 	}
 }
 
+func TestGeminiPresetAndAPIKey(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	t.Setenv("WOMBAT_CONFIG", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "sk-openai")
+	cfg := Defaults()
+
+	pc, ok := cfg.Providers["gemini"]
+	if !ok {
+		t.Fatal("gemini preset missing")
+	}
+	if pc.Kind != "google" || pc.BaseURL != "https://generativelanguage.googleapis.com" {
+		t.Fatalf("gemini preset = %+v", pc)
+	}
+	if got := cfg.APIKey("gemini", pc); got != "" {
+		t.Fatalf("gemini must not inherit another provider's key: %q", got)
+	}
+
+	t.Setenv("GOOGLE_API_KEY", "google-key")
+	if got := cfg.APIKey("gemini", pc); got != "google-key" {
+		t.Fatalf("GOOGLE_API_KEY fallback = %q", got)
+	}
+
+	t.Setenv("GEMINI_API_KEY", "gemini-key")
+	if got := cfg.APIKey("gemini", pc); got != "gemini-key" {
+		t.Fatalf("GEMINI_API_KEY should win: %q", got)
+	}
+
+	pc.APIKey = "config-key"
+	if got := cfg.APIKey("gemini", pc); got != "config-key" {
+		t.Fatalf("config key should win: %q", got)
+	}
+}
+
 func TestOldConfigGetsSimplePermissions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WOMBAT_HOME", home)

@@ -49,6 +49,10 @@ func TestDiscoverCapabilities(t *testing.T) {
 	if c.Context != 128000 || !c.Vision {
 		t.Fatalf("unexpected capabilities: %+v", c)
 	}
+	c = Discover("gemini-2.5-pro")
+	if c.Context != 1000000 || !c.Vision {
+		t.Fatalf("unexpected capabilities: %+v", c)
+	}
 	c = Discover("")
 	if c.Context != DefaultWindow || c.Vision || c.Source != "default" {
 		t.Fatalf("unexpected capabilities: %+v", c)

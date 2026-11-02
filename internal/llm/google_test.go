@@ -6,18 +6,20 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/ramsterr/Wombat/internal/config"
 )
 
 func TestGoogleChatStream(t *testing.T) {
 	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, ":streamGenerateContent") {
+		if r.URL.Path != "/v1beta/models/gemini-x:streamGenerateContent" {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("alt") != "sse" {
-			t.Errorf("missing alt=sse")
+		if r.URL.RawQuery != "alt=sse" {
+			t.Errorf("query = %q, want alt=sse without credentials", r.URL.RawQuery)
 		}
 		if r.Header.Get("x-goog-api-key") != "gk" {
 			t.Errorf("missing x-goog-api-key")
@@ -106,6 +108,83 @@ func TestGoogleChatStream(t *testing.T) {
 	t0, _ := tools[0].(map[string]any)
 	if _, ok := t0["functionDeclarations"].([]any); !ok {
 		t.Errorf("tools mapping = %+v", t0)
+	}
+}
+
+func TestGoogleProviderFromConfig(t *testing.T) {
+	var gotPath, gotQuery, gotKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		gotKey = r.Header.Get("x-goog-api-key")
+		io.WriteString(w, `{"models":[{"name":"models/gemini-2.5-pro"},{"name":"models/gemini-2.5-flash"}]}`)
+	}))
+	defer srv.Close()
+
+	p, err := New("gemini", &config.Provider{Kind: "google", BaseURL: srv.URL}, "gk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := p.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/v1beta/models" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotQuery != "" {
+		t.Errorf("query = %q, want no credentials in the URL", gotQuery)
+	}
+	if gotKey != "gk" {
+		t.Errorf("x-goog-api-key = %q", gotKey)
+	}
+	if len(models) != 2 || models[0] != "gemini-2.5-flash" || models[1] != "gemini-2.5-pro" {
+		t.Fatalf("models = %v", models)
+	}
+}
+
+func TestGoogleModelPathIsEscaped(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\n")
+	}))
+	defer srv.Close()
+
+	p := newGoogle("gemini", srv.URL, "gk")
+	if _, err := p.Chat(context.Background(), Request{Model: "gemini/x?key=injected"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/v1beta/models/gemini%2Fx%3Fkey=injected:streamGenerateContent" {
+		t.Errorf("model path not escaped: %q", gotPath)
+	}
+	if gotQuery != "alt=sse" {
+		t.Errorf("query = %q, want alt=sse only", gotQuery)
+	}
+}
+
+func TestGoogleRefusesCrossOriginRedirect(t *testing.T) {
+	var leaked atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-goog-api-key") != "" {
+			leaked.Store(true)
+		}
+		io.WriteString(w, `{"models":[]}`)
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusFound)
+	}))
+	defer source.Close()
+
+	p := newGoogle("gemini", source.URL, "gk")
+	if _, err := p.ListModels(context.Background()); err == nil {
+		t.Fatal("expected the cross-host redirect to be refused")
+	}
+	if leaked.Load() {
+		t.Fatal("API key leaked to the redirect target")
 	}
 }
 

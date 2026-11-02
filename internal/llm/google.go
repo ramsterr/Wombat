@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -25,7 +26,22 @@ func newGoogle(name, base, key string) *google {
 		name: name,
 		base: strings.TrimRight(base, "/"),
 		key:  key,
-		http: &http.Client{Timeout: 10 * time.Minute},
+		http: &http.Client{
+			Timeout: 10 * time.Minute,
+			// The API key travels in a custom header, which net/http does
+			// not strip on a cross-host redirect. Refuse one so the key
+			// cannot be forwarded to an unexpected host.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) == 0 {
+					return nil
+				}
+				origin := via[0].URL
+				if req.URL.Scheme != origin.Scheme || !strings.EqualFold(req.URL.Host, origin.Host) {
+					return fmt.Errorf("%s: refusing cross-origin redirect", name)
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -192,8 +208,8 @@ func (g *google) Chat(ctx context.Context, req Request, onDelta func(string)) (*
 	if err != nil {
 		return nil, err
 	}
-	url := g.base + "/v1beta/models/" + req.Model + ":streamGenerateContent?alt=sse"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	endpoint := g.base + "/v1beta/models/" + url.PathEscape(req.Model) + ":streamGenerateContent?alt=sse"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}

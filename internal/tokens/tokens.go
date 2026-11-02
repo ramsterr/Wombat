@@ -29,6 +29,7 @@ var modelWindows = []struct {
 	ctx   int
 }{
 	{"claude", 200000},
+	{"gemini", 1000000},
 	{"gpt-5", 256000},
 	{"gpt-4.1", 256000},
 	{"gpt-4o", 128000},

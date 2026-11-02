@@ -38,6 +38,18 @@ const fixture = `{
       }
     }
   },
+  "google": {
+    "models": {
+      "gemini-2.5-pro": {
+        "id": "gemini-2.5-pro",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": {"input": ["text", "image"], "output": ["text"]},
+        "limit": {"context": 1048576, "output": 65536},
+        "provider": {"api": "https://generativelanguage.googleapis.com/v1beta"}
+      }
+    }
+  },
   "local": {
     "models": {
       "my-model": {
@@ -66,6 +78,7 @@ func TestParseAndLookup(t *testing.T) {
 		{"opencode-go", "DeepSeek-V4.1-Flash", true, true},
 		{"opencode-go", "deepseek-v4-pro", false, true},
 		{"opencode-go", "claude-haiku-5-5", true, true},
+		{"gemini", "gemini-2.5-pro", true, true},
 		{"local", "my-model", true, true},
 		{"local", "custom-alias", true, true},
 		{"opencode-go", "unknown", false, false},
@@ -89,6 +102,10 @@ func TestParseAndLookup(t *testing.T) {
 	info, _ = Lookup("opencode-go", "claude-haiku-5-5")
 	if info.Protocol != "messages" {
 		t.Fatalf("protocol = %q, want messages", info.Protocol)
+	}
+	info, _ = Lookup("gemini", "gemini-2.5-pro")
+	if info.Context != 1048576 || !info.Reasoning || !info.Vision {
+		t.Fatalf("gemini alias lookup = %+v", info)
 	}
 }
 
