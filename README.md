@@ -29,15 +29,9 @@ wombat
 ```
 
 This builds the latest `main`, installs `wombat` to `~/.local/bin`, and puts the
-UI in `~/.wombat/ui`. The installer prints the commit it built:
+UI in `~/.wombat/ui`. Rerun the same command to update.
 
-```text
-source: main @ <commit>
-updated: /home/<you>/.local/bin/wombat (main @ <commit>)
-```
-
-Rerun the same command to update. If `wombat` is not found, add
-`~/.local/bin` to your shell `PATH`:
+If `wombat` is not found, add `~/.local/bin` to your shell `PATH`:
 
 ```sh
 # macOS (zsh)
