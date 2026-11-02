@@ -31,13 +31,16 @@ fi
 
 echo "updating wombat from main..."
 if [ -d "$SRC/.git" ]; then
-  git -C "$SRC" fetch --depth 1 origin main
+  git -C "$SRC" remote set-url origin "$REPO"
+  git -C "$SRC" fetch --depth 1 "$REPO" main
   git -C "$SRC" reset --hard FETCH_HEAD
 else
   rm -rf "$SRC"
   mkdir -p "$(dirname "$SRC")"
   git clone --depth 1 --branch main "$REPO" "$SRC"
 fi
+COMMIT="$(git -C "$SRC" rev-parse --short HEAD)"
+echo "source: main @ $COMMIT"
 
 echo "building the opentui frontend..."
 (
@@ -56,10 +59,15 @@ mkdir -p "$BIN_DIR" "$WOMBAT_DIR/ui" "$WOMBAT_DIR/native"
 cp "$SRC/tui/dist/app.mjs" "$WOMBAT_DIR/ui/app.mjs"
 cp "$SRC"/tui/native/* "$WOMBAT_DIR/native/"
 
-echo "updated: $BIN_DIR/wombat"
+echo "updated: $BIN_DIR/wombat (main @ $COMMIT)"
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) echo "warning: $BIN_DIR is not on PATH; add it to use \`wombat\` from anywhere." ;;
 esac
+CURRENT="$(command -v wombat 2>/dev/null || true)"
+if [ -n "$CURRENT" ] && [ "$CURRENT" != "$BIN_DIR/wombat" ]; then
+  echo "warning: 'wombat' resolves to $CURRENT, not the new build."
+  echo "         remove the old copy or put $BIN_DIR before it on PATH, then run: hash -r"
+fi
 echo "run: wombat"
 echo "if your shell still resolves an old binary, run: hash -r"
