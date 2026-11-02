@@ -50,6 +50,12 @@ func (i Info) HasModality(kind string) bool {
 	return false
 }
 
+// providerAliases maps Wombat provider names onto the catalogue's provider
+// keys. Gemini's direct API is catalogued under "google".
+var providerAliases = map[string]string{
+	"gemini": "google",
+}
+
 var (
 	mu      sync.RWMutex
 	catalog map[string]map[string]Info
@@ -132,8 +138,14 @@ func Lookup(provider, model string) (Info, bool) {
 	}
 	mu.RLock()
 	defer mu.RUnlock()
-	info, ok := catalog[p][m]
-	return info, ok
+	if info, ok := catalog[p][m]; ok {
+		return info, true
+	}
+	if alias, ok := providerAliases[p]; ok {
+		info, ok := catalog[alias][m]
+		return info, ok
+	}
+	return Info{}, false
 }
 
 func fresh() bool {

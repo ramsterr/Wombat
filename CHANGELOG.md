@@ -8,6 +8,10 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Gemini as a first-class provider.** `wombat setup` now offers Gemini, with
+  the API key read from `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) and sent in the
+  `x-goog-api-key` header so it never appears in a URL. Streaming, reasoning,
+  tools, vision, and model listing use the native Google API.
 - **Custom agents.** Define specialists with their own system prompt, skills,
   tool allowlist, permissions, MCP servers, and provider/model. Definitions
   live in `agents` in `config.json`, `~/.wombat/agents/<name>.json|.md`, or

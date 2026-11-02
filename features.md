@@ -20,7 +20,7 @@ See the [README](README.md) for install, usage, and configuration.
 | Context | Automatic pruning, summarization, compaction, and token accounting. |
 | Checkpoints | Shadow-git snapshots with list and restore. |
 | Permissions | Per-class gates for bash, writes, edits, network, sensitive reads, and each MCP server. |
-| Providers | OpenAI-compatible APIs, Anthropic, OpenCode, and local model servers. |
+| Providers | OpenAI-compatible APIs, Anthropic, Gemini, OpenCode, and local model servers. |
 | Interface basics | Command palette, file picker, history, copy, themes, and scrollback. |
 
 ## Unique

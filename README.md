@@ -429,7 +429,8 @@ wombat config set permissions.bash ask
 ```
 
 The file lives at `~/.wombat/config.json`. API keys can also come from provider
-environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and so on).
+environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`,
+and so on).
 `wombat setup` is the easiest way to create the config.
 
 ## Troubleshooting

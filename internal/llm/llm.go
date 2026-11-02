@@ -86,6 +86,8 @@ func New(name string, pc *config.Provider, apiKey string) (Provider, error) {
 		p = newAnthropic(name, pc.BaseURL, apiKey)
 	case "ollama":
 		p = newOllama(name, pc.BaseURL, pc.NumCtx)
+	case "google":
+		p = newGoogle(name, pc.BaseURL, apiKey)
 	case "opencode":
 		p = newOpenCode(name, pc.BaseURL, apiKey)
 	default:
