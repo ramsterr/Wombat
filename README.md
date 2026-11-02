@@ -29,17 +29,43 @@ wombat
 ```
 
 This builds the latest `main`, installs `wombat` to `~/.local/bin`, and puts the
-UI in `~/.wombat/ui`. Rerun the same command to update.
+UI in `~/.wombat/ui`. The installer prints the commit it built:
 
-If `wombat` is not found, add `~/.local/bin` to your `PATH`:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+```text
+source: main @ <commit>
+updated: /home/<you>/.local/bin/wombat (main @ <commit>)
 ```
 
-**Windows** — install WSL2 and Ubuntu (`wsl --install`), then run the command
-above inside Ubuntu.
+Rerun the same command to update. If `wombat` is not found, add
+`~/.local/bin` to your shell `PATH`:
+
+```sh
+# macOS (zsh)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+
+# Ubuntu / WSL (bash)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+**Windows** — use WSL2 and run everything inside **Ubuntu**, not PowerShell or
+Git Bash:
+
+```powershell
+wsl --install
+```
+
+Open Ubuntu, confirm `uname -s` prints `Linux`, then paste the Quick start
+command above in that shell. After it finishes, check that the shell runs the
+new build, not an old Windows install:
+
+```sh
+command -v wombat   # must be /home/<you>/.local/bin/wombat
+wombat version      # must show the commit printed by the installer
+```
+
+If `command -v wombat` shows `/mnt/c/...` or another path, an older copy is
+shadowing the new build. Remove that copy, or put `~/.local/bin` before the
+Windows paths in `PATH`, then run `hash -r`.
 
 ## First run
 
