@@ -63,26 +63,15 @@ shadowing the new build. Remove that copy or put `~/.local/bin` before the
 Windows paths, then run `hash -r` and try again. A stray `wombat.exe` in a
 repository checkout is another common culprit.
 
-### Which update command should I use?
+### Update
 
-| Situation | Command |
-|---|---|
-| First install | `curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh \| sh` |
-| Wombat is already installed and working | `wombat upgrade` |
-| Updating an old or unknown install | `curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh \| sh` |
-| Repairing a missing UI, old `wombat`, or PATH problem | `curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh \| sh` |
-| Only checking what is installed | `wombat upgrade --check` |
+To build and install the latest `main`, rerun the same command:
 
-`wombat upgrade` runs **exactly** the same `update.sh` command shown above.
-Use the `curl` form for the first install or whenever the installed binary is
-old, missing the UI, or not the one on `PATH`. After one successful `curl`
-install, `wombat upgrade` is the shorter equivalent.
+```sh
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
+```
 
-On Windows, run either command inside **Ubuntu WSL**, never PowerShell.
-
-Both commands rebuild current `main`, install the binary to `~/.local/bin`, and
-reinstall `~/.wombat/ui/app.mjs` and the native renderer. There is no
-tagged-release upgrade path.
+On Windows, run it inside Ubuntu WSL.
 
 ## First run
 
@@ -121,7 +110,6 @@ runs.
 | `wombat mcp login/logout` | sign in to an OAuth MCP server |
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
-| `wombat upgrade` | rebuild from the latest main |
 
 ## Inside the chat
 
