@@ -1269,7 +1269,6 @@ func (b *bridge) usageText() string {
 		}
 		fmt.Fprintf(&sb, "  %s  %s  %s\n", m.Updated.Format("2006-01-02 15:04"), m.Model, clipLine(title, 60))
 	}
-	sb.WriteString("\nthe full activity charts are in `wombat classic`")
 	return sb.String()
 }
 

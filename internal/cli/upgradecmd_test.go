@@ -119,6 +119,15 @@ func TestInstallMethodFor(t *testing.T) {
 	}
 }
 
+func TestUpgradeRefusesTaggedReleases(t *testing.T) {
+	if err := cmdUpgrade([]string{"--version", "v0.2.6"}); err == nil {
+		t.Fatal("a tagged-release upgrade must be refused so the old UI cannot return")
+	}
+	if err := cmdUpgrade([]string{"--method", "brew"}); err == nil {
+		t.Fatal("method-based release upgrades must be refused")
+	}
+}
+
 func tarGz(t *testing.T, name string, data []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer

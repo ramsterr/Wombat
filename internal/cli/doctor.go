@@ -66,6 +66,32 @@ func cmdDoctor(_ []string) error {
 	}
 
 	fmt.Println()
+	fmt.Println(bold("ui"))
+	uiReady := true
+	if node, err := openTUINode(); err != nil {
+		uiReady = false
+		fmt.Println("  node      " + red("missing or too old (need 26.4+)"))
+	} else {
+		fmt.Println("  node      " + green(node))
+	}
+	app, appErr := openTUIApp()
+	if appErr != nil {
+		uiReady = false
+		fmt.Println("  app       " + red("missing"))
+	} else {
+		fmt.Println("  app       " + green(app))
+		if lib, err := openTUILibrary(app); err != nil {
+			uiReady = false
+			fmt.Println("  renderer  " + red("missing"))
+		} else {
+			fmt.Println("  renderer  " + green(lib))
+		}
+	}
+	if !uiReady {
+		fmt.Println("  fix       " + dim(uiInstallCommand))
+	}
+
+	fmt.Println()
 	fmt.Println(bold("mcp"))
 	if len(cfg.MCPServers) == 0 {
 		fmt.Println("  servers   " + dim("none configured"))

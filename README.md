@@ -3,7 +3,6 @@
 </p>
  
   <a href="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ramsterr/Wombat/actions/workflows/ci.yml/badge.svg?branch=main&style=flat-square"></a>
-  <a href="https://github.com/ramsterr/Wombat/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/ramsterr/Wombat?style=flat-square"></a>
   <a href="https://github.com/ramsterr/Wombat/blob/main/go.mod"><img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/ramsterr/Wombat?style=flat-square"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/ramsterr/Wombat?style=flat-square"></a>
 </p>
@@ -20,7 +19,15 @@ Can do anything and beyond than your standard agent harness , that too for lesse
 
 ## Quick start
 
-Requires Go 1.26.3+, Node 26.4+, and git.
+Requires Go 1.26.3+, Node 26.4+, and git. Check them first:
+
+```sh
+git --version
+go version    # go1.26.3 or newer
+node -v       # v26.4.0 or newer
+```
+
+Then install and start Wombat:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
@@ -28,8 +35,9 @@ wombat setup
 wombat
 ```
 
-This builds the latest `main`, installs `wombat` to `~/.local/bin`, and puts the
-UI in `~/.wombat/ui`. Rerun the same command to update.
+This builds the latest `main`, installs `wombat` to `~/.local/bin`, and installs
+the new UI to `~/.wombat/ui` and `~/.wombat/native`. Rerun the same command to
+update; there is no tagged-release install path.
 
 If `wombat` is not found, add `~/.local/bin` to your shell `PATH`:
 
@@ -99,6 +107,7 @@ runs.
 | `wombat mcp login/logout` | sign in to an OAuth MCP server |
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
+| `wombat upgrade` | rebuild from the latest main |
 | `wombat version` | print the version |
 
 ## Inside the chat
@@ -442,6 +451,28 @@ Add `~/.local/bin` to `PATH`, or run the binary by its full path.
 **No provider or model**
 
 Run `wombat setup`, then `wombat doctor`.
+
+**Wombat says the UI is missing or Node is too old**
+
+The new UI is required. Install Node 26.4+ and Go 1.26.3+, then rerun:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
+hash -r
+```
+
+**Wombat opens the old interface**
+
+That binary is an old release or a copy earlier on `PATH`. Check it:
+
+```sh
+command -v wombat   # must be ~/.local/bin/wombat
+wombat version
+```
+
+Remove the old copy or put `~/.local/bin` first in `PATH`, run `hash -r`, and
+rerun the installer. In WSL, `/mnt/c/...` copies and `wombat.exe` are common
+culprits.
 
 **Writers fail with “main workspace has tracked changes”**
 

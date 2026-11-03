@@ -118,6 +118,11 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Changed
 
+- **The new opentui interface is the only interface.** Wombat no longer falls
+  back to the classic Bubble Tea TUI when Node or the UI bundle is missing; it
+  prints the installer command instead. `install.sh`, `update.sh`, and
+  `wombat upgrade` all build current main and install the UI assets, and
+  `wombat doctor` reports Node, bundle, and renderer status.
 - Writer slots are counted while writers are active instead of being reserved
   for a whole turn, so a writer reuses the slot as soon as its patch merges.
 - Warm worktrees are pooled and reset between writers (ignored files such as
