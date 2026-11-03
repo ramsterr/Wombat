@@ -71,9 +71,9 @@ Rerun the same `update.sh` command, or from an existing install:
 wombat upgrade
 ```
 
-Both rebuild current `main` and reinstall `~/.wombat/ui/app.mjs` and the native
-renderer. Do not install a tagged release; release archives do not contain the
-UI assets.
+`wombat upgrade` runs exactly that `update.sh` command. Both rebuild current
+`main` and reinstall `~/.wombat/ui/app.mjs` and the native renderer. There is no
+tagged-release upgrade path.
 
 ## First run
 
