@@ -436,7 +436,7 @@ func (b *bridge) ensureAgent() error {
 		return err
 	}
 	if name := b.missingKey(); name != "" {
-		return fmt.Errorf("no API key configured for %s — run /configure %s", name, name)
+		return fmt.Errorf("no API key configured for %s — run /provider %s", name, name)
 	}
 	b.opts.model = b.sess.Meta.Model
 	b.opts.provider = b.sess.Meta.Provider
@@ -788,7 +788,7 @@ func (b *bridge) commandLocked(line string) {
 	case "/models":
 		b.listModels()
 		return
-	case "/configure", "/provider", "/providers":
+	case "/provider", "/providers":
 		if arg == "" {
 			b.listProviders()
 			return
@@ -996,7 +996,7 @@ func (b *bridge) listModels() {
 	provider := b.cfg.Provider
 	pc := b.cfg.Providers[provider]
 	if pc == nil || provider == "" {
-		b.note("no provider configured — run /configure", true)
+		b.note("no provider configured — run /provider", true)
 		return
 	}
 	b.send(map[string]any{"type": "loading", "message": "loading models from " + provider + "…"})

@@ -1490,7 +1490,7 @@ func (c *chat) submit(text string) tea.Cmd {
 	}
 	if name := c.missingProviderKey(); name != "" {
 		c.missingKey = name
-		c.note("no API key configured for "+name+" — run /configure "+name, true)
+		c.note("no API key configured for "+name+" — run /provider "+name, true)
 		return nil
 	}
 	c.missingKey = ""
@@ -1501,7 +1501,7 @@ func (c *chat) submit(text string) tea.Cmd {
 		}
 	}
 	if c.ag == nil {
-		c.note("no model configured — run `configure` or `wombat setup`", true)
+		c.note("no model configured — run `/provider` or `wombat setup`", true)
 		return nil
 	}
 	if c.sess.Meta.Title == "" {
@@ -1683,7 +1683,7 @@ func (c *chat) command(line string) tea.Cmd {
 			c.note("model: "+c.provName+"/"+c.modelName, false)
 			c.maybeOpenReasoningPicker()
 		}
-	case "/configure", "/provider", "/providers":
+	case "/provider", "/providers":
 		if busy() {
 			return nil
 		}

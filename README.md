@@ -124,7 +124,7 @@ Common slash commands:
 /preview [n]   open a preview; /previews lists them all
 /copy [n|all]  pick a reply to copy, or copy the transcript
 /model         switch model
-/configure     choose and configure a provider
+/provider      choose and configure a provider
 /providers     list every provider
 /reasoning     off, low, medium, high, or max
 /mode          chat or create mode
