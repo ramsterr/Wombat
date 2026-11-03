@@ -9,6 +9,9 @@ import (
 // message for the user, and whether it changed.
 func ThinkingCommand(line string, current bool) (bool, string, bool, error) {
 	args := strings.Fields(strings.TrimSpace(line))
+	if len(args) > 0 && strings.EqualFold(args[0], "/thinking") {
+		args = args[1:]
+	}
 	if len(args) == 0 {
 		state := "off"
 		if current {

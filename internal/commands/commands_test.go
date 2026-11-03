@@ -37,3 +37,20 @@ func TestHelp(t *testing.T) {
 		t.Error("no commands")
 	}
 }
+
+func TestThinkingCommand(t *testing.T) {
+	state, _, changed, err := ThinkingCommand("/thinking on", false)
+	if err != nil || !changed || !state {
+		t.Fatalf("on: state=%v changed=%v err=%v", state, changed, err)
+	}
+	state, _, changed, err = ThinkingCommand("/thinking off", true)
+	if err != nil || !changed || state {
+		t.Fatalf("off: state=%v changed=%v err=%v", state, changed, err)
+	}
+	if _, _, _, err := ThinkingCommand("/thinking", true); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if _, _, _, err := ThinkingCommand("on", false); err != nil {
+		t.Fatalf("bare arg: %v", err)
+	}
+}
