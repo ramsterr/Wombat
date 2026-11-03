@@ -400,16 +400,21 @@ function PreviewBar(props: { previews: PreviewItem[]; colors: () => ReturnType<t
   )
 }
 
-function PendingBar(props: { pending: Attachment[]; colors: () => ReturnType<typeof themeColors> }) {
+function PendingBar(props: { pending: Attachment[]; colors: () => ReturnType<typeof themeColors>; onDetach: (index: number) => void }) {
   return (
     <Show when={props.pending.length > 0}>
-      <box flexDirection="row" paddingLeft={1} paddingRight={1}>
+      <box flexDirection="row" paddingLeft={1} paddingRight={1} gap={1}>
         <text fg={props.colors().dim}>attached</text>
-        <text fg={props.colors().faint}>
-          {"  "}{props.pending.map((attachment) => `${attachment.name} (${attachment.kind})`).join("  ·  ")}
-        </text>
+        <For each={props.pending}>
+          {(attachment, index) => (
+            <box flexDirection="row" gap={1} onMouseUp={() => props.onDetach(index())}>
+              <text fg={props.colors().faint}>{`${attachment.name} (${attachment.kind})`}</text>
+              <text fg={props.colors().accent}>✕</text>
+            </box>
+          )}
+        </For>
         <box flexGrow={1} />
-        <text fg={props.colors().faint}>/detach</text>
+        <text fg={props.colors().faint}>click ✕ or /detach</text>
       </box>
     </Show>
   )
@@ -2087,7 +2092,11 @@ export function App() {
                 <TodoBar todos={todos.list} colors={colors} />
               </Show>
               <Show when={state.pending.length > 0}>
-                <PendingBar pending={state.pending} colors={colors} />
+                <PendingBar
+                  pending={state.pending}
+                  colors={colors}
+                  onDetach={(index) => bridge?.send({ type: "command", line: `/detach ${index + 1}` })}
+                />
               </Show>
 
               <Show when={permission()}>

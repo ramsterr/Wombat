@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1244,19 +1245,27 @@ func (b *bridge) detach(arg string) {
 		b.note("detached all", false)
 		return
 	}
-	name := ""
-	for i, a := range b.atts {
-		if a.Name == arg || a.Path == arg || filepath.Base(a.Path) == filepath.Base(arg) {
-			name = a.Name
-			b.atts = append(b.atts[:i], b.atts[i+1:]...)
-			break
+	idx := -1
+	if n, err := strconv.Atoi(arg); err == nil {
+		if n >= 1 && n <= len(b.atts) {
+			idx = n - 1
+		}
+	} else {
+		for i, a := range b.atts {
+			if a.Name == arg || a.Path == arg || filepath.Base(a.Path) == filepath.Base(arg) {
+				idx = i
+				break
+			}
 		}
 	}
-	b.mu.Unlock()
-	if name == "" {
+	if idx < 0 {
+		b.mu.Unlock()
 		b.note("no attachment matches "+arg, true)
 		return
 	}
+	name := b.atts[idx].Name
+	b.atts = append(b.atts[:idx], b.atts[idx+1:]...)
+	b.mu.Unlock()
 	b.emitState()
 	b.note("detached "+name, false)
 }
