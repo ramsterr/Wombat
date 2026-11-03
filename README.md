@@ -17,7 +17,10 @@
 Wombat is a general purpose agent.
 Can do anything and beyond than your standard agent harness , that too for lesser tokens at times.
 
-## Quick start
+## Install and update
+
+Wombat has one UI and one install path: build current `main` with `update.sh`.
+There is no tagged-release installer and no classic fallback.
 
 Requires Go 1.26.3+, Node 26.4+, and git. Check them first:
 
@@ -27,47 +30,50 @@ go version    # go1.26.3 or newer
 node -v       # v26.4.0 or newer
 ```
 
-Then install and start Wombat:
+### macOS
 
 ```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
-wombat setup
+command -v wombat   # must be $HOME/.local/bin/wombat
 wombat
 ```
 
-This builds the latest `main`, installs `wombat` to `~/.local/bin`, and installs
-the new UI to `~/.wombat/ui` and `~/.wombat/native`. Rerun the same command to
-update; there is no tagged-release install path.
+### Windows: use WSL2 and Ubuntu
 
-If `wombat` is not found, add `~/.local/bin` to your shell `PATH`:
-
-```sh
-# macOS (zsh)
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-
-# Ubuntu / WSL (bash)
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
-
-**Windows** — use WSL2 and run everything inside **Ubuntu**, not PowerShell or
-Git Bash:
+Run everything inside **Ubuntu**, not PowerShell or Git Bash:
 
 ```powershell
 wsl --install
 ```
 
-Open Ubuntu, confirm `uname -s` prints `Linux`, then paste the Quick start
-command above in that shell. After it finishes, check that the shell runs the
-new build, not an old Windows install:
+Then in the Ubuntu shell:
 
 ```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh
 command -v wombat   # must be /home/<you>/.local/bin/wombat
-wombat version      # must show the commit printed by the installer
+wombat
 ```
 
-If `command -v wombat` shows `/mnt/c/...` or another path, an older copy is
-shadowing the new build. Remove that copy, or put `~/.local/bin` before the
-Windows paths in `PATH`, then run `hash -r`.
+If `command -v wombat` prints `/mnt/c/...` or any other path, an old copy is
+shadowing the new build. Remove that copy or put `~/.local/bin` before the
+Windows paths, then run `hash -r` and try again. A stray `wombat.exe` in a
+repository checkout is another common culprit.
+
+### Updating
+
+Rerun the same `update.sh` command, or from an existing install:
+
+```sh
+wombat upgrade
+```
+
+Both rebuild current `main` and reinstall `~/.wombat/ui/app.mjs` and the native
+renderer. Do not install a tagged release; release archives do not contain the
+UI assets.
 
 ## First run
 
@@ -76,8 +82,8 @@ wombat doctor      # check config, permissions, and connectivity
 wombat             # open the chat UI
 ```
 
-`wombat setup` runs automatically on first launch. Your provider, model, and
-API key are saved in `~/.wombat/config.json`.
+On first launch, choose your provider, model, and API key. They are saved in
+`~/.wombat/config.json`.
 
 Without a terminal UI:
 
@@ -98,7 +104,6 @@ runs.
 | `wombat run -c "<task>"` | continue the latest session |
 | `wombat resume [id\|last]` | reopen a session |
 | `wombat sessions` | list sessions for this directory |
-| `wombat setup` | change provider, key, or model |
 | `wombat models [provider]` | list available models |
 | `wombat doctor` | diagnose config and connectivity |
 | `wombat config` | show config, with keys redacted |
@@ -108,7 +113,6 @@ runs.
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
 | `wombat upgrade` | rebuild from the latest main |
-| `wombat version` | print the version |
 
 ## Inside the chat
 
@@ -440,7 +444,6 @@ wombat config set permissions.bash ask
 The file lives at `~/.wombat/config.json`. API keys can also come from provider
 environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`,
 and so on).
-`wombat setup` is the easiest way to create the config.
 
 ## Troubleshooting
 
@@ -450,7 +453,8 @@ Add `~/.local/bin` to `PATH`, or run the binary by its full path.
 
 **No provider or model**
 
-Run `wombat setup`, then `wombat doctor`.
+Start `wombat` and choose a provider and model in the first-run prompt. Run
+`wombat doctor` if the prompt does not appear.
 
 **Wombat says the UI is missing or Node is too old**
 
@@ -467,7 +471,6 @@ That binary is an old release or a copy earlier on `PATH`. Check it:
 
 ```sh
 command -v wombat   # must be ~/.local/bin/wombat
-wombat version
 ```
 
 Remove the old copy or put `~/.local/bin` first in `PATH`, run `hash -r`, and
