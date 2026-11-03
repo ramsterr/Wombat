@@ -62,7 +62,7 @@ const emptyState: SessionState = {
   missing_key: "",
   pending: [],
   streaming: false,
-  theme: "wombat",
+  theme: "monokai",
   refs: [],
 }
 
@@ -813,7 +813,7 @@ export function App() {
   const [state, setState] = createStore<SessionState>({ ...emptyState })
   const [entries, setEntries] = createStore<{ list: Entry[] }>({ list: [] })
   const [themes, setThemes] = createSignal<ThemeInfo[]>([fallbackTheme])
-  const [themeName, setThemeName] = createSignal("wombat")
+  const [themeName, setThemeName] = createSignal("monokai")
   const [commands, setCommands] = createSignal<CommandInfo[]>([])
   const [usage, setUsage] = createStore<UsageStats>({ in: 0, out: 0, cached: 0, history: 0, window: 0 })
   const [todos, setTodos] = createStore<{ list: TodoItem[] }>({ list: [] })

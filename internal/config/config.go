@@ -143,7 +143,7 @@ func Path() string {
 
 func Defaults() *Config {
 	c := &Config{
-		Version:   4,
+		Version:   5,
 		Provider:  "openai",
 		Model:     "",
 		Providers: map[string]*Provider{},
@@ -179,7 +179,7 @@ func Defaults() *Config {
 		RequireVerification: false,
 		Writers:             true,
 		Mouse:               false,
-		Theme:               "wombat",
+		Theme:               "monokai",
 		Panel:               true,
 		PaintBackground:     true,
 	}
@@ -220,6 +220,13 @@ func Load() (*Config, error) {
 	if c.Version < 4 {
 		c.ShowThinking = true
 		c.Version = 4
+	}
+	// Version 5 makes the green-accented Monokai theme the default.
+	if c.Version < 5 {
+		if c.Theme == "" || c.Theme == "wombat" {
+			c.Theme = "monokai"
+		}
+		c.Version = 5
 	}
 	if c.ToolProfile == "" {
 		c.ToolProfile = "auto"

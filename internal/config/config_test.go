@@ -43,8 +43,11 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.ShowThinking {
 		t.Fatal("thinking must be visible by default")
 	}
-	if cfg.Version != 4 {
-		t.Fatalf("config version = %d, want 4", cfg.Version)
+	if cfg.Theme != "monokai" {
+		t.Fatalf("default theme = %q, want monokai", cfg.Theme)
+	}
+	if cfg.Version != 5 {
+		t.Fatalf("config version = %d, want 5", cfg.Version)
 	}
 }
 
@@ -80,8 +83,11 @@ func TestOldConfigTurnsOffMouse(t *testing.T) {
 	if !cfg.ShowThinking {
 		t.Error("an old config should migrate to visible thinking")
 	}
-	if cfg.Version != 4 {
-		t.Errorf("migrated version = %d, want 4", cfg.Version)
+	if cfg.Theme != "monokai" {
+		t.Errorf("migrated theme = %q, want monokai", cfg.Theme)
+	}
+	if cfg.Version != 5 {
+		t.Errorf("migrated version = %d, want 5", cfg.Version)
 	}
 }
 

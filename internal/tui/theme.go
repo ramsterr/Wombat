@@ -34,7 +34,7 @@ type theme struct {
 	outside lipgloss.TerminalColor
 }
 
-const themeDefault = "wombat"
+const themeDefault = "monokai"
 
 // themeOrder is also the order shown by /theme and ctrl+t.
 var themeOrder = []string{
