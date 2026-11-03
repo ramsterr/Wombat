@@ -7,6 +7,7 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
+	"github.com/ramsterr/Wombat/internal/session"
 )
 
 func TestBridgeDetachByIndex(t *testing.T) {
@@ -43,5 +44,35 @@ func TestBridgeDetachAll(t *testing.T) {
 	b.detach("all")
 	if len(b.atts) != 0 {
 		t.Fatalf("attachments after detach all = %+v", b.atts)
+	}
+}
+
+func TestSelectProviderUpdatesSession(t *testing.T) {
+	t.Setenv("WOMBAT_HOME", t.TempDir())
+	cwd := t.TempDir()
+	sess, err := session.Create(cwd, "old", "old-model", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &bridge{
+		cfg:  &config.Config{Provider: "new", Model: "new-model"},
+		sess: sess,
+		out:  json.NewEncoder(io.Discard),
+	}
+
+	b.selectProvider("new")
+
+	if got := b.sess.Meta.Provider; got != "new" {
+		t.Fatalf("session provider = %q", got)
+	}
+	if got := b.state()["provider"]; got != "new" {
+		t.Fatalf("state provider = %v", got)
+	}
+	reopened, err := session.Open(sess.ID(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Meta.Provider; got != "new" {
+		t.Fatalf("persisted provider = %q", got)
 	}
 }

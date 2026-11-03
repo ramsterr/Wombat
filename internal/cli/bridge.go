@@ -1572,11 +1572,27 @@ func (b *bridge) formActionLocked(action string, values, meta map[string]string)
 		}
 		applyProviderForm(b.cfg, name, values["base_url"], values["api_key"])
 		_ = b.cfg.Save()
+		b.closeAgent()
+		b.selectProvider(name)
 		b.note("configured "+name, false)
 		b.emitState()
-		b.closeAgent()
 		b.listModels()
 	}
+}
+
+// selectProvider moves the active session to a provider. Without this the
+// session keeps its original provider, so the footer and the agent stay on the
+// old one even after the config has switched.
+func (b *bridge) selectProvider(name string) {
+	b.mu.Lock()
+	if b.sess != nil {
+		b.sess.Meta.Provider = name
+		_ = b.sess.Flush()
+	}
+	b.window = tokens.WindowFor(b.cfg.Provider, b.cfg.ActiveModel())
+	in, out, cached, hist, window := b.cumIn, b.cumOut, b.cumCached, b.history, b.window
+	b.mu.Unlock()
+	b.send(map[string]any{"type": "usage", "in": in, "out": out, "cached": cached, "history": hist, "window": window})
 }
 
 func (b *bridge) toggleAgent(name string) {
