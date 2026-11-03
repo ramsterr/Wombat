@@ -23,9 +23,6 @@ The build writes `dist/app.mjs` and stages the native renderer in `native/`.
 ./wombat
 ```
 
-`wombat` falls back to the original Bubble Tea interface when the frontend is
-not built or Node is too old. To force the classic interface:
-
-```bash
-WOMBAT_CLASSIC=1 ./wombat
-```
+`wombat` requires this frontend. When the bundle or a compatible Node runtime
+is missing it prints the `update.sh` command to install it instead of opening
+a different interface.

@@ -45,8 +45,6 @@ func Main() {
 		err = cmdHome("")
 	case "ui":
 		err = cmdHome("")
-	case "classic":
-		err = cmdClassicHome("")
 	case "chat":
 		if len(args) == 0 && isTTY(os.Stdin) {
 			err = cmdHome("")
@@ -120,7 +118,7 @@ usage:
   wombat agent list          list custom agents
   wombat checkpoint list     list session checkpoints
   wombat checkpoint restore  restore a checkpoint (--yes to confirm)
-  wombat upgrade             update wombat to the latest release
+  wombat upgrade             rebuild wombat from the latest main
   wombat version             print version
 
 flags for run/resume:

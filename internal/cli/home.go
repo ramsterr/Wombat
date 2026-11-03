@@ -13,21 +13,29 @@ import (
 
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/session"
-	"github.com/ramsterr/Wombat/internal/tui"
 )
 
-// cmdHome launches the opentui frontend when it is available and falls back
-// to the original Bubble Tea interface otherwise.
+const uiInstallCommand = "curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh | sh"
+
+func uiSetupError(reason string) error {
+	return fmt.Errorf("%s\n\ninstall or repair the Wombat UI with:\n  %s\nOn Windows, run this inside WSL2 (Ubuntu). Then run `hash -r` and start wombat again", reason, uiInstallCommand)
+}
+
+// cmdHome launches the opentui frontend. There is no silent fallback: an old
+// or missing frontend is reported instead of opening a different interface.
 func cmdHome(sessionID string) error {
-	if os.Getenv("WOMBAT_CLASSIC") == "1" || os.Getenv("WOMBAT_HEADLESS") == "1" {
-		return cmdClassicHome(sessionID)
+	node, err := openTUINode()
+	if err != nil {
+		return err
 	}
-	node, ok := openTUINode()
-	app, okApp := openTUIApp()
-	if !ok || !okApp {
-		return cmdClassicHome(sessionID)
+	app, err := openTUIApp()
+	if err != nil {
+		return err
 	}
-	lib := openTUILibrary(app)
+	lib, err := openTUILibrary(app)
+	if err != nil {
+		return err
+	}
 	for {
 		cfg, err := config.Load()
 		if err != nil {
@@ -57,40 +65,6 @@ func cmdHome(sessionID string) error {
 	}
 }
 
-func cmdClassicHome(sessionID string) error {
-	for {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		if sessionID == "" && (cfg.Provider == "" || cfg.ActiveModel() == "") {
-			if err := cmdSetup(nil); err != nil {
-				return err
-			}
-			continue
-		}
-		cwd, _ := os.Getwd()
-		action, err := tui.Run(tui.Options{
-			Version:   VersionString(),
-			Cwd:       cwd,
-			Cfg:       cfg,
-			SessionID: sessionID,
-			Mouse:     cfg.Mouse,
-		})
-		if err != nil {
-			return err
-		}
-		switch action.Kind {
-		case "configure":
-			if err := cmdSetup(nil); err != nil {
-				return err
-			}
-		default:
-			return nil
-		}
-	}
-}
-
 func cmdResumeTUI(args []string) error {
 	cwd, _ := os.Getwd()
 	id := ""
@@ -108,34 +82,39 @@ func cmdResumeTUI(args []string) error {
 }
 
 // openTUINode finds a Node runtime new enough for @opentui/core.
-func openTUINode() (string, bool) {
+func openTUINode() (string, error) {
 	node, err := exec.LookPath("node")
 	if err != nil {
-		return "", false
+		return "", uiSetupError("Node.js was not found; the Wombat UI needs Node 26.4 or newer")
 	}
 	out, err := exec.Command(node, "--version").Output()
 	if err != nil {
-		return "", false
+		return "", uiSetupError("could not run `node --version`")
 	}
-	version := strings.TrimPrefix(strings.TrimSpace(string(out)), "v")
+	version := strings.TrimSpace(string(out))
+	if !nodeSupportsOpenTUI(version) {
+		return "", uiSetupError(fmt.Sprintf("Node %s is too old; the Wombat UI needs Node 26.4 or newer", version))
+	}
+	return node, nil
+}
+
+func nodeSupportsOpenTUI(version string) bool {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
 	parts := strings.Split(version, ".")
 	if len(parts) < 2 {
-		return "", false
+		return false
 	}
 	major, err1 := strconv.Atoi(parts[0])
 	minor, err2 := strconv.Atoi(parts[1])
 	if err1 != nil || err2 != nil {
-		return "", false
+		return false
 	}
-	if major < 26 || (major == 26 && minor < 4) {
-		return "", false
-	}
-	return node, true
+	return major > 26 || (major == 26 && minor >= 4)
 }
 
 // openTUIApp locates the built Solid app. It works from a checkout and from
 // a binary installed next to a tui/ directory.
-func openTUIApp() (string, bool) {
+func openTUIApp() (string, error) {
 	candidates := []string{}
 	if value := strings.TrimSpace(os.Getenv("WOMBAT_TUI_APP")); value != "" {
 		candidates = append(candidates, value)
@@ -157,24 +136,29 @@ func openTUIApp() (string, bool) {
 			candidate = abs
 		}
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, true
+			return candidate, nil
 		}
 	}
-	return "", false
+	return "", uiSetupError("the Wombat UI bundle is missing (expected " + filepath.Join(config.Home(), "ui", "app.mjs") + ")")
 }
 
-// openTUILibrary finds the native renderer shipped beside the app. When it is
-// absent, opentui resolves its platform package from node_modules.
-func openTUILibrary(app string) string {
-	if value := strings.TrimSpace(os.Getenv("WOMBAT_OTUI_LIB")); value != "" {
-		return value
-	}
+// openTUILibrary finds the native renderer shipped beside the app.
+func openTUILibrary(app string) (string, error) {
 	name := "libopentui.so"
 	switch runtime.GOOS {
 	case "darwin":
 		name = "libopentui.dylib"
 	case "windows":
 		name = "opentui.dll"
+	}
+	if value := strings.TrimSpace(os.Getenv("WOMBAT_OTUI_LIB")); value != "" {
+		if abs, err := filepath.Abs(value); err == nil {
+			value = abs
+		}
+		if info, err := os.Stat(value); err == nil && !info.IsDir() {
+			return value, nil
+		}
+		return "", uiSetupError("WOMBAT_OTUI_LIB points to a missing renderer: " + value)
 	}
 	appDir := filepath.Dir(app)
 	candidates := []string{
@@ -187,10 +171,10 @@ func openTUILibrary(app string) string {
 			candidate = abs
 		}
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
+			return candidate, nil
 		}
 	}
-	return ""
+	return "", uiSetupError("the native opentui renderer is missing (expected " + filepath.Join(config.Home(), "native", name) + ")")
 }
 
 func runOpenTUI(node, app, lib, sessionID string) error {

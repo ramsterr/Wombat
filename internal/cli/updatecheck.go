@@ -26,21 +26,21 @@ func printUpdateStatus(ctx context.Context) {
 		fmt.Println("  " + dim("checks disabled (WOMBAT_NO_UPDATE_CHECK)"))
 		return
 	}
+	current := release.Normalize(Version)
+	if current == "dev" {
+		fmt.Println("  " + dim("main build; run `wombat upgrade` to rebuild from main"))
+		return
+	}
 	latest, err := cachedLatest(ctx)
 	if err != nil || latest == "" {
 		fmt.Println("  " + dim("could not check for updates"))
 		return
 	}
-	current := release.Normalize(Version)
-	if current == "dev" {
-		fmt.Println("  " + dim("development build; latest release is "+latest))
-		return
-	}
 	if release.Compare(current, latest) >= 0 {
-		fmt.Println("  " + green("✓") + " up to date " + dim("("+current+")"))
+		fmt.Println("  " + green("✓") + " release " + dim("("+current+")") + " — run `wombat upgrade` for latest main")
 		return
 	}
-	fmt.Println("  " + yellow("↑") + " " + bold(latest) + dim(" available — run `wombat upgrade`"))
+	fmt.Println("  " + yellow("↑") + " " + bold(latest) + dim(" release available — `wombat upgrade` rebuilds main"))
 }
 
 // cachedLatest returns the newest release version, cached for a day so doctor

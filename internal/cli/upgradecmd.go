@@ -13,85 +13,47 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/ramsterr/Wombat/internal/release"
 )
 
-const upgradeTimeout = 5 * time.Minute
-
+// cmdUpgrade rebuilds from main. Release archives only carry the Go binary,
+// not the opentui assets, so installing a tagged release would bring back the
+// removed classic interface.
 func cmdUpgrade(args []string) error {
-	var (
-		checkOnly bool
-		method    string
-		target    string
-	)
+	checkOnly := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--check", "-c":
 			checkOnly = true
-		case "--method", "-m":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--method needs a value (auto, script, go, brew)")
-			}
-			i++
-			method = strings.ToLower(args[i])
-		case "--version", "-v":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--version needs a value")
-			}
-			i++
-			target = args[i]
+		case "--method", "-m", "--version", "-v":
+			return fmt.Errorf("tagged-release upgrades are no longer supported; run `wombat upgrade` to rebuild main")
 		case "--help", "-h":
-			fmt.Println("usage: wombat upgrade [--check] [--method auto|script|go|brew] [--version <tag>]")
+			fmt.Println("usage: wombat upgrade [--check]")
 			return nil
 		default:
 			return fmt.Errorf("unknown argument %q", args[i])
 		}
 	}
-	if method == "" {
-		method = detectInstallMethod()
-	}
-	if method != "auto" && method != "script" && method != "go" && method != "brew" {
-		return fmt.Errorf("unknown method %q (auto, script, go, brew)", method)
-	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), upgradeTimeout)
-	defer cancel()
-
-	client := release.NewClient()
-	var rel release.Release
-	var err error
-	if target != "" {
-		rel, err = client.Release(ctx, target)
-	} else {
-		rel, err = client.Latest(ctx)
-	}
-	if err != nil {
-		return fmt.Errorf("could not check for updates: %w", err)
-	}
-	latest := rel.Version()
-	current := release.Normalize(Version)
-	if current != "dev" && release.Compare(current, latest) >= 0 {
-		fmt.Println(green("wombat is up to date") + dim(" ("+current+")"))
-		return nil
-	}
-	if current == "dev" {
-		fmt.Println(yellow("this is a development build") + dim(" (version "+current+")"))
-	}
-	fmt.Printf("%s %s %s\n", bold("update available"), bold(current), dim("→ "+latest))
+	fmt.Println(dim("current: " + VersionString()))
+	fmt.Println("wombat updates from main, including the new UI.")
 	if checkOnly {
-		fmt.Println(dim("run `wombat upgrade` to install it"))
+		fmt.Println(dim("run `wombat upgrade` to rebuild it"))
 		return nil
 	}
-	switch method {
-	case "brew":
-		return upgradeWithBrew(ctx, latest)
-	case "go":
-		return upgradeWithGo(ctx, latest)
-	default:
-		return upgradeInPlace(ctx, client, rel, method)
+	if _, err := exec.LookPath("sh"); err != nil {
+		return fmt.Errorf("sh is required; on Windows run this inside WSL2 (Ubuntu):\n  %s", uiInstallCommand)
 	}
+	fmt.Println(dim("running: " + uiInstallCommand))
+	cmd := exec.Command("sh", "-c", uiInstallCommand)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("update failed: %w", err)
+	}
+	return nil
 }
 
 // detectInstallMethod guesses how this binary was installed.
