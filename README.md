@@ -30,7 +30,7 @@ go version    # go1.26.3 or newer
 node -v       # v26.4.0 or newer
 ```
 
-### macOS
+### First install on macOS
 
 ```sh
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
@@ -40,7 +40,7 @@ command -v wombat   # must be $HOME/.local/bin/wombat
 wombat
 ```
 
-### Windows: use WSL2 and Ubuntu
+### First install on Windows: use WSL2 and Ubuntu
 
 Run everything inside **Ubuntu**, not PowerShell or Git Bash:
 
@@ -63,16 +63,25 @@ shadowing the new build. Remove that copy or put `~/.local/bin` before the
 Windows paths, then run `hash -r` and try again. A stray `wombat.exe` in a
 repository checkout is another common culprit.
 
-### Updating
+### Which update command should I use?
 
-Rerun the same `update.sh` command, or from an existing install:
+| Situation | Command |
+|---|---|
+| First install | `curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh \| sh` |
+| Wombat is already installed and working | `wombat upgrade` |
+| Updating an old or unknown install | `curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh \| sh` |
+| Repairing a missing UI, old `wombat`, or PATH problem | `curl -fsSL https://raw.githubusercontent.com/ramsterr/Wombat/main/update.sh \| sh` |
+| Only checking what is installed | `wombat upgrade --check` |
 
-```sh
-wombat upgrade
-```
+`wombat upgrade` runs **exactly** the same `update.sh` command shown above.
+Use the `curl` form for the first install or whenever the installed binary is
+old, missing the UI, or not the one on `PATH`. After one successful `curl`
+install, `wombat upgrade` is the shorter equivalent.
 
-`wombat upgrade` runs exactly that `update.sh` command. Both rebuild current
-`main` and reinstall `~/.wombat/ui/app.mjs` and the native renderer. There is no
+On Windows, run either command inside **Ubuntu WSL**, never PowerShell.
+
+Both commands rebuild current `main`, install the binary to `~/.local/bin`, and
+reinstall `~/.wombat/ui/app.mjs` and the native renderer. There is no
 tagged-release upgrade path.
 
 ## First run
