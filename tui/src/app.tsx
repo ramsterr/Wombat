@@ -657,6 +657,9 @@ function OverlayView(props: {
                       </text>
                     </Show>
                     <box flexGrow={1} />
+                    <Show when={item.configured}>
+                      <text fg={index() === (props.overlay.kind === "list" ? props.overlay.selected : 0) ? props.colors().ink : props.colors().accent2}>configured</text>
+                    </Show>
                     <Show when={item.current}>
                       <text fg={index() === (props.overlay.kind === "list" ? props.overlay.selected : 0) ? props.colors().ink : props.colors().accent2}>current</text>
                     </Show>

@@ -124,6 +124,7 @@ export type ListItem = {
   detail?: string
   value: string
   current?: boolean
+  configured?: boolean
   icon?: string
 }
 

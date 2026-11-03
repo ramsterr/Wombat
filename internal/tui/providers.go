@@ -55,15 +55,15 @@ func newProviders(opt Options) providersModel {
 			return
 		}
 		seen[name] = true
-		item := providerItem{name: name, kind: "openai", base: "", configured: name == current}
+		item := providerItem{name: name, kind: "openai", base: ""}
 		if pc != nil {
 			item.kind = pc.Kind
 			item.base = pc.BaseURL
 			item.hasKey = opt.Cfg.APIKey(name, pc) != ""
 		}
-		if item.hasKey {
-			// configured true is only about the active provider; key state is
-			// reported separately.
+		item.configured = item.hasKey
+		if name == current {
+			item.configured = true
 		}
 		if name == current {
 			currentIndex = len(items)

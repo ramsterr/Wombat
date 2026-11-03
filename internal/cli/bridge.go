@@ -115,11 +115,12 @@ type bridgeOption struct {
 }
 
 type bridgeListItem struct {
-	Label   string `json:"label"`
-	Detail  string `json:"detail,omitempty"`
-	Value   string `json:"value"`
-	Current bool   `json:"current,omitempty"`
-	Icon    string `json:"icon,omitempty"`
+	Label      string `json:"label"`
+	Detail     string `json:"detail,omitempty"`
+	Value      string `json:"value"`
+	Current    bool   `json:"current,omitempty"`
+	Configured bool   `json:"configured,omitempty"`
+	Icon       string `json:"icon,omitempty"`
 }
 
 var bridgePreviewURL = regexp.MustCompile(`https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::[0-9]+)?(?:[/?#][^\s"'<>)]*)?`)
@@ -1074,9 +1075,47 @@ func (b *bridge) listProviders() {
 		if pc != nil {
 			detail = pc.Kind + " · " + pc.BaseURL
 		}
-		items = append(items, bridgeListItem{Label: name, Detail: detail, Value: name, Current: name == b.cfg.Provider})
+		items = append(items, bridgeListItem{
+			Label:      name,
+			Detail:     detail,
+			Value:      name,
+			Current:    name == b.cfg.Provider,
+			Configured: providerConfigured(b.cfg, name, pc),
+		})
 	}
-	b.send(map[string]any{"type": "list", "id": "providers", "title": "providers", "subtitle": "choose a provider to configure", "action": "configure_provider", "items": items})
+	b.send(map[string]any{"type": "list", "id": "providers", "title": "providers", "subtitle": "enter switches provider · configured means ready to use", "action": "configure_provider", "items": items})
+}
+
+func providerConfigured(cfg *config.Config, name string, pc *config.Provider) bool {
+	if pc == nil {
+		if preset, ok := config.PresetByName(name); ok {
+			pc = &config.Provider{Kind: preset.Kind, BaseURL: preset.Base}
+		}
+	}
+	if pc == nil {
+		return false
+	}
+	return cfg.APIKey(name, pc) != "" || bridgeProviderIsLocal(name, pc)
+}
+
+func applyProviderForm(cfg *config.Config, name, baseURL, apiKey string) {
+	pc := cfg.Providers[name]
+	if pc == nil {
+		pc = &config.Provider{Kind: "openai"}
+	}
+	if v := strings.TrimSpace(baseURL); v != "" {
+		pc.BaseURL = v
+	}
+	// An empty field means "keep the saved key", so switching providers never
+	// forces the user to paste it again.
+	if v := strings.TrimSpace(apiKey); v != "" {
+		pc.APIKey = v
+	}
+	if cfg.Providers == nil {
+		cfg.Providers = map[string]*config.Provider{}
+	}
+	cfg.Providers[name] = pc
+	cfg.Provider = name
 }
 
 func (b *bridge) openProviderForm(name string) {
@@ -1090,12 +1129,16 @@ func (b *bridge) openProviderForm(name string) {
 			base = preset.Base
 		}
 	}
+	keyLabel := "API key"
+	if providerConfigured(b.cfg, name, pc) {
+		keyLabel = "API key (configured — leave blank to keep)"
+	}
 	b.send(map[string]any{
 		"type": "form", "id": "provider", "title": "configure " + name,
 		"action": "save_provider",
 		"fields": []map[string]any{
 			{"name": "base_url", "label": "base URL", "value": base},
-			{"name": "api_key", "label": "API key", "value": "", "secret": true},
+			{"name": "api_key", "label": keyLabel, "value": "", "secret": true},
 		},
 		"meta": map[string]string{"provider": name},
 	})
@@ -1518,21 +1561,7 @@ func (b *bridge) formActionLocked(action string, values, meta map[string]string)
 			b.note("missing provider name", true)
 			return
 		}
-		pc := b.cfg.Providers[name]
-		if pc == nil {
-			pc = &config.Provider{Kind: "openai"}
-		}
-		if v := strings.TrimSpace(values["base_url"]); v != "" {
-			pc.BaseURL = v
-		}
-		if v := strings.TrimSpace(values["api_key"]); v != "" {
-			pc.APIKey = v
-		}
-		if b.cfg.Providers == nil {
-			b.cfg.Providers = map[string]*config.Provider{}
-		}
-		b.cfg.Providers[name] = pc
-		b.cfg.Provider = name
+		applyProviderForm(b.cfg, name, values["base_url"], values["api_key"])
 		_ = b.cfg.Save()
 		b.note("configured "+name, false)
 		b.emitState()
