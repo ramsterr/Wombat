@@ -40,8 +40,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Mouse {
 		t.Fatal("mouse reporting must be off by default so text selection works")
 	}
-	if cfg.Version != 3 {
-		t.Fatalf("config version = %d, want 3", cfg.Version)
+	if !cfg.ShowThinking {
+		t.Fatal("thinking must be visible by default")
+	}
+	if cfg.Version != 4 {
+		t.Fatalf("config version = %d, want 4", cfg.Version)
 	}
 }
 
@@ -74,8 +77,11 @@ func TestOldConfigTurnsOffMouse(t *testing.T) {
 	if cfg.Mouse {
 		t.Error("an old config with mouse:true should be migrated to selection-friendly mouse:false")
 	}
-	if cfg.Version != 3 {
-		t.Errorf("migrated version = %d, want 3", cfg.Version)
+	if !cfg.ShowThinking {
+		t.Error("an old config should migrate to visible thinking")
+	}
+	if cfg.Version != 4 {
+		t.Errorf("migrated version = %d, want 4", cfg.Version)
 	}
 }
 

@@ -143,7 +143,7 @@ func Path() string {
 
 func Defaults() *Config {
 	c := &Config{
-		Version:   3,
+		Version:   4,
 		Provider:  "openai",
 		Model:     "",
 		Providers: map[string]*Provider{},
@@ -164,6 +164,7 @@ func Defaults() *Config {
 		MaxParallelAgents:  DefaultMaxParallelAgents,
 		MaxParallelWriters: DefaultMaxParallelWriters,
 		Mode:               "create",
+		ShowThinking:       true,
 		ToolProfile:        "auto",
 		ResearchMode:       "auto",
 		Capabilities: map[string]string{
@@ -214,6 +215,11 @@ func Load() (*Config, error) {
 	if c.Version < 3 {
 		c.Mouse = false
 		c.Version = 3
+	}
+	// Version 4 shows the model's thinking by default.
+	if c.Version < 4 {
+		c.ShowThinking = true
+		c.Version = 4
 	}
 	if c.ToolProfile == "" {
 		c.ToolProfile = "auto"
