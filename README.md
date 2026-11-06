@@ -110,6 +110,24 @@ runs.
 | `wombat mcp login/logout` | sign in to an OAuth MCP server |
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
+| `wombat serve [--lan]` | run the phone web client for this project |
+
+## Use wombat on your phone
+
+`wombat serve` runs a mobile web client. The agent still runs on your computer, in the project directory you start it from. Your phone just gets the chat.
+
+```bash
+cd ~/my-project
+wombat serve            # this computer only: http://127.0.0.1:8787
+wombat serve --lan      # your phone on the same Wi-Fi
+```
+
+- Open the printed URL in the phone browser. It includes an access token in the `#token=` part, which browsers never send to the server. The page stores the token on the phone, so you only need to paste it once (menu, "Change token" to replace it).
+- Each browser connection runs its own agent process, and permission prompts appear as sheets on the phone. Tool approvals are not automatic.
+- Traffic over `--lan` is plain HTTP. Use it only on a network you trust, or reach your computer over an encrypted network such as Tailscale (`http://<tailscale-ip>:8787`) instead of exposing the port on public Wi-Fi.
+- Closing the page or losing the connection stops the run in progress. Reconnecting resumes the saved session.
+- Options: `--port`, `--token` (fixed token), `--dir` (project directory), `--host`. Bridge errors go to `~/.wombat/serve.log`.
+- Not yet supported from the phone: attaching files or photos, and previewing local sites.
 
 ## Inside the chat
 

@@ -55,6 +55,8 @@ func Main() {
 		err = cmdRun(args)
 	case "bridge":
 		err = cmdBridge(args)
+	case "serve":
+		err = cmdServe(args)
 	case "resume":
 		tuiMode := isTTY(os.Stdin)
 		for _, a := range args {
@@ -107,6 +109,7 @@ usage:
   wombat                     start the chat TUI
   wombat chat                same as wombat (line mode when piped)
   wombat resume [id|last]    resume a session in the TUI
+  wombat serve [--lan]       run the phone web client (token-protected)
   wombat run "<task>"        one-shot headless run (attach with @path)
   wombat setup               configure providers and models
   wombat models [provider]   list available models
