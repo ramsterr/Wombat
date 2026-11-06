@@ -298,8 +298,8 @@ function ToolView(props: { entry: Extract<Entry, { kind: "tool" }>; colors: () =
             {(line) => (
               <text
                 fg={line.startsWith("+") ? props.colors().green : line.startsWith("-") ? props.colors().red : line.startsWith("@@") ? props.colors().accent2 : props.colors().faint}
-                wrapMode="none"
-                truncate
+                wrapMode={props.entry.expanded ? "word" : "none"}
+                truncate={!props.entry.expanded}
                 selectable
                 selectionBg={props.colors().accent}
                 selectionFg={props.colors().ink}
@@ -309,7 +309,7 @@ function ToolView(props: { entry: Extract<Entry, { kind: "tool" }>; colors: () =
             )}
           </For>
           <Show when={!props.entry.expanded && lines().length > 3}>
-            <text fg={props.colors().faint}>… click to expand</text>
+            <text fg={props.colors().faint}>… click or ctrl+e to expand</text>
           </Show>
         </box>
       </Show>
@@ -385,14 +385,40 @@ function TodoBar(props: { todos: TodoItem[]; colors: () => ReturnType<typeof the
   )
 }
 
-function PreviewBar(props: { previews: PreviewItem[]; colors: () => ReturnType<typeof themeColors> }) {
+function PreviewBar(props: {
+  previews: PreviewItem[]
+  entries: Entry[]
+  todos: TodoItem[]
+  streaming: boolean
+  colors: () => ReturnType<typeof themeColors>
+}) {
   const newest = () => props.previews[0]
+  const complete = () =>
+    !props.streaming &&
+    (props.todos.length === 0 ||
+      props.todos.every((item) => item.status === "completed" || item.status === "cancelled"))
+  const workingOn = () => {
+    for (let i = props.entries.length - 1; i >= 0; i--) {
+      const entry = props.entries[i]
+      if (entry.kind === "tool" && entry.running) {
+        const detail = oneLine(entry.detail ?? "")
+        return clip(detail ? `${entry.name} ${detail}` : entry.name, 48)
+      }
+    }
+    const todo =
+      props.todos.find((item) => item.status === "in_progress") ??
+      props.todos.find((item) => item.status === "pending")
+    return todo ? clip(oneLine(todo.content), 48) : ""
+  }
   return (
     <Show when={newest()}>
       <box flexDirection="row" paddingLeft={1} paddingRight={1} backgroundColor={props.colors().panel}>
-        <text fg={props.colors().accent}>●</text>
-        <text fg={props.colors().text}> preview ready </text>
+        <text fg={complete() ? props.colors().green : props.colors().accent}>●</text>
+        <text fg={props.colors().text}>{complete() ? " preview is fully done " : " preview ready "}</text>
         <text fg={props.colors().link} wrapMode="none" truncate>{newest()?.label}</text>
+        <Show when={!complete() && props.streaming && workingOn()}>
+          <text fg={props.colors().faint} wrapMode="none" truncate>{" · " + workingOn()}</text>
+        </Show>
         <box flexGrow={1} />
         <text fg={props.colors().faint}>ctrl+o open · /previews</text>
       </box>
@@ -774,6 +800,7 @@ function HelpLines(props: {
     ["ctrl+t", "cycle theme"],
     ["ctrl+y", "copy last reply"],
     ["ctrl+v", "paste an image"],
+    ["ctrl+e", "expand tool output"],
     ["ctrl+p/n", "prompt history"],
     ["alt+2/3/5", "sessions · models · doctor"],
     ["pgup/pgdn", "scroll transcript"],
@@ -1871,6 +1898,22 @@ export function App() {
       }
       return
     }
+    if (key.ctrl && key.name === "e") {
+      key.preventDefault()
+      const tools = entries.list.filter((entry) => entry.kind === "tool" && entry.result.trim())
+      if (tools.length > 0) {
+        const expand = tools.some((entry) => !entry.expanded)
+        setEntries(
+          "list",
+          produce((list) => {
+            for (const entry of list) {
+              if (entry.kind === "tool" && entry.result.trim()) entry.expanded = expand
+            }
+          }),
+        )
+      }
+      return
+    }
     if (key.ctrl && key.name === "t") {
       key.preventDefault()
       cycleTheme()
@@ -2086,7 +2129,13 @@ export function App() {
           <box flexDirection="column" width={promptWidth()} alignSelf="center" flexShrink={0}>
             <Show when={!overlay()}>
               <Show when={previews.list.length > 0}>
-                <PreviewBar previews={previews.list} colors={colors} />
+                <PreviewBar
+                  previews={previews.list}
+                  entries={entries.list}
+                  todos={todos.list}
+                  streaming={isStreaming()}
+                  colors={colors}
+                />
               </Show>
               <Show when={todos.list.length > 0}>
                 <TodoBar todos={todos.list} colors={colors} />
