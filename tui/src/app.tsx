@@ -393,6 +393,10 @@ function PreviewBar(props: {
   colors: () => ReturnType<typeof themeColors>
 }) {
   const newest = () => props.previews[0]
+  let seenDone = false
+  createEffect(() => {
+    if (!props.streaming && props.previews.length > 0) seenDone = true
+  })
   const complete = () =>
     !props.streaming &&
     (props.todos.length === 0 ||
@@ -410,14 +414,18 @@ function PreviewBar(props: {
       props.todos.find((item) => item.status === "pending")
     return todo ? clip(oneLine(todo.content), 48) : ""
   }
+  const phase = () => {
+    if (!props.streaming) return ""
+    return (seenDone ? "currently improving: " : "currently building: ") + (workingOn() || "working")
+  }
   return (
     <Show when={newest()}>
       <box flexDirection="row" paddingLeft={1} paddingRight={1} backgroundColor={props.colors().panel}>
         <text fg={complete() ? props.colors().green : props.colors().accent}>●</text>
-        <text fg={props.colors().text}>{complete() ? " preview is fully done " : " preview ready "}</text>
-        <text fg={props.colors().link} wrapMode="none" truncate>{newest()?.label}</text>
-        <Show when={!complete() && props.streaming && workingOn()}>
-          <text fg={props.colors().faint} wrapMode="none" truncate>{" · " + workingOn()}</text>
+        <text fg={props.colors().text}>{complete() ? " preview done " : " preview will be at: "}</text>
+        <text fg={props.colors().link} wrapMode="none" truncate>{shortPath(newest()?.label ?? "", 48)}</text>
+        <Show when={phase()}>
+          <text fg={props.colors().faint} wrapMode="none" truncate>{" · " + phase()}</text>
         </Show>
         <box flexGrow={1} />
         <text fg={props.colors().faint}>ctrl+o open · /previews</text>
@@ -425,6 +433,7 @@ function PreviewBar(props: {
     </Show>
   )
 }
+
 
 function PendingBar(props: { pending: Attachment[]; colors: () => ReturnType<typeof themeColors>; onDetach: (index: number) => void }) {
   return (
