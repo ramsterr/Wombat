@@ -90,6 +90,11 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- Research budget extensions now add time as well as soft search/fetch counts,
+  are capped per mode (2/3/4 extensions), and are rejected until the current
+  allowance is actually exhausted. Initial time budgets are more generous, and
+  the TUI resets the budget per user turn instead of carrying one timer for the
+  whole session.
 - Checkpoints no longer fill session storage with an entire workspace. Root,
   home, and home-parent directories skip snapshotting, oversized workspaces
   are skipped before any data is written, and a mutation stages only the paths

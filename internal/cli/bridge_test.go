@@ -3,11 +3,14 @@ package cli
 import (
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 
+	"github.com/ramsterr/Wombat/internal/agent"
 	"github.com/ramsterr/Wombat/internal/config"
 	"github.com/ramsterr/Wombat/internal/llm"
 	"github.com/ramsterr/Wombat/internal/session"
+	"github.com/ramsterr/Wombat/internal/tools"
 )
 
 func TestBridgeDetachByIndex(t *testing.T) {
@@ -74,5 +77,24 @@ func TestSelectProviderUpdatesSession(t *testing.T) {
 	}
 	if got := reopened.Meta.Provider; got != "new" {
 		t.Fatalf("persisted provider = %q", got)
+	}
+}
+
+func TestBridgeResearchBudgetPerTurn(t *testing.T) {
+	b := &bridge{
+		cfg: &config.Config{ResearchMode: "auto"},
+		ag:  &agent.Agent{Env: &tools.Env{}},
+	}
+	if got := b.applyResearch("research the latest Go release"); got.Mode != "standard" {
+		t.Fatalf("research prompt mode = %s, want standard", got.Mode)
+	}
+	if status := b.ag.Env.ResearchStatus(); !strings.Contains(status, "standard") {
+		t.Fatalf("budget status = %q", status)
+	}
+	if got := b.applyResearch("hello there"); got.Mode != "quick" {
+		t.Fatalf("plain prompt mode = %s, want quick", got.Mode)
+	}
+	if status := b.ag.Env.ResearchStatus(); !strings.Contains(status, "quick") {
+		t.Fatalf("budget was not reset for the new turn: %q", status)
 	}
 }
