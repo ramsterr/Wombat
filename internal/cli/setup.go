@@ -66,6 +66,83 @@ func openCodeAppKeys() map[string]string {
 	return map[string]string{}
 }
 
+// selectSetupKey keeps an already-saved key instead of asking the user to
+// paste it again, then prefers an environment key, then an OpenCode app key.
+func selectSetupKey(cfg *config.Config, name string, preset config.Preset, in *bufio.Reader) string {
+	if pc := cfg.Providers[name]; pc != nil && pc.APIKey != "" {
+		fmt.Printf("an API key is already saved (%s) — keep it? [%s]: ", maskKey(pc.APIKey), bold("Y"))
+		if ans := strings.ToLower(readLine(in)); ans == "" || ans == "y" || ans == "yes" {
+			return ""
+		}
+		fmt.Print("api key: ")
+		return readLine(in)
+	}
+	envKey := ""
+	if preset.KeyEnv != "" {
+		envKey = os.Getenv(preset.KeyEnv)
+	}
+	if envKey != "" {
+		fmt.Printf("found $%s in environment — use and save it? [%s]: ", preset.KeyEnv, bold("Y"))
+		if ans := strings.ToLower(readLine(in)); ans == "" || ans == "y" || ans == "yes" {
+			return envKey
+		}
+		fmt.Print("api key: ")
+		return readLine(in)
+	}
+	if k := openCodeAppKeys()[name]; k != "" {
+		fmt.Printf("found an OpenCode key in the OpenCode app (%s) — use and save it? [%s]: ", maskKey(k), bold("Y"))
+		if ans := strings.ToLower(readLine(in)); ans == "" || ans == "y" || ans == "yes" {
+			return k
+		}
+		fmt.Print("api key: ")
+		return readLine(in)
+	}
+	fmt.Print("api key (enter to skip, can set later via env): ")
+	return readLine(in)
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "set"
+	}
+	return key[:4] + "…" + key[len(key)-4:]
+}
+
+// saveSetupProvider writes the provider, base URL, and key to the global
+// config as soon as they are entered. Setup can be interrupted while it probes
+// for models, and a key the user just pasted must survive that.
+func saveSetupProvider(cfg *config.Config, name, kind, base, key string) (*config.Provider, error) {
+	if cfg.Providers == nil {
+		cfg.Providers = map[string]*config.Provider{}
+	}
+	pc := cfg.Providers[name]
+	if pc == nil {
+		pc = &config.Provider{}
+		cfg.Providers[name] = pc
+	}
+	pc.Kind = kind
+	if base != "" {
+		pc.BaseURL = base
+	}
+	if key = strings.TrimSpace(key); key != "" {
+		pc.APIKey = key
+	}
+	if kind == "ollama" && pc.NumCtx == 0 {
+		pc.NumCtx = 32768
+	}
+	if cfg.Provider != "" && cfg.Provider != name {
+		// The old model belongs to the old provider; setup will pick a new one
+		// after probing. Clearing it avoids a broken provider/model pair if
+		// setup is interrupted.
+		cfg.Model = ""
+	}
+	cfg.Provider = name
+	if err := cfg.Save(); err != nil {
+		return nil, err
+	}
+	return pc, nil
+}
+
 func cmdSetup(_ []string) error {
 	cfg := mustConfig()
 	in := bufio.NewReader(os.Stdin)
@@ -136,49 +213,15 @@ func cmdSetup(_ []string) error {
 		}
 		name, kind, base = c.name, c.preset.Kind, c.preset.Base
 		if !c.preset.Local {
-			envKey := ""
-			if c.preset.KeyEnv != "" {
-				envKey = os.Getenv(c.preset.KeyEnv)
-			}
-			appKeys := openCodeAppKeys()
-			switch {
-			case envKey != "":
-				fmt.Printf("found $%s in environment — use it? [%s]: ", c.preset.KeyEnv, bold("Y"))
-				if ans := strings.ToLower(readLine(in)); ans == "" || ans == "y" || ans == "yes" {
-					key = ""
-				} else {
-					fmt.Print("api key: ")
-					key = readLine(in)
-				}
-			case appKeys[name] != "":
-				k := appKeys[name]
-				fmt.Printf("found an OpenCode key in the OpenCode app (%s…) — use it? [%s]: ", k[:min(12, len(k))], bold("Y"))
-				if ans := strings.ToLower(readLine(in)); ans == "" || ans == "y" || ans == "yes" {
-					key = k
-				} else {
-					fmt.Print("api key: ")
-					key = readLine(in)
-				}
-			default:
-				fmt.Print("api key (enter to skip, can set later via env): ")
-				key = readLine(in)
-			}
+			key = selectSetupKey(cfg, name, c.preset, in)
 		}
 	}
 
-	pc, ok := cfg.Providers[name]
-	if !ok {
-		pc = &config.Provider{}
-		cfg.Providers[name] = pc
+	pc, err := saveSetupProvider(cfg, name, kind, base, key)
+	if err != nil {
+		return err
 	}
-	pc.Kind = kind
-	pc.BaseURL = base
-	if key != "" {
-		pc.APIKey = key
-	}
-	if kind == "ollama" && pc.NumCtx == 0 {
-		pc.NumCtx = 32768
-	}
+	fmt.Println(dim("saved " + name + " to " + config.Path() + " — global for every project on this device"))
 
 	prov, err := llm.New(name, pc, cfg.APIKey(name, pc))
 	if err != nil {
