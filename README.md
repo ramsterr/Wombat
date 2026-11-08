@@ -110,6 +110,7 @@ runs.
 | `wombat mcp login/logout` | sign in to an OAuth MCP server |
 | `wombat checkpoint list` | list shadow-git checkpoints |
 | `wombat checkpoint restore <id>` | restore a checkpoint |
+| `wombat checkpoint prune [--all]` | keep only the newest checkpoints and reclaim space |
 | `wombat serve [--lan]` | run the phone web client for this project |
 
 ## Use wombat on your phone
