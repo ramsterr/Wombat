@@ -90,6 +90,15 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- Checkpoints no longer fill session storage with an entire workspace. Root,
+  home, and home-parent directories skip snapshotting, oversized workspaces
+  are skipped before any data is written, and a mutation stages only the paths
+  it changed instead of running `git add -A` over everything.
+- Checkpoint snapshots are independent root commits, the newest
+  `checkpoint_keep` (20) are retained per session, and sessions in the same
+  workspace share one object store, so unchanged files are no longer copied
+  per session. `wombat checkpoint prune [--keep N] [--all]` reclaims old
+  checkpoints and object stores left behind by interrupted first snapshots.
 - A checkpoint restore now aborts when git reports a real error instead of
   silently reporting success. A scoped path that did not exist at snapshot time
   is still skipped.

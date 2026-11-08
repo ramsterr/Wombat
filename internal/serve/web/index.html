@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0d0f12" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Wombat" />
+  <title>Wombat</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="topbar">
+      <span id="status" class="status" data-state="connecting" title="connection"></span>
+      <div class="titles">
+        <div id="title" class="title">Wombat</div>
+        <div id="subtitle" class="subtitle">connecting…</div>
+      </div>
+      <button id="menu-btn" class="icon-btn" type="button" aria-label="menu">&#8943;</button>
+    </header>
+
+    <div class="context">
+      <div id="context-bar" class="context-bar"><span id="context-fill"></span></div>
+      <div id="context-text" class="context-text"></div>
+    </div>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <main id="log" class="log" aria-live="polite"></main>
+
+    <section id="todos" class="todos" hidden>
+      <button id="todos-toggle" class="todos-head" type="button"></button>
+      <ul id="todos-list" class="todos-list"></ul>
+    </section>
+
+    <footer class="composer">
+      <div id="busy" class="busy" hidden></div>
+      <div class="composer-row">
+        <button id="commands-btn" class="icon-btn" type="button" aria-label="commands">/</button>
+        <textarea id="input" rows="1" placeholder="Message wombat, or type /command" enterkeyhint="send" autocomplete="off" autocorrect="on" spellcheck="true"></textarea>
+        <button id="send-btn" class="send-btn" type="button" aria-label="send">Send</button>
+      </div>
+    </footer>
+
+    <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+    <section id="sheet" class="sheet" role="dialog" aria-modal="true" hidden></section>
+
+    <section id="signin" class="signin" hidden>
+      <div class="signin-card">
+        <h1>Wombat</h1>
+        <p>Paste the access token printed by <code>wombat serve</code> on your computer.</p>
+        <form id="signin-form">
+          <input id="token-input" type="password" placeholder="access token" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          <button type="submit" class="primary">Connect</button>
+        </form>
+        <p id="signin-error" class="signin-error" hidden></p>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

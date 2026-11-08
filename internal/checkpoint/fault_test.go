@@ -129,7 +129,7 @@ func TestFaultRestoreMissingObjectStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(filepath.Join(root, "git")); err != nil {
+	if err := os.RemoveAll(m.gitDir); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(work, "a.txt"), "changed")
