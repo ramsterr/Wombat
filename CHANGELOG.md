@@ -90,6 +90,10 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Fixed
 
+- `wombat setup` now persists the provider, base URL, and API key to the global
+  config as soon as they are entered. Ctrl+C during model probing no longer
+  loses them, rerunning setup keeps an existing key, and discovered
+  environment/app keys are saved instead of being used only for that process.
 - Checkpoints no longer fill session storage with an entire workspace. Root,
   home, and home-parent directories skip snapshotting, oversized workspaces
   are skipped before any data is written, and a mutation stages only the paths

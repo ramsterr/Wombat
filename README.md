@@ -81,7 +81,10 @@ wombat             # open the chat UI
 ```
 
 On first launch, choose your provider, model, and API key. They are saved in
-`~/.wombat/config.json`.
+`~/.wombat/config.json`, which is shared by every project on the device.
+`wombat setup` saves the provider, base URL, and key as soon as you enter them,
+so interrupting model probing with Ctrl+C does not lose the key. Rerunning
+setup keeps an existing key unless you choose to replace it.
 
 Without a terminal UI:
 
@@ -459,7 +462,8 @@ wombat config set permissions.bash ask
 
 The file lives at `~/.wombat/config.json`. API keys can also come from provider
 environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`,
-and so on).
+and so on); setup offers to save a discovered environment key so it survives a
+new terminal or a different working directory.
 
 ## Troubleshooting
 
