@@ -10,13 +10,16 @@ import (
 )
 
 type ResearchPolicy struct {
-	Mode         string
-	SoftSearches int
-	SoftFetches  int
-	HardSearches int
-	HardFetches  int
-	MaxSeconds   int
-	Depth        string
+	Mode          string
+	SoftSearches  int
+	SoftFetches   int
+	HardSearches  int
+	HardFetches   int
+	MaxSeconds    int
+	HardSeconds   int
+	ExtendSeconds int
+	MaxExtensions int
+	Depth         string
 }
 
 // ResolveResearchPolicy picks a bounded research policy. Auto is deliberately
@@ -31,13 +34,13 @@ func ResolveResearchPolicy(mode, prompt string) ResearchPolicy {
 	case "off":
 		return ResearchPolicy{Mode: "off", Depth: "fast"}
 	case "quick":
-		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 60, Depth: "fast"}
+		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 90, HardSeconds: 210, ExtendSeconds: 60, MaxExtensions: 2, Depth: "fast"}
 	case "standard":
-		return ResearchPolicy{Mode: "standard", SoftSearches: 5, SoftFetches: 3, HardSearches: 8, HardFetches: 4, MaxSeconds: 120, Depth: "fast"}
+		return ResearchPolicy{Mode: "standard", SoftSearches: 5, SoftFetches: 3, HardSearches: 8, HardFetches: 4, MaxSeconds: 180, HardSeconds: 360, ExtendSeconds: 60, MaxExtensions: 3, Depth: "fast"}
 	case "deep":
-		return ResearchPolicy{Mode: "deep", SoftSearches: 10, SoftFetches: 6, HardSearches: 15, HardFetches: 8, MaxSeconds: 300, Depth: "deep"}
+		return ResearchPolicy{Mode: "deep", SoftSearches: 10, SoftFetches: 6, HardSearches: 15, HardFetches: 8, MaxSeconds: 360, HardSeconds: 600, ExtendSeconds: 60, MaxExtensions: 4, Depth: "deep"}
 	default:
-		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 60, Depth: "fast"}
+		return ResearchPolicy{Mode: "quick", SoftSearches: 2, SoftFetches: 1, HardSearches: 4, HardFetches: 2, MaxSeconds: 90, HardSeconds: 210, ExtendSeconds: 60, MaxExtensions: 2, Depth: "fast"}
 	}
 }
 
@@ -62,19 +65,22 @@ func ResearchNote(p ResearchPolicy) string {
 		return "Research is off for this task: answer from knowledge, state assumptions, and do not call websearch or webfetch."
 	}
 	return fmt.Sprintf(
-		"Research mode: %s. Search/fetch budget: %d/%d (hard %d/%d). "+
+		"Research mode: %s. Search/fetch budget: %d/%d (hard %d/%d). Time: %ds (hard %ds, up to %d extensions). "+
 			"Answer from knowledge first for recommendations and opinions; use web only for current facts or explicit verification. "+
-			"Stop and synthesize when you have enough. Use request_more_research only if genuinely blocked.",
+			"Stop and synthesize when you have enough. Use request_more_research only when the soft counts or time are exhausted; "+
+			"it adds %ds and one soft search/fetch, capped by the hard limits.",
 		p.Mode, p.SoftSearches, p.SoftFetches, p.HardSearches, p.HardFetches,
+		p.MaxSeconds, p.HardSeconds, p.MaxExtensions, p.ExtendSeconds,
 	)
 }
 
 type ResearchBudget struct {
-	mu       sync.Mutex
-	policy   ResearchPolicy
-	searches int
-	fetches  int
-	started  time.Time
+	mu         sync.Mutex
+	policy     ResearchPolicy
+	searches   int
+	fetches    int
+	extensions int
+	started    time.Time
 }
 
 func NewResearchBudget(p ResearchPolicy) *ResearchBudget {
@@ -111,7 +117,14 @@ func (b *ResearchBudget) allow(kind string) error {
 		b.started = time.Now()
 	}
 	if b.policy.MaxSeconds > 0 && time.Since(b.started) > time.Duration(b.policy.MaxSeconds)*time.Second {
-		return fmt.Errorf("research time budget reached; synthesize now with what you have")
+		elapsed := int(time.Since(b.started).Seconds())
+		if b.policy.HardSeconds > 0 && elapsed >= b.policy.HardSeconds {
+			return fmt.Errorf("research time hard ceiling reached (%ds/%ds); synthesize now", elapsed, b.policy.HardSeconds)
+		}
+		if b.policy.MaxExtensions > 0 && b.extensions >= b.policy.MaxExtensions {
+			return fmt.Errorf("research time budget reached (%ds/%ds) and the %d extension limit is used; synthesize now", elapsed, b.policy.MaxSeconds, b.policy.MaxExtensions)
+		}
+		return fmt.Errorf("research time budget reached (%ds/%ds); synthesize now with what you have, or call request_more_research with a specific reason", elapsed, b.policy.MaxSeconds)
 	}
 	soft, hard, used := b.policy.SoftSearches, b.policy.HardSearches, b.searches
 	if kind == "fetch" {
@@ -143,8 +156,21 @@ func (b *ResearchBudget) Extend(reason string) error {
 	if b.policy.Mode == "off" {
 		return fmt.Errorf("research is off for this task")
 	}
+	if b.policy.MaxExtensions > 0 && b.extensions >= b.policy.MaxExtensions {
+		return fmt.Errorf("research extension limit reached (%d/%d); synthesize now", b.extensions, b.policy.MaxExtensions)
+	}
+	if !b.exhaustedLocked() {
+		return fmt.Errorf("research budget is not exhausted yet; use the current search/fetch and time allowance first")
+	}
+	elapsed := 0
+	if !b.started.IsZero() {
+		elapsed = int(time.Since(b.started).Seconds())
+	}
+	if b.policy.HardSeconds > 0 && elapsed >= b.policy.HardSeconds {
+		return fmt.Errorf("research time hard ceiling reached (%ds/%ds); synthesize now", elapsed, b.policy.HardSeconds)
+	}
 	if b.searches >= b.policy.HardSearches && b.fetches >= b.policy.HardFetches {
-		return fmt.Errorf("research hard ceiling already reached; synthesize now")
+		return fmt.Errorf("research search/fetch hard ceiling already reached; synthesize now")
 	}
 	if b.policy.SoftSearches < b.policy.HardSearches {
 		b.policy.SoftSearches++
@@ -152,7 +178,31 @@ func (b *ResearchBudget) Extend(reason string) error {
 	if b.policy.SoftFetches < b.policy.HardFetches {
 		b.policy.SoftFetches++
 	}
+	if b.policy.ExtendSeconds > 0 && b.policy.MaxSeconds < b.policy.HardSeconds {
+		b.policy.MaxSeconds += b.policy.ExtendSeconds
+		if b.policy.MaxSeconds > b.policy.HardSeconds {
+			b.policy.MaxSeconds = b.policy.HardSeconds
+		}
+	}
+	b.extensions++
 	return nil
+}
+
+// exhaustedLocked reports whether the current allowance is actually used up,
+// so request_more_research cannot be called just to stockpile budget.
+func (b *ResearchBudget) exhaustedLocked() bool {
+	if b.searches >= b.policy.SoftSearches || b.fetches >= b.policy.SoftFetches {
+		return true
+	}
+	if b.policy.MaxSeconds > 0 && !b.started.IsZero() {
+		remaining := time.Duration(b.policy.MaxSeconds)*time.Second - time.Since(b.started)
+		near := time.Duration(b.policy.ExtendSeconds) * time.Second / 2
+		if near <= 0 {
+			near = 15 * time.Second
+		}
+		return remaining <= near
+	}
+	return false
 }
 
 func (b *ResearchBudget) Status() string {
@@ -161,9 +211,14 @@ func (b *ResearchBudget) Status() string {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return fmt.Sprintf("%s: %d/%d searches, %d/%d fetches (hard %d/%d)",
+	elapsed := 0
+	if !b.started.IsZero() {
+		elapsed = int(time.Since(b.started).Seconds())
+	}
+	return fmt.Sprintf("%s: %d/%d searches, %d/%d fetches (hard %d/%d), %ds/%ds (hard %ds), %d/%d extensions",
 		b.policy.Mode, b.searches, b.policy.SoftSearches, b.fetches, b.policy.SoftFetches,
-		b.policy.HardSearches, b.policy.HardFetches)
+		b.policy.HardSearches, b.policy.HardFetches, elapsed, b.policy.MaxSeconds, b.policy.HardSeconds,
+		b.extensions, b.policy.MaxExtensions)
 }
 
 func (e *Env) SetResearchBudget(p ResearchPolicy) {
@@ -242,7 +297,7 @@ type RequestMoreResearch struct{}
 func (t *RequestMoreResearch) Name() string  { return "request_more_research" }
 func (t *RequestMoreResearch) Class() string { return "read" }
 func (t *RequestMoreResearch) Description() string {
-	return "Ask for one more search and one more fetch when the research soft budget is exhausted and you are genuinely blocked. Give a specific reason. The request is capped by the hard ceiling."
+	return "Ask for more research time and one more soft search/fetch when the current allowance is exhausted and you are genuinely blocked. Give a specific reason. The request is capped by the hard limits and a small extension count."
 }
 func (t *RequestMoreResearch) Schema() map[string]any {
 	return obj(map[string]any{
