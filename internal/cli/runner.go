@@ -136,6 +136,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		if err != nil {
 			return nil, err
 		}
+		cp.SetKeep(cfg.CheckpointKeep)
 		env.Checkpoint = cp
 	}
 	allTools := tools.RegistryWithQuestion()
@@ -203,6 +204,11 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		ag.Trace = tr
+		if cp, ok := env.Checkpoint.(*checkpoint.Manager); ok {
+			if reason := cp.DisabledReason(); reason != "" {
+				tr.Emit("checkpoint_disabled", map[string]any{"reason": reason})
+			}
+		}
 	}
 	if cfg.Orchestrator && tools.HasCapability(caps, tools.CapOrchestrate) {
 		if _, err := orchestrator.Attach(ag, orchestrator.Config{

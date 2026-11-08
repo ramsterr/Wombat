@@ -68,6 +68,7 @@ type Config struct {
 	ScoutModel            string                `json:"scout_model,omitempty"`
 	FallbackModels        []string              `json:"fallback_models,omitempty"`
 	Checkpoints           bool                  `json:"checkpoints"`
+	CheckpointKeep        int                   `json:"checkpoint_keep"`
 	RequireVerification   bool                  `json:"require_verification"`
 	Writers               bool                  `json:"writers"`
 	KeepWorktrees         bool                  `json:"keep_worktrees,omitempty"`
@@ -111,6 +112,10 @@ func PresetByName(name string) (Preset, bool) {
 	}
 	return Preset{}, false
 }
+
+// DefaultCheckpointKeep is how many undo snapshots each session keeps. Set
+// checkpoint_keep to 0 to keep every snapshot.
+const DefaultCheckpointKeep = 20
 
 // TmpDir is the scratch directory for a session. It lives outside the
 // project so scratch files never pollute the repository and never end up in
@@ -176,6 +181,7 @@ func Defaults() *Config {
 		},
 		ParallelAgents:      true,
 		Checkpoints:         true,
+		CheckpointKeep:      DefaultCheckpointKeep,
 		RequireVerification: false,
 		Writers:             true,
 		Mouse:               false,

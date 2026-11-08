@@ -584,6 +584,7 @@ func (c *chat) rebuild(reset bool) error {
 		if err != nil {
 			return err
 		}
+		cp.SetKeep(c.cfg.CheckpointKeep)
 		env.Checkpoint = cp
 	}
 	c.closeAgent()
@@ -625,6 +626,11 @@ func (c *chat) rebuild(reset bool) error {
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		c.ag.Trace = tr
+		if cp, ok := env.Checkpoint.(*checkpoint.Manager); ok {
+			if reason := cp.DisabledReason(); reason != "" {
+				tr.Emit("checkpoint_disabled", map[string]any{"reason": reason})
+			}
+		}
 	}
 	if c.cfg.Orchestrator {
 		if _, err := orchestrator.Attach(c.ag, orchestrator.Config{

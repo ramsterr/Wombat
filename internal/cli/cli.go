@@ -121,6 +121,7 @@ usage:
   wombat agent list          list custom agents
   wombat checkpoint list     list session checkpoints
   wombat checkpoint restore  restore a checkpoint (--yes to confirm)
+  wombat checkpoint prune    keep only the newest checkpoints (--all)
   wombat upgrade             rebuild wombat from the latest main
   wombat version             print version
 
