@@ -543,6 +543,19 @@ func (b *bridge) interrupt() {
 	b.mu.Unlock()
 }
 
+// applyResearch gives every user turn its own bounded research budget. The
+// bridge used to keep one budget for the whole session, so a long session
+// eventually hit the time ceiling no matter what the new request was.
+func (b *bridge) applyResearch(text string) tools.ResearchPolicy {
+	mode := currentResearchMode(b.cfg, &b.opts)
+	policy := tools.ResolveResearchPolicy(mode, text)
+	if b.ag != nil && b.ag.Env != nil {
+		b.ag.Env.SetResearchBudget(policy)
+		b.ag.ResearchNote = tools.ResearchNote(policy)
+	}
+	return policy
+}
+
 func (b *bridge) run(text string) {
 	if strings.TrimSpace(text) == "" && len(b.atts) == 0 {
 		return
@@ -608,6 +621,7 @@ func (b *bridge) run(text string) {
 	for _, a := range stored {
 		meta = append(meta, map[string]any{"kind": a.Kind, "name": a.Name, "size": a.Size})
 	}
+	b.applyResearch(text)
 	b.send(map[string]any{"type": "user", "text": text, "attachments": meta})
 	b.send(map[string]any{"type": "assistant_start"})
 	b.mu.Lock()

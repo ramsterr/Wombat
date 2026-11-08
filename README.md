@@ -334,6 +334,20 @@ export BRAVE_API_KEY=...
 export SERPER_API_KEY=...
 ```
 
+### Research budget
+
+`research_mode` (or `--research` on `run`) controls how much searching Wombat
+may do. `auto` picks `quick`, `standard`, or `deep` from the request text;
+`off` disables search and fetch. `quick` starts with 2 searches / 1 fetch and
+90 seconds, `standard` with 5/3 and 180 seconds, and `deep` with 10/6, 360
+seconds, and deeper page fetching. Their hard limits are 4/2, 8/4, and 15/8.
+
+When the soft count or time allowance runs out, `request_more_research` adds
+60 seconds and one soft search/fetch. Extensions are capped at 2/3/4 per
+`quick`/`standard`/`deep` turn, cannot exceed the hard time ceiling, and are
+rejected before the current allowance is actually exhausted. Each user turn
+gets a fresh budget, so a long session does not carry one timer forever.
+
 `webfetch` extracts the main article text with its title and description,
 pretty-prints JSON, returns text/XML, and gives a clear note for PDFs and
 binary payloads. It caches responses for repeated reads, retries transient
