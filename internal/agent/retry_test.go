@@ -60,11 +60,11 @@ func TestAgentRetriesAfterNetworkError(t *testing.T) {
 	}
 	found := false
 	for _, m := range sess.Messages {
-		if m.Role == "user" && strings.Contains(m.Content, "Retry the last request") {
+		if m.Role == "user" && strings.Contains(m.Content, "network error") {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("the retry message was not added to the session")
+	if found {
+		t.Fatal("the retry should be silent: no network-error note in the session")
 	}
 }

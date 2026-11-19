@@ -6,8 +6,33 @@ All notable changes to Wombat are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Cache-stable system prompts.** The todo list no longer rides in the
+  system prompt, which used to change every step and defeat provider prompt
+  caching. Volatile state now travels as a trailing `[Task state]` message,
+  so the system prompt and tool schemas stay byte-stable for a whole run
+  and cached prefixes survive.
+- **Token accounting calibrated against the provider.** The heuristic
+  estimate now folds the provider's measured input tokens back in as a
+  running correction factor, so compaction triggers track reality instead
+  of a chars-per-token guess.
+- **Masking-first compaction.** Old tool outputs are elided with a stub
+  that says how to re-run the call (`re-run bash {"command":…}`) instead of
+  being dropped, failure output stays verbatim, and the verbatim/protect
+  budgets scale with the context window. The summarizer became a
+  structured last resort with fixed headings (goal, decisions, failures,
+  todos), optionally on a cheaper `compact_model`.
+- **Silent turn-level retries.** Retries after provider backoff exhaustion
+  no longer append a network-error note to the transcript; they back off
+  exponentially with jitter, respect `Retry-After`, and are capped at 30s.
+
 ### Added
 
+- **Mid-run steering.** Typing while a run is active now queues the message
+  for the agent (`enter`) instead of being ignored; it joins between steps,
+  after the current tool batch has committed, so tool pairing never breaks.
+  `Agent.Steer(msg)` is the plumbing behind it.
 - **Gemini as a first-class provider.** `wombat setup` now offers Gemini, with
   the API key read from `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) and sent in the
   `x-goog-api-key` header so it never appears in a URL. Streaming, reasoning,

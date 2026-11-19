@@ -56,6 +56,41 @@ func (a *Agent) recordUsage(u llm.Usage) {
 	a.mu.Unlock()
 }
 
+// calibrateTokens folds the provider's measured input tokens back into the
+// heuristic estimate. The ratio between measured and estimated request
+// tokens becomes a running scale applied by historyTokens, so compaction
+// triggers track reality instead of a chars-per-token guess.
+func (a *Agent) calibrateTokens(measured, estimate int) {
+	if measured <= 0 || estimate < 500 {
+		return
+	}
+	ratio := float64(measured) / float64(estimate)
+	if ratio < 0.25 {
+		ratio = 0.25
+	} else if ratio > 4 {
+		ratio = 4
+	}
+	a.mu.Lock()
+	if a.tokenScale == 0 {
+		a.tokenScale = ratio
+	} else {
+		a.tokenScale = 0.7*a.tokenScale + 0.3*ratio
+	}
+	a.mu.Unlock()
+}
+
+// tokenEstimateScale is the current calibration of the heuristic token
+// estimate; 1 when no provider measurement has been seen yet.
+func (a *Agent) tokenEstimateScale() float64 {
+	a.mu.Lock()
+	s := a.tokenScale
+	a.mu.Unlock()
+	if s <= 0 {
+		return 1
+	}
+	return s
+}
+
 func (a *Agent) AddUsageStats(u UsageStats) {
 	a.mu.Lock()
 	a.usage.Calls += u.Calls

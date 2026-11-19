@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,9 +61,19 @@ type Agent struct {
 	// Reasoning asks the provider to think less or more: off, low, medium,
 	// high, or "" for the provider default.
 	Reasoning string
+	// CompactModel optionally routes compaction summaries to a cheaper
+	// model; empty uses the session model.
+	CompactModel string
 
 	mu    sync.Mutex
 	usage UsageStats
+	// tokenScale calibrates the heuristic token estimate against the
+	// provider's reported input tokens. Zero means not yet calibrated.
+	tokenScale float64
+
+	// steer queues user messages that arrive while a run is active.
+	steerMu sync.Mutex
+	steer   []string
 
 	// visualPending holds artifacts the user has not seen yet. The review runs
 	// when the model has finished the run, not after the first page.
@@ -181,6 +192,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if a.Compact {
 			a.maybeCompact(ctx)
 		}
+		// A steering message queued while the last model call was streaming
+		// joins here, between steps, after the tool batch has committed.
+		a.drainSteer()
 		a.Trace.Emit("model_start", map[string]any{"step": step + 1})
 		// On the last step the model gets no tools, so it has to answer in
 		// text instead of running out of steps mid-thought.
@@ -188,14 +202,13 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if maxSteps > 0 && step == maxSteps-1 {
 			defs = nil
 		}
+		// The system prompt stays byte-stable for the whole run so
+		// provider prompt caches keep their prefix. Volatile state, like
+		// the todo list, rides in a trailing message instead (see request).
 		stepSystem := system
-		if a.Env != nil {
-			if note := strings.TrimSpace(a.Env.TodoNote()); note != "" {
-				stepSystem += "\n\n" + note
-			}
-		}
 		stats := a.promptStats(stepSystem, defs, baseSystem, modeNote, tmpNote, extra)
 		a.Trace.Emit("prompt", stats.Fields(step+1))
+		requestEstimate := stats.SystemTokens + stats.ToolSchemaTokens + stats.HistoryTokens
 		res, err := a.Provider.Chat(ctx, a.request(stepSystem, defs), a.Hooks.OnText)
 		if err != nil && llm.InvalidRequest(err) {
 			// The provider rejected the request itself. The history is the
@@ -233,7 +246,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 		if err != nil {
 			if llm.Retryable(err) && turnRetries < maxTurnRetries && ctx.Err() == nil {
 				turnRetries++
-				delay := time.Duration(turnRetries) * time.Second
+				delay := turnRetryDelay(turnRetries, err)
 				if a.Hooks.OnReset != nil {
 					a.Hooks.OnReset()
 				}
@@ -243,11 +256,9 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 				a.Trace.Emit("turn_retry", map[string]any{
 					"attempt": turnRetries, "delay_ms": delay.Milliseconds(), "error": err.Error(),
 				})
-				_ = a.Sess.Append(llm.Message{
-					Role: "user",
-					Content: fmt.Sprintf("The previous request was interrupted by a network error: %v. "+
-						"Retry the last request and continue from where you left off.", err),
-				})
+				// No history note: the failed request appended nothing, so
+				// the next attempt continues naturally from the committed
+				// tool results without polluting the transcript.
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
@@ -268,6 +279,7 @@ func (a *Agent) RunWithAttachments(ctx context.Context, input string, attachment
 			return err
 		}
 		a.recordUsage(res.Usage)
+		a.calibrateTokens(res.Usage.In, requestEstimate)
 		a.Trace.Emit("model_usage", map[string]any{
 			"step":               step + 1,
 			"in":                 res.Usage.In,
@@ -396,10 +408,29 @@ const parallelToolLimit = 6
 // before the agent is told to stop.
 const maxRepeatedToolCall = 3
 
-// maxTurnRetries is how many extra model turns are allowed after a retryable
-// network error. The provider already retries with backoff; this is the outer
-// safety net that explicitly tells the model to retry.
-const maxTurnRetries = 2
+// maxTurnRetries is how many extra model turns are allowed after a
+// retryable error. The provider wrapper has already retried with short
+// backoff, so these attempts are spread wider and stay silent.
+const maxTurnRetries = 3
+
+// retryBaseDelay and retryMaxDelay bound the turn-level backoff.
+const (
+	retryBaseDelay = time.Second
+	retryMaxDelay  = 30 * time.Second
+)
+
+// turnRetryDelay spaces out turn-level retries: exponential with jitter,
+// and a server-provided Retry-After always wins.
+func turnRetryDelay(attempt int, err error) time.Duration {
+	var httpErr *llm.HTTPError
+	if errors.As(err, &httpErr) && httpErr.RetryAfter > 0 {
+		return min(httpErr.RetryAfter, retryMaxDelay)
+	}
+	delay := retryBaseDelay << (attempt - 1)
+	delay = min(delay, retryMaxDelay)
+	jitter := time.Duration(rand.Int64N(int64(delay/2) + 1))
+	return delay/2 + jitter
+}
 
 type toolResult struct {
 	content  string
@@ -543,11 +574,14 @@ func (a *Agent) spillDir() string {
 }
 
 // request builds the provider request for this turn.
+// request builds the provider request for this turn. The volatile state
+// note (todo list) rides as a trailing user message so the system prompt
+// stays byte-stable and the provider's prompt cache keeps its prefix.
 func (a *Agent) request(system string, tools []llm.Tool) llm.Request {
 	return llm.Request{
 		Model:       a.Model,
 		System:      system,
-		Messages:    a.requestMessages(),
+		Messages:    a.requestMessagesWithState(),
 		Tools:       tools,
 		NumCtx:      a.NumCtx,
 		MaxTokens:   a.MaxTokens,
@@ -556,6 +590,49 @@ func (a *Agent) request(system string, tools []llm.Tool) llm.Request {
 		OnReasoning: a.Hooks.OnReasoning,
 		OnReset:     a.Hooks.OnReset,
 		OnRetry:     a.Hooks.OnRetry,
+	}
+}
+
+// requestMessagesWithState appends the per-step state note after the
+// history. Anthropic merges consecutive user turns and OpenAI accepts a
+// user message after tool results, so every provider takes this shape.
+func (a *Agent) requestMessagesWithState() []llm.Message {
+	msgs := a.requestMessages()
+	if a.Env == nil {
+		return msgs
+	}
+	if note := strings.TrimSpace(a.Env.TodoNote()); note != "" {
+		msgs = append(msgs, llm.Message{Role: "user", Content: "[Task state]\n" + note})
+	}
+	return msgs
+}
+
+// Steer queues a user message for the running loop. The message is
+// appended between steps, after the current tool batch has committed, so
+// tool_call/tool_result pairing is never broken. A message that arrives
+// after the run ends is ignored.
+func (a *Agent) Steer(msg string) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return
+	}
+	a.steerMu.Lock()
+	a.steer = append(a.steer, msg)
+	a.steerMu.Unlock()
+}
+
+// drainSteer appends queued steering messages to the session, once per
+// step, before the model request is built.
+func (a *Agent) drainSteer() {
+	a.steerMu.Lock()
+	msgs := a.steer
+	a.steer = nil
+	a.steerMu.Unlock()
+	for _, m := range msgs {
+		if err := a.Sess.Append(llm.Message{Role: "user", Content: m}); err != nil {
+			continue
+		}
+		a.Trace.Emit("steer", map[string]any{"chars": len(m)})
 	}
 }
 
