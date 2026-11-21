@@ -2341,7 +2341,7 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		}
 	case "enter":
 		if c.streaming {
-			return nil
+			return c.steerSubmit()
 		}
 		text := strings.TrimSpace(c.ta.Value())
 		if text == "" {
@@ -2368,6 +2368,30 @@ func (c *chat) key(msg tea.KeyMsg) tea.Cmd {
 		c.vp.GotoBottom()
 	}
 	return cmd
+}
+
+// steerSubmit queues the typed message for the running agent instead of
+// dropping it: the loop picks it up between steps, after the current tool
+// batch has committed.
+func (c *chat) steerSubmit() tea.Cmd {
+	text := strings.TrimSpace(c.ta.Value())
+	if text == "" {
+		return nil
+	}
+	if looksLikeCommand(text) {
+		c.note("commands wait until the run ends (esc interrupts)", true)
+		return nil
+	}
+	if c.ag == nil {
+		return nil
+	}
+	c.ag.Steer(text)
+	c.ta.SetValue("")
+	c.entries = append(c.entries, &chatEntry{kind: entryUser, text: text})
+	c.note("queued — the running task picks it up between steps", false)
+	c.layout()
+	c.refresh()
+	return nil
 }
 
 func (c *chat) scrollUp(n int) {
@@ -2466,7 +2490,7 @@ func (c *chat) hint() string {
 				left += styleFaint.Render(fmt.Sprintf(" · %d tools", c.runTools))
 			}
 		}
-		left += "   " + keyHint("esc", "interrupt")
+		left += "   " + keyHint("enter", "queue") + "   " + keyHint("esc", "interrupt")
 	default:
 		left = keyHint("enter", "send")
 		if c.w >= 64 {

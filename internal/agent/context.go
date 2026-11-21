@@ -10,11 +10,17 @@ import (
 )
 
 const (
+	// protectToolTokens caps how many recent tool-output tokens stay
+	// verbatim; older ones become masking candidates.
 	protectToolTokens = 200000
-	minReclaim        = 20000
-	keepVerbatim      = 60000
-	compactReserve    = 20000
-	compactSafety     = 13000
+	// minProtectToolTokens keeps a floor for small windows.
+	minProtectToolTokens = 4000
+	minReclaim           = 20000
+	keepVerbatim         = 60000
+	// minKeepVerbatim keeps a floor for small windows.
+	minKeepVerbatim = 8000
+	compactReserve  = 20000
+	compactSafety   = 13000
 )
 
 func (a *Agent) historyTokens() int {
@@ -42,7 +48,42 @@ func (a *Agent) historyTokens() int {
 			total += tokens.Estimate(tc.Name) + tokens.Estimate(tc.Arguments) + 4
 		}
 	}
-	return total
+	return int(float64(total)*a.tokenEstimateScale() + 0.5)
+}
+
+// protectToolTokensFor is the verbatim tool-output budget. It scales with
+// the context window - a fifth of it - clamped to the legacy bounds, so
+// masking becomes the primary compaction strategy on long runs instead of
+// the LLM summarizer.
+func (a *Agent) protectToolTokensFor() int {
+	if a.ContextWindow <= 0 {
+		return protectToolTokens
+	}
+	p := a.ContextWindow / 5
+	if p < minProtectToolTokens {
+		p = minProtectToolTokens
+	}
+	if p > protectToolTokens {
+		p = protectToolTokens
+	}
+	return p
+}
+
+// keepVerbatimTokens is the recent-history budget the summarizer keeps
+// word-for-word. It scales with the context window so small windows still
+// summarize while large ones keep a useful recency window.
+func (a *Agent) keepVerbatimTokens() int {
+	if a.ContextWindow <= 0 {
+		return keepVerbatim
+	}
+	v := a.ContextWindow / 3
+	if v < minKeepVerbatim {
+		v = minKeepVerbatim
+	}
+	if v > keepVerbatim {
+		v = keepVerbatim
+	}
+	return v
 }
 
 func attachmentTokens(a llm.Attachment) int {
@@ -115,33 +156,53 @@ func (a *Agent) pruneToolOutputs() int {
 			}
 		}
 	}
+	// The arguments of every call are kept so a masked output can say how
+	// to get the full text back.
+	argsByID := map[string]string{}
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			argsByID[tc.ID] = tc.Arguments
+		}
+	}
 	type candidate struct {
-		idx int
-		tok int
+		idx   int
+		tok   int
+		rerun string
 	}
 	var cands []candidate
 	toolTok := 0
 	reclaim := 0
+	protect := a.protectToolTokensFor()
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		if m.Role != "tool" {
 			continue
 		}
 		t := tokens.Estimate(m.Content)
-		if i >= protectFrom || toolTok < protectToolTokens {
+		if i >= protectFrom || toolTok < protect {
 			toolTok += t
 			continue
 		}
+		// Failure output is the feedback the model needs to adjust; masking
+		// it would erase the reason the last attempt went wrong.
+		if strings.HasPrefix(m.Content, "error:") {
+			continue
+		}
 		if len(m.Content) > 200 {
-			cands = append(cands, candidate{idx: i, tok: t})
-			reclaim += t - 8
+			rerun := m.Name
+			if args := strings.TrimSpace(argsByID[m.ToolCallID]); args != "" {
+				rerun += " " + clip(args, 160)
+			}
+			cands = append(cands, candidate{idx: i, tok: t, rerun: rerun})
+			reclaim += t - 48
 		}
 	}
 	if reclaim < minReclaim {
 		return 0
 	}
 	for _, c := range cands {
-		msgs[c.idx].Content = fmt.Sprintf("[elided tool output: ~%d tokens removed]", c.tok)
+		msgs[c.idx].Content = fmt.Sprintf(
+			"[elided tool output: ~%d tokens removed — re-run %s to see it again]", c.tok, c.rerun)
 	}
 	_ = a.Sess.Flush()
 	return reclaim
@@ -151,9 +212,10 @@ func (a *Agent) summarize(ctx context.Context) error {
 	msgs := a.Sess.Messages
 	split := len(msgs)
 	acc := 0
+	keep := a.keepVerbatimTokens()
 	for i := len(msgs) - 1; i >= 0; i-- {
 		acc += tokens.Estimate(msgs[i].Content) + 8
-		if acc >= keepVerbatim {
+		if acc >= keep {
 			split = i
 			break
 		}
@@ -174,9 +236,18 @@ func (a *Agent) summarize(ctx context.Context) error {
 		return nil
 	}
 	transcript := renderTranscript(msgs[:split])
-	prompt := "Summarize this coding session so a fresh context can continue seamlessly. Include: the goal; explicit instructions and preferences from the user; key discoveries about the codebase; decisions made and why; work completed; files touched; remaining todos. Be dense and factual. Output only the summary.\n\n--- transcript ---\n" + transcript
+	prompt := "Summarize this coding session so a fresh context can continue seamlessly. " +
+		"Be dense and factual. Use exactly these headings, skipping empty ones:\n" +
+		"## Goal\n## User instructions and preferences\n## Codebase discoveries (paths, symbols)\n" +
+		"## Decisions and why\n## Work completed (files touched)\n" +
+		"## Failures (quote the exact failing command and error)\n## Remaining todos\n" +
+		"Output only the summary.\n\n--- transcript ---\n" + transcript
+	model := a.Model
+	if a.CompactModel != "" {
+		model = a.CompactModel
+	}
 	res, err := a.Provider.Chat(ctx, llm.Request{
-		Model:     a.Model,
+		Model:     model,
 		MaxTokens: 2048,
 		Messages:  []llm.Message{{Role: "user", Content: prompt}},
 		SessionID: a.Sess.ID(),
