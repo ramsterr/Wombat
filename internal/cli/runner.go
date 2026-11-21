@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -68,7 +69,7 @@ func buildProvider(ctx context.Context, cfg *config.Config, name, modelOverride 
 		return nil, "", "", err
 	}
 	if len(cfg.FallbackModels) > 0 {
-		prov = llm.WithFallback(prov, cfg.FallbackModels, nil)
+		prov = llm.WithFallback(prov, cfg.FallbackModels, fallbackNotifier(os.Stderr))
 	}
 	model := modelOverride
 	if model == "" {
@@ -78,6 +79,19 @@ func buildProvider(ctx context.Context, cfg *config.Config, name, modelOverride 
 		return nil, "", "", fmt.Errorf("no model selected: run `wombat setup` or pass -m")
 	}
 	return prov, name, model, nil
+}
+
+// fallbackNotifier writes a dim stderr line when the primary model is
+// bypassed, so headless, REPL, and bridge runs show that a fallback model
+// carried the request instead of failing silently.
+func fallbackNotifier(w io.Writer) func(from, to string, err error) {
+	return func(from, to string, err error) {
+		detail := "unavailable"
+		if err != nil {
+			detail = tools.RedactSecrets(err.Error())
+		}
+		fmt.Fprintf(w, "%s\n", dim("wombat: model "+from+" failed ("+detail+"); continuing on "+to))
+	}
 }
 
 func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prompter) (*agent.Agent, error) {
@@ -201,6 +215,7 @@ func buildAgent(cfg *config.Config, opts runOpts, sess *session.Session, p *Prom
 		ResearchNote:  tools.ResearchNote(researchPolicy),
 		ClarifyNote:   agent.ClarifyNote(opts.task, interactive),
 		TrimReasoning: cfg.TrimReasoning,
+		CompactModel:  cfg.CompactModel,
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		ag.Trace = tr

@@ -88,6 +88,8 @@ func cmdConfig(args []string) error {
 		cfg.ParallelAgents = v
 	case key == "scout_model":
 		cfg.ScoutModel = val
+	case key == "compact_model":
+		cfg.CompactModel = val
 	case key == "fallback_models":
 		parts := strings.Split(val, ",")
 		models := make([]string, 0, len(parts))

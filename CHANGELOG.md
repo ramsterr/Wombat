@@ -29,6 +29,19 @@ All notable changes to Wombat are recorded here. The format follows
 
 ### Added
 
+- **Instruction-file compatibility.** Repos that already carry Claude Code or
+  Cursor rules are now drop-in: `startupContext` reads `CLAUDE.md` (file or
+  directory), `.cursorrules`, `.cursor/rules/*.md|*.mdc`, and
+  `.github/copilot-instructions.md`, after `WOMBAT.md`/`AGENTS.md`. Each
+  source is capped at 16KB and the compat sources share one 16KB budget, so
+  migrating rule sets in cannot inflate the startup context.
+- **`compact_model` config key.** Set `/config compact_model <model>` (or the
+  JSON key) to route compaction summaries to a cheaper model.
+- **Visible model fallback.** `fallback_models` now reports every bypass:
+  the TUI shows a transcript note ("model X is unavailable — continuing on
+  Y") with the provider error redacted and clipped, and headless, REPL,
+  bridge, and custom-agent runs print a dim stderr line. Previously the
+  fallback chain carried requests silently.
 - **Mid-run steering.** Typing while a run is active now queues the message
   for the agent (`enter`) instead of being ignored; it joins between steps,
   after the current tool batch has committed, so tool pairing never breaks.

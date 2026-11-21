@@ -2,6 +2,7 @@ package agents
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -166,7 +167,12 @@ func ResolveProvider(cfg *config.Config, name string) (llm.Provider, error) {
 		return nil, err
 	}
 	if len(cfg.FallbackModels) > 0 {
-		prov = llm.WithFallback(prov, cfg.FallbackModels, nil)
+		// A team member that overrides the provider gets its own fallback
+		// chain; the note keeps the failure visible instead of silent.
+		prov = llm.WithFallback(prov, cfg.FallbackModels, func(from, to string, err error) {
+			fmt.Fprintf(os.Stderr, "wombat: model %s failed (%s); continuing on %s\n",
+				from, tools.RedactSecrets(err.Error()), to)
+		})
 	}
 	return prov, nil
 }

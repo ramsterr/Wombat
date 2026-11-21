@@ -224,3 +224,20 @@ func TestFullWorkersDefaultOn(t *testing.T) {
 		t.Fatal("worker_full_access=false should disable full access")
 	}
 }
+
+func TestCompactModelKeyLoads(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WOMBAT_HOME", home)
+	t.Setenv("WOMBAT_CONFIG", "")
+	raw := `{"version":5,"provider":"openai","model":"gpt-5","compact_model":"gpt-4o-mini"}`
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CompactModel != "gpt-4o-mini" {
+		t.Fatalf("compact_model = %q, want gpt-4o-mini", cfg.CompactModel)
+	}
+}

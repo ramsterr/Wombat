@@ -95,6 +95,12 @@ type retryMsg struct {
 	delay   time.Duration
 }
 
+type fallbackMsg struct {
+	from string
+	to   string
+	err  error
+}
+
 type toolStartMsg struct {
 	name   string
 	detail string
@@ -561,7 +567,9 @@ func (c *chat) rebuild(reset bool) error {
 		return err
 	}
 	if len(c.cfg.FallbackModels) > 0 {
-		prov = llm.WithFallback(prov, c.cfg.FallbackModels, nil)
+		prov = llm.WithFallback(prov, c.cfg.FallbackModels, func(from, to string, err error) {
+			c.emit(fallbackMsg{from: from, to: to, err: err})
+		})
 	}
 	cwd := c.sess.Meta.Cwd
 	if cwd == "" {
@@ -623,6 +631,7 @@ func (c *chat) rebuild(reset bool) error {
 		MaxTokens:     tokens.OpenCodeOutputLimitFor(c.provName, c.modelName),
 		Reasoning:     c.cfg.Reasoning,
 		ModeNote:      c.mode.Note(),
+		CompactModel:  c.cfg.CompactModel,
 	}
 	if tr, err := trace.Open(strings.TrimSuffix(c.sess.Path(), ".jsonl") + ".events.jsonl"); err == nil {
 		c.ag.Trace = tr
@@ -1417,6 +1426,17 @@ func (c *chat) note(text string, isErr bool) {
 	c.refresh()
 }
 
+// fallbackNote surfaces a model fallback in the transcript: the run
+// continues on the fallback, and the user should see why.
+func (c *chat) fallbackNote(msg fallbackMsg) {
+	c.retryNotice = ""
+	detail := ""
+	if msg.err != nil {
+		detail = " (" + clip(tools.RedactSecrets(msg.err.Error()), 120) + ")"
+	}
+	c.note("model "+msg.from+" is unavailable"+detail+" — continuing on "+msg.to, true)
+}
+
 func (c *chat) notePre(text string) {
 	c.entries = append(c.entries, &chatEntry{kind: entryNote, text: sanitizeTerminalText(text), pre: true})
 	c.refresh()
@@ -1991,7 +2011,7 @@ func (c *chat) answerPerm(d tools.Decision) {
 
 func (c *chat) updateAsync(msg tea.Msg) tea.Cmd {
 	switch msg.(type) {
-	case textMsg, reasoningMsg, toolStartMsg, toolDoneMsg, usageMsg, compactMsg, compactDoneMsg, noteMsg, runDoneMsg, resetStreamMsg, retryMsg:
+	case textMsg, reasoningMsg, toolStartMsg, toolDoneMsg, usageMsg, compactMsg, compactDoneMsg, noteMsg, runDoneMsg, resetStreamMsg, retryMsg, fallbackMsg:
 		return c.update(msg)
 	case spinner.TickMsg:
 		if c.streaming {
@@ -2027,6 +2047,9 @@ func (c *chat) update(msg tea.Msg) tea.Cmd {
 	case retryMsg:
 		c.retryNotice = "network error — retrying in " + retryDelayLabel(msg.delay)
 		c.refresh()
+		return nil
+	case fallbackMsg:
+		c.fallbackNote(msg)
 		return nil
 	case toolStartMsg:
 		c.retryNotice = ""

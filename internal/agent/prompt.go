@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -56,18 +57,103 @@ Safety guardrails (follow even when not asked):
 - Do not disable, skip, or delete tests, linters, or hooks to make a check pass. Fix the cause.`, cwd, runtime.GOOS)
 }
 
+// maxInstructionBytes caps one instruction source. The compat sources also
+// share one budget, so migrating a repo's Claude Code and Cursor rules in
+// cannot inflate the startup context.
+const maxInstructionBytes = 16 * 1024
+
+// instructionSource is one workspace instruction file, in precedence order.
+// Native files win; the compat entries make Wombat a drop-in for repos
+// that already carry Claude Code or Cursor rules.
+type instructionSource struct {
+	path   string
+	compat bool
+}
+
+var instructionSources = []instructionSource{
+	{path: "WOMBAT.md"},
+	{path: "AGENTS.md"},
+	{path: "CLAUDE.md", compat: true},
+	{path: ".cursorrules", compat: true},
+	{path: ".cursor/rules", compat: true},
+	{path: ".github/copilot-instructions.md", compat: true},
+}
+
 func startupContext(cwd string) string {
 	parts := []string{fmt.Sprintf("Today: %s", time.Now().Format("2006-01-02"))}
-	for _, name := range []string{"AGENTS.md", "WOMBAT.md"} {
-		data, err := os.ReadFile(filepath.Join(cwd, name))
+	compatBudget := 0
+	for _, src := range instructionSources {
+		if src.compat && compatBudget >= maxInstructionBytes {
+			break
+		}
+		content := readInstructionSource(filepath.Join(cwd, src.path))
+		if content == "" {
+			continue
+		}
+		if src.compat && compatBudget+len(content) > maxInstructionBytes {
+			content = content[:maxInstructionBytes-compatBudget] + "…[truncated]"
+		}
+		if src.compat {
+			compatBudget += len(content)
+		}
+		parts = append(parts, fmt.Sprintf("Project instructions (%s):\n%s", src.path, content))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// readInstructionSource loads one instruction file. A directory (Cursor's
+// .cursor/rules, or Claude Code's nested CLAUDE.md) concatenates its
+// markdown files in name order.
+func readInstructionSource(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if info.IsDir() {
+		return readInstructionDir(path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return clipFileBytes(string(data), maxInstructionBytes)
+}
+
+func readInstructionDir(path string) string {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return ""
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := strings.ToLower(e.Name())
+		if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".mdc") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, name := range names {
+		data, err := os.ReadFile(filepath.Join(path, name))
 		if err != nil || len(data) == 0 {
 			continue
 		}
-		content := string(data)
-		if len(content) > 16*1024 {
-			content = content[:16*1024] + "…[truncated]"
+		b.Write(data)
+		b.WriteString("\n\n")
+		if b.Len() >= maxInstructionBytes {
+			break
 		}
-		parts = append(parts, fmt.Sprintf("Project instructions (%s):\n%s", name, content))
 	}
-	return strings.Join(parts, "\n\n")
+	content := strings.TrimSpace(b.String())
+	return clipFileBytes(content, maxInstructionBytes)
+}
+
+func clipFileBytes(content string, max int) string {
+	if len(content) <= max {
+		return content
+	}
+	return content[:max] + "…[truncated]"
 }
