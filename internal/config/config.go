@@ -62,6 +62,7 @@ type Config struct {
 	Capabilities          map[string]string     `json:"capabilities,omitempty"`
 	ResearchMode          string                `json:"research_mode,omitempty"`
 	Reasoning             string                `json:"reasoning,omitempty"`
+	CompactModel          string                `json:"compact_model,omitempty"`
 	ShowThinking          bool                  `json:"show_thinking"`
 	TrimReasoning         bool                  `json:"trim_reasoning,omitempty"`
 	ParallelAgents        bool                  `json:"parallel_agents"`
